@@ -1,0 +1,4 @@
+[package]
+name = "pippin"
+version = "0.1.0"
+authors = ["Diggory Hardy <github1@dhardy.name>"]
