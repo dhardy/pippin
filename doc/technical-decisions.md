@@ -39,15 +39,50 @@ Most identifiers will be ASCII and right-padded to 8 or 16 bytes with space
 File format: 16 bytes: PIPPIN-space-YYYYMMDD-space (e.g. `PIPPIN 20150916 `). It is expected
 that many versions get created but that few survive to the release stage.
 
-Item identifiers: cannot change when contents change so cannot be a checksum.
-For now, a user-defined 64-bit uint.
-
 Commit identifiers: (a) commit checksum like git, (b) version number combined
 with repository "clone" identifier or (c) version number plus checksum?
 Possibly a 32-bit number (max parent number +1, loops), followed by 12 bytes of
 some checksum?
 
 Root pseudo-commit: give it a special identifier, all zeros?
+
+Element identifiers will be 64-bit unsigned numbers unique to the
+file/partition. There may be an API for suggesting identifiers but the library
+will give final approval/disapproval. It may be necessary to change identifiers
+in the case that partitions are joined.
+
+
+Elements
+------------
+
+Elements have a 64-bit unique numeric identifier and a checksum.
+
+TBD: rest of data (user-defined format?).
+
+
+Partitions
+-------------
+
+A *partition* is defined from the API point of view: a subset of elements which
+are loaded and unloaded simultaneously. The partition-file relationship is
+1-many: any particular state of the partition's history is fully encapsulated
+in a single file, but the full history may span multiple files. Any file will
+contain the entire state of some partition at some point in time, and likely
+multiple points in time via changesets and/or multiple snapshots.
+
+*Partitioning* of the repository into partitions is neither user-defined nor
+fixed. User-defined classifiers are used when designing new partitions in a
+user-defined order. A partition will be defined according to some range of
+allowable values from one or more classifiers. If insufficient classifiers are
+present to give desirable granularity of partitions, the library can do no more
+than warn of this.
+
+### Classifiers
+
+User-defined functions map from elements to values. TBD: domain of the functions
+(multiple options, generic, only a fixed number?).
+
+Priority of the classifier functions is user defined.
 
 
 Checksums
@@ -92,3 +127,12 @@ Branching?
 
 Ideally I wouldn't support this. But is it required to be able to make a local
 copy of remote history before merging?
+
+
+Compaction
+---------------
+
+This operation reduces the size of the historical log by reducing essentially
+to a few snapshots in history. Elements not mentioned in these snapshots will
+be forgotten completely. The purpose is to allow user-controlled partial
+deletion of history.

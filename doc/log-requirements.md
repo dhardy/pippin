@@ -86,6 +86,42 @@ subsets useful, in that one could for example quickly list all mails received re
 without worrying about archives from last month/year; however finding old messages
 still contained in the inbox would be slower.
 
+### Reasoning of possibilities
+
+Elements need to have an identifier for fast and precise identification (a) for
+use in memory and (b) for use in commits and snapshots in the save files. In
+files, it would in theory be possible to identify elements by their checksums,
+but this would require using an extra lookup table while reconstructing the
+state from a snapshot and commits. In memory, one could:
+
+1.  Put all elements in a vector and use the index. In theory this should work
+    but it might only take a small bug to cause the wrong element to get
+    selected.
+2.  Use some user-defined classifier based on the element's properties. Doable,
+    but in order to be practical the domain needs to be fixed (e.g. `u64`) and
+    the value guaranteed unique. Guaranteeing uniqueness may require perturbing
+    the element, which might require attaching a random number field or similar
+    and, since elements should not change other than when explicitly modified,
+    this requires that the perturbation be done when adding or modifying an
+    element and that the classification function does not change.
+3.  Attach some "id" property for this purpose.
+
+Option 1 is a little fragile. Option 2 is complex, a little fragile, and might
+slow loading of the file to memory. Option 3 is therefore selected, also
+because it avoids the need for an extra lookup table during loading.
+
+Identifiers could be assigned randomly, sequentually or from some property of
+the element (e.g. from a checksum). I see no particular advantage any of these
+methods has over others save that sequentual allocation might make vec-maps
+usable but requires more work when combining partitions.
+
+Note: the identifier is only required to be unique to the API "partition" and
+the file; further, since not all partitions may be loaded, it may not be
+reasonably possible to ensure global uniqueness. This implies that if
+partitions are ever combined, it may be required to alter identifiers, which
+means either there must be an API for this or identifiers must be assignable
+by the library.
+
 
 Partitioning
 ------------
@@ -114,6 +150,34 @@ can be read and edited quickly even if the entire data-set or history is huge.
 
 Rewriting: it would probably make sense if old entries are never removed from
 the history log but can be "deleted" from some partition by a new log entry.
+
+### Partitions, files and identification
+
+What is a *partition?* Is it (1) the elements and history stored within a
+single file, or (2) the sub-set of elements which are stored in a single file
+but including the full history in previous and possibly more recent files?
+
+From the API perspective, it may sometimes be required to know which segments of
+history are loaded, but for the most part the user will not be interested in
+history thus the API will be simpler if a "partition" in the API refers to a
+sub-set of element and ignores history.
+
+There needs to be some file naming convention and way of referring to
+partitions within the API; each element must be uniquely identified by the
+(partition identifier, element identifier) pair.
+Requirements:
+
+*   There must be a map from elements to partitions which is deterministic and
+    discoverable without loading the partition data or determining which
+    elements exist.
+*   It is required that a file clearly identifies which elements it may contain in
+    either the file name or the header.
+*   It is required that there be a global method of designing new partitions
+    when required.
+*   It is strongly preferred that the library have a set of user-defined
+    classifiers on elements that it may use in a user-defined order to design
+    new partitions, and that these classifiers provide sufficient granularity
+    that partition sizes are never forced to be larger than desired.
 
 
 Encryption
@@ -285,6 +349,49 @@ changes, then list a "moved to ..." log entry in the old partition and a "moved
 from ..." entry including the full state in the new partition (which may be the
 same one). Possibly also list the full state when some application-specific
 property of the data changes is true.
+
+
+Appending new commits
+----------------------
+
+There is an issue with simply appending data to a file: if the operation fails,
+it might corrupt the file. It is therefore worth looking at using multiple
+files.
+
+Each partition will thus have multiple files used to reconstruct the current
+state as well as potential historical files. This might make it worth using a
+sub-directory for each partition.
+
+**Separate log files:** since log files will need to be updated more frequently
+than snapshots and snapshots may be large, it makes sense to store them in
+separate files.
+
+**Snapshots:** a new snapshot may be written whenever log files are deemed
+large enough to start fresh. The snapshot files need not be duplicated; in the
+case that a snapshot file appears corrupt, the program may reconstruct the
+state from a previous snapshot plus log files.
+
+**Log files:** whichever log file(s) are required to reconstruct the current
+state should not be altered. New log entries should either be written in new
+log files or by altering a redundant log file; either way the new file should
+contain all entries from the other log files. Reconstructing the new state
+should read all log files involved then mark redundant files for deletion or
+extension.
+
+A **merge** could be done from multiple log files in the same location or by
+pulling commits from some other source; either way the merge should proceed by
+(1) reconstructing the latest state of each branch, (2) accepting changes which
+do not conflict and somehow resolving those which do, (3) creating a special
+"merge commit" which details which changes were rejected and any new changes,
+and (4) writing all commits involved to the log, marking them with a branch
+identifier so that reconstruction is possible.
+
+Dealing with **corruption:** if a snapshot is found to be corrupt, the program
+should try to reproduce history up to that point, and if successful rewrite the
+snapshot. If a commit is found to be corrupt, the program should try to find
+another copy of that commit, either locally or in a clone of the repository.
+When these strategies fail, things get complicated (user intervention, best
+guesses or dropping data).
 
 
 Contents of items in the data set

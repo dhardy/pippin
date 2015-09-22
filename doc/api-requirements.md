@@ -84,7 +84,7 @@ modifications, merge changes (only automatic ones or start manual merge), etc.
 
 Fix: if checksum errors are found, try to recover (e.g. check whether remote
 copies are also corrupted, try to localise the corruption, possibly ask the
-user, replay a series of patches and compare to a snapshot.
+user, replay a series of patches and compare to a snapshot).
 
 
 Encryption
