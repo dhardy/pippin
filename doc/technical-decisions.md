@@ -84,6 +84,17 @@ User-defined functions map from elements to values. TBD: domain of the functions
 
 Priority of the classifier functions is user defined.
 
+### Identifiers
+
+In memory, partition identifiers will have no particular meaning and may not
+have the same value the next time the repository is loaded. Users may simply
+request to list or search entries under some restriction of classifier values,
+or may enquire about partitions to e.g. only read from the partition of most
+recently dated entries (where date is a classifier).
+
+On disk, partition names may also be arbitrary, but to aid users names may be
+suggested by the program using the library.
+
 
 Checksums
 ----------------------

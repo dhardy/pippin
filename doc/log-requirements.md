@@ -1,67 +1,7 @@
 Log requirements
 ==========
 
-Premise: some log format is needed to store change history and possibly element contents
-(something between options 3 and 4 listed in the *Requirements* document).
-
-
-Basic requirements
----------------
-
-The log and element contents need to be representable as one or more files on disk.
-To avoid needing many seeks and reads, the number of files should not be excessive
-(thousands of small files); at the same time it must be possible to partition contents
-into multiple files as outlined below.
-
-It must be possible to clone the log and contents both locally and remotely. When doing
-so, it must be possible to choose between cloning all available history and cloning only
-from some more recent cut-off point.
-
-It must be possible to synchronise a set and its clone, or two clones of the same original
-set, provided that both maintain history back to some common ancestor. Changes which
-were identical in both sets and changes which happened only in one set and do not clash
-with another change to the same element must be merged automatically; it must be
-possible to merge changes which clash manually or via some sufficiently smart logic.
-
-It must be possible to compress data both on the disk and when transmitted.
-
-It must be possible to tell by reading only a short header whether a log file
-would contain data associated with a certain element key were that element to
-exist during the time-frame covered by the log, and the start of the time-frame
-covered by the log.
-
-It should be possible to make changes to a log file only by appending data, possibly
-with edits near its end. It may or may not be a good idea to edit the start of a log
-file, e.g. to record the date of the last log entry or to include an index.
-
-If one log file is lost, data-loss should be localised; in particular (1) elements not
-covered by this file should not be affected; (2) if this file is not the latest for this
-subset of elements then the state of the elements from the time at which the next
-log-file starts should not be lost and synchronisation from this time point should
-not be impaired; and (3) if a log-file covering the history of these elements prior
-to this file still exists, then the state of the elements during this time frame should
-be preserved.
-
-Files should maintain internal checksums.
-
-Where a large number of elements are changed at the same time within a subset,
-it should be possible to represent the change via a single entry in the history log.
-
-It may be useful for each entry in the log to mention the previous log entry which
-mentions each of the affected elements to facilitate history building/searching.
-
-Should the design assume the entire latest state will always be loaded into
-memory? Fast access to all mails will require this, but it may make more sense
-on some devices to load only some mails (such as those in the inbox) into
-memory and do full searches from disk or while temporarily loading all mails.
-It should in any case be possible to load the latest state of some partition
-quickly.
-
-It should be possible to handle data-sets of at least hundreds of thousands of
-nodes, if not millions, and to quickly read the entire current state of some
-partition of the data regardless of how big the full data set is. These
-partitions should be customisable, e.g. folders automatically set up by
-time-frame, by subject or by sender.
+Premise: see "requirements.md" file.
 
 
 Element identifiers
@@ -386,12 +326,40 @@ do not conflict and somehow resolving those which do, (3) creating a special
 and (4) writing all commits involved to the log, marking them with a branch
 identifier so that reconstruction is possible.
 
+What if a clone makes some more modifications before accepting the merge?
+
 Dealing with **corruption:** if a snapshot is found to be corrupt, the program
 should try to reproduce history up to that point, and if successful rewrite the
 snapshot. If a commit is found to be corrupt, the program should try to find
 another copy of that commit, either locally or in a clone of the repository.
 When these strategies fail, things get complicated (user intervention, best
 guesses or dropping data).
+
+
+Commit contents
+----------------------
+
+What does a commit need to contain?
+
+*   a pattern to indicate that this is the start of a commit
+*   identification of parent commit (or commits in the case of a merge)
+*   some time stamp
+*   some mention of length and/or how many items are changed
+*   a state checksum to verify the reconstructed state of the repository
+*   some identifier
+*   a checksum of the commit itself (must logically come last)
+
+And, for each item mentioned in the commit:
+
+*   an item identifier
+*   a full copy of its new state OR
+*   a patch OR
+*   a mention of its deletion OR
+*   a mention of it being moved to another partition, including where
+*   finally, a checksum of the latest state (excepting deletion or moving)
+
+In the fashion of git and several other DVCSs, the checksum of the commit might
+as well also serve as the commit identifier.
 
 
 Contents of items in the data set
