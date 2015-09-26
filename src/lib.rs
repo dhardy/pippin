@@ -3,6 +3,10 @@
 use std::io;
 use std::collections::HashMap;
 
+mod detail;
+
+
+/*TODO: partitions/generic resources
 // Method of providing partition data
 pub trait DataResource {
     // This function should return some kind of data stream given a name. The
@@ -17,23 +21,36 @@ pub trait DataResource {
     // not exist or its current length is not that given, the operation should
     // fail.
     fn append(&mut self, name: &str, len: u64) -> io::Result<io::Write>;
-}
+}*/
 
 // Handle on a repository
 pub struct Repo {
-    dummy: i32
+//     name: Box<str>,
+    // NOTE: with sequential keys VecMap could be an alternative to HashMap
+    elements: HashMap<u64, Element>
 }
 
 // Non-member functions on Repo
 impl Repo {
     // Load a repo from disk
+    /*TODO
     pub fn load(res: &mut DataResource) -> Repo {
         Repo{dummy:0}
+    }*/
+    
+    // Load from a snapshot
+    //TODO: remove from API
+    pub fn load(stream: &mut io::Read) -> io::Result<Repo> {
+        let head = try!(detail::read_head(stream));
+        let repo = Repo::new();
+//         repo.name = head.name;
+        //TODO: load elements
+        Ok(repo)
     }
     
     // Create a new repo
     pub fn new() -> Repo {
-        Repo{dummy:0}
+        Repo{elements: HashMap::new()}
     }
 }
 
@@ -59,8 +76,15 @@ impl Repo {
     
     // Commit all changes to disk
     pub fn commit_all(&mut self) {}
+    
+    //TODO: when partitions are introduced, item_id will be specific to the partition
+    // Get an item as a byte vector. Panics on invalid item_id.
+    pub fn get_item(&self, item_id: u64) -> &Element {
+        self.elements.get(&item_id).unwrap()
+    }
 }
 
+/* TODO: add partitioning
 // A *partition* is a sub-set of the entire set such that (a) each element is
 // in exactly one partition, (b) a partition is small enough to be loaded into
 // memory in its entirety, (c) there is some user control over the number of
@@ -97,8 +121,10 @@ impl Partition {
     // Search for some item
     // TODO
 }
+*/
 
 // Holds an element's data in memory
 // TODO: replace with a trait and user-defined implementation?
-struct Element;
-
+pub struct Element {
+    data: Vec<u8>       // TODO: for now we just hold bytes
+}
