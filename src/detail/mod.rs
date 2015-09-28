@@ -13,7 +13,7 @@ pub struct FileHeader {
 }
 
 mod read {
-    use std::{io, mem, iter};
+    use std::{io, mem, iter, cmp};
     use ::detail::{FileHeader, sum};
     use ::error::{Result, Error};
     
@@ -33,7 +33,7 @@ mod read {
         pos += buf.len();
         
         try!(fill(&mut sum_reader, &mut buf, pos));
-        let repo_name = match String::from_utf8(buf.to_vec()) {
+        let repo_name = match String::from_utf8(rtrim(&buf, 0).to_vec()) {
             Ok(name) => name,
             Err(_) => return Err(Error::read("repo name not valid UTF-8", pos))
         };
@@ -96,19 +96,35 @@ mod read {
         
     }
     
+    // "trim" applied to generic arrays: while the last char is v, remove it
+    fn rtrim<T: cmp::PartialEq>(s: &[T], v: T) -> &[T] {
+        let mut p = s.len();
+        while p > 0 && s[p - 1] == v { p -= 1; }
+        &s[0..p]
+    }
+    
+    #[test]
+    fn test_rtrim() {
+        assert_eq!(rtrim(&[0, 15, 8], 15), &[0, 15, 8]);
+        assert_eq!(rtrim(&[0, 15, 8, 8], 8), &[0, 15]);
+        assert_eq!(rtrim(&[2.5], 2.5), &[]);
+        assert_eq!(rtrim(&[], 'a'), &[]);
+    }
+    
     #[test]
     fn read_header() {
         // Note: checksum calculated with Python 3:
         // import hashlib
         // hashlib.sha256(b"PIPPINSS20150924...").digest()
         let head = b"PIPPINSS20150924\
-                    test repo.......\
+                    test AbC \xce\xb1\xce\xb2\xce\xb3\x00\
                     Hdummy text 1234\
                     Q2more completel\
                     y pointless text\
                     HSUM SHA-2 256  \
-                    \xc1n}\xe6\x92\x98\xe5\x8b#\xf3\xb8\xe3b\xa5\xc8\xf9\
-                    \xdb6\x17\xe1\xc9\xe6\xf1\xd6\x08\xff\xcccR\xcd\xd6\x93";
+                    PR]\xb4\xecgf9\x0b\xd68\xaa\xd1\xcd{\xb6\
+                    X\xc60\xd9f\xc1\x18\x84\x7f\xaeA\x00\x9b\x0c\xb8L";
         let header = read_head(&mut &head[..]).unwrap();
+        assert_eq!(header.name, "test AbC αβγ");
     }
 }
