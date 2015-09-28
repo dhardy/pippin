@@ -21,9 +21,9 @@ impl<H: Digest, R: Read> HashReader<H, R> {
     /// Get the size of the output hash in bytes
     pub fn hash_bytes(&self) -> usize { self.hasher.output_bytes() }
     /// Format the generated hash to a buffer of size at least hash_bytes()
-    pub fn result(&mut self, buf: &mut [u8]) { self.hasher.result(buf); }
+    pub fn hash_result(&mut self, buf: &mut [u8]) { self.hasher.result(buf); }
     /// Format the generated hash to a new String
-    pub fn hash_str(&mut self) -> String { self.hasher.result_str() }
+    pub fn hash_result_str(&mut self) -> String { self.hasher.result_str() }
     /// Get the hasher's Digest interface
     pub fn digest(&mut self) -> &mut H { &mut self.hasher }
     

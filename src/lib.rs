@@ -27,7 +27,7 @@ pub trait DataResource {
 
 // Handle on a repository
 pub struct Repo {
-//     name: Box<str>,
+    name: String,
     // NOTE: with sequential keys VecMap could be an alternative to HashMap
     elements: HashMap<u64, Element>
 }
@@ -44,15 +44,19 @@ impl Repo {
     //TODO: remove from API
     pub fn load(stream: &mut io::Read) -> io::Result<Repo> {
         let head = try!(detail::read_head(stream));
-        let repo = Repo::new();
-//         repo.name = head.name;
-        //TODO: load elements
-        Ok(repo)
+        
+        Ok(Repo {
+            name: head.name,
+            elements: HashMap::new() /*TODO*/
+        })
     }
     
-    // Create a new repo
-    pub fn new() -> Repo {
-        Repo{elements: HashMap::new()}
+    // Create a new repo with the given name
+    pub fn new(name: String) -> Repo {
+        Repo{
+            name: name,
+            elements: HashMap::new()
+        }
     }
 }
 

@@ -8,7 +8,8 @@ pub use self::read::read_head;
 
 // Information stored in a file header
 pub struct FileHeader {
-    name: [u8; 16]
+    /// Repo name
+    pub name: String,
 }
 
 mod read {
@@ -18,18 +19,24 @@ mod read {
     use ::detail::FileHeader;
     use ::detail::sum;
     
+    /// Read a file header.
+    /// 
+    /// Note that if the repo name is not valid UTF-8, conversion is lossy.
     pub fn read_head(r: &mut Read) -> Result<FileHeader> {
         // A reader which also calculates a checksum:
         let mut sum_reader = sum::HashReader::new256(r);
         
-        let mut buf = [0; 16];
+        let mut buf = [0u8; 16];
         try!(fill(&mut sum_reader, &mut buf));
         if buf != *b"PIPPINSS20150924" {
             return Err(invalid_input("not a known Pippin file format"));
         }
         
-        let mut repo_name = [0; 16];
-        try!(fill(&mut sum_reader, &mut repo_name));
+        try!(fill(&mut sum_reader, &mut buf));
+        let repo_name = match String::from_utf8(buf.to_vec()) {
+            Ok(name) => name,
+            Err(_) => return Err(invalid_input("repo name not valid UTF-8"))
+        };
         
         loop {
             try!(fill(&mut sum_reader, &mut buf));
@@ -58,7 +65,15 @@ mod read {
             }
         }
         
-        // TODO: read checksum and compare to above
+        // Read checksum (assume SHA-256)
+        let mut buf32 = [0u8; 32];
+        try!(fill(&mut sum_reader.inner(), &mut buf));
+        assert_eq!( sum_reader.hash_bytes(), 32 );
+        let mut sum32 = [0u8; 32];
+        sum_reader.hash_result(&mut sum32);
+        if buf32 != sum32 {
+            return Err(invalid_input("header checksum invalid"));
+        }
         
         return Ok(FileHeader{
             name: repo_name
