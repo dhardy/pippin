@@ -5,8 +5,5 @@ authors = ["Diggory Hardy <github1@dhardy.name>"]
 
 [dependencies]
 
-# for SHA2 etc.
-# alternatives: sha (is SHA2 finished?), rust-crypto
-# shaman = "0.1.0"
-
-# rust-crypto = "*"
+rust-crypto = "*"
+# possible alternatives: sha, shaman

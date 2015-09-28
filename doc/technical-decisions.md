@@ -99,8 +99,22 @@ suggested by the program using the library.
 Checksums
 ----------------------
 
-Algorithm: SHA 256 or SHA-3 256? This could be selectable when creating an
-empty repository and possibly when creating a new partition.
+Algorithm 1 (file corruption detection, commit identifiers): must be fixed
+unless file headers are re-read *after* checking the algorithm. Desirable that
+it is not easy to fake a commit with a clashing identifier to another. Is SHA-1
+suitable?
+
+Algorithm 2 (state checksums, verify correct reconstructions): does not need
+to be fixed. Possibly strength is less important?
+
+Algorithms: MD5 (and MD4) are sufficient for checksums. SHA-1 offered
+security against collision attacks, but is now considered weak. SHA-2 and SHA-3
+are more secure; SHA-2 is a little slower and SHA-3 possibly not yet
+standardised. SHA-256 is much faster on 32-bit hardware but slower than SHA-512
+on 64-bit hardware.
+
+Following [this advice](http://stackoverflow.com/a/5003438/314345) I will use
+SHA-256 for now.
 
 Git and many other DVCSs use SHA-1 and store the full 160-bit output. Where
 security is not important, I don't see any issue with using this or even MD5;

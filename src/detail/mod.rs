@@ -20,7 +20,7 @@ mod read {
     
     pub fn read_head(r: &mut Read) -> Result<FileHeader> {
         // A reader which also calculates a checksum:
-        let mut sum_reader = sum::SumReader::new(r);
+        let mut sum_reader = sum::HashReader::new256(r);
         
         let mut buf = [0; 16];
         try!(fill(&mut sum_reader, &mut buf));
