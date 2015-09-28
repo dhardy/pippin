@@ -5,6 +5,9 @@ extern crate crypto;
 use std::io;
 use std::collections::HashMap;
 
+pub use error::{Error, Result};
+
+pub mod error;
 mod detail;
 
 
@@ -42,7 +45,7 @@ impl Repo {
     
     // Load from a snapshot
     //TODO: remove from API
-    pub fn load(stream: &mut io::Read) -> io::Result<Repo> {
+    pub fn load(stream: &mut io::Read) -> Result<Repo> {
         let head = try!(detail::read_head(stream));
         
         Ok(Repo {
