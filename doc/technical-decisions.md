@@ -39,17 +39,24 @@ Most identifiers will be ASCII and right-padded to 8 or 16 bytes with space
 File format: 16 bytes: PIPPIN-space-YYYYMMDD-space (e.g. `PIPPIN 20150916 `). It is expected
 that many versions get created but that few survive to the release stage.
 
-Commit identifiers: (a) commit checksum like git, (b) version number combined
-with repository "clone" identifier or (c) version number plus checksum?
-Possibly a 32-bit number (max parent number +1, loops), followed by 12 bytes of
-some checksum?
+Commit identifiers: use the commit checksum as an identifier like git etc.,
+*but* this is only to identify the commit (as a patch between two states of the
+repository). Use state checksums to identify repository states.
 
-Root pseudo-commit: give it a special identifier, all zeros?
+Rationale: commit identification is important for merges. When however it comes
+to deleting old history, commits will either be forgotten entirely or merged
+into larger commits with new checksums. State checksums, however, will remain
+the same (for those states which survive).
+
+Initial state: give it a special identifier, all zeros (i.e. the result of XOR
+combining zero element checksums).
 
 Element identifiers will be 64-bit unsigned numbers unique to the
 file/partition. There may be an API for suggesting identifiers but the library
 will give final approval/disapproval. It may be necessary to change identifiers
-in the case that partitions are joined.
+in the case that partitions are joined. Rationale: uniqueness to the partition
+is important, uniqueness beyond that is hard to determine when partitioning
+means that not all elements are loaded.
 
 
 Elements
