@@ -21,12 +21,12 @@ NOTE: the `Bbbb` variant is not currently implemented and may be excluded.
 Header
 ----------
 
-*   `PIPPINSS20150924` (PIPPIN SnapShot, date of last format change)
+*   `PIPPINSS20150929` (PIPPIN SnapShot, date of last format change)
 *   16 bytes UTF-8 for name of repository; this string is identical for each
     partition and right-padded with zero (0x00) to make 16 bytes
 *   header content
-*   checksum format starting `HSUM` (e.g. `HSUM SHA-2 256  `)
-*   checksum of header contents
+*   checksum format starting `HSUM` (e.g. `HSUM SHA-2 256`)
+*   checksum of header contents (as a sequence of bytes)
 
 Where it says "header content" above, the following is allowed:
 
@@ -36,23 +36,47 @@ Where it says "header content" above, the following is allowed:
     A-Z); 'Q' for 'quad word'.
 *   A variable-length section starting `Bbbb` where 'bbb' is a big-endian
     24-bit number and signifies the number of bytes in the section (including
-    the `Bbbb` part). The length must be a multiple of 4 and is preferred to
-    be a multiple of 16.
+    the `Bbbb` part). The length must be a multiple of 16.
+
+NOTE: the `Bbbb` variant is not currently included.
 
 These allow extensible header content. Extensions should use the first of these
 variants which is suited to their application in order to keep the header as
 readable as reasonably possible in a hex-editor. Typically the first few bytes
 following the `H`, `Qx` or `Bbbb` will identify the purpose of the block as in
-`HSUM` for the checksum format specification. If the program reading the header
-does not recognise the block it may be ignored.
+`HSUM` for the checksum format specification.
+
+The next section deals with recognising what these blocks contain, starting
+from the byte following `H`, `Qx` or `Bbbb`. Typically blocks are right-padded
+with zero bytes when the content is shorter than the block length.
 
 ### Header blocks
 
-A line starting `HSUM` is used to specify the checksum format used throughout
-the file. This section is special in that it must be the last section of the
-header; i.e. the next n bytes (32 in the case of SHA-256) are the checksum and
-terminate the header. TBD: binary format of checksum (big- or little-endian
-bytes?).
+Remark blocks start `R` and should be UTF-8 text right-padded with zeros.
+
+User fields of the header start `U` and are passed through to the program
+using the library as byte sequences (`Vec<u8>` in Rust terminology).
+
+File extensions start with any other capital letter (`A-Z`); ones starting `O`
+are considered optional (i.e. interpreters not understanding them should still
+be able to read the file) while others are considered important (interpreters
+not understanding them are likely to fail).
+
+Blocks starting with anything other than a capital letter are ignored if not
+recognised.
+
+#### Checksum format
+
+Block starts `SUM`.
+It is used to specify the checksum algorithm used for state checksums.
+(Note that the checksum used for verifying the file's header contents, snapshot
+and commit contents as written in the file is fixed to SHA-256.) This section
+is special in that it must be the last section of the header; i.e. the next n
+bytes (32 in the case of SHA-256) are the checksum and terminate the header.
+
+Currently only `SUM SHA-2 256` is supported.
+
+#### Other
 
 TBD: information on partition, parent, etc.
 
@@ -63,9 +87,21 @@ Snapshot
 Section identifier: `SNAPSHOT` followed by the date of creation as YYYYMMDD.
 (TBD: replace date with something else? It's not essential.)
 
-Commit identifier (TBD)
+In some order:
 
-All data from partition (TBD)
+*   state checksum (doubles as an identifier)
+*   per-element data
+*   number of elements
+*   time stamp
+*   state/commit number?
+*   checksum of data as written in file
+
+Per-element data:
+
+*   identifier (u64)
+*   checksum ?
+*   data (byte stream)
+*   version number?
 
 
 Log files

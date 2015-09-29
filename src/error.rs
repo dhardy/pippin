@@ -1,6 +1,6 @@
 //! Internal error structs used by Pippin
 
-use std::{io, error, fmt, result};
+use std::{io, error, fmt, result, string};
 
 /// Our custom result type
 pub type Result<T> = result::Result<T, Error>;
@@ -8,7 +8,8 @@ pub type Result<T> = result::Result<T, Error>;
 /// Our custom compound error type
 pub enum Error {
     Read(ReadError),
-    Io(io::Error)
+    Io(io::Error),
+    Utf8(string::FromUtf8Error)
 }
 
 /// For read errors; adds a read position
@@ -26,25 +27,28 @@ impl Error {
 // Important impls for compound type
 impl error::Error for Error {
     fn description(&self) -> &str {
-        match(*self) {
+        match *self {
             Error::Read(ref e) => e.msg,
-            Error::Io(ref e) => e.description()
+            Error::Io(ref e) => e.description(),
+            Error::Utf8(ref e) => e.description(),
         }
     }
 }
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> result::Result<(), fmt::Error> {
-        match(*self) {
-            Error::Read(ref e) => { write!(f, "Position {}: {}", e.pos, e.msg); Ok(()) },
-            Error::Io(ref e) => e.fmt(f)
+        match *self {
+            Error::Read(ref e) => write!(f, "Position {}: {}", e.pos, e.msg),
+            Error::Io(ref e) => e.fmt(f),
+            Error::Utf8(ref e) => e.fmt(f),
         }
     }
 }
 impl fmt::Debug for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> result::Result<(), fmt::Error> {
-        match(*self) {
-            Error::Read(ref e) => { write!(f, "Position {}: {}", e.pos, e.msg); Ok(()) },
-            Error::Io(ref e) => e.fmt(f)
+        match *self {
+            Error::Read(ref e) => write!(f, "Position {}: {}", e.pos, e.msg),
+            Error::Io(ref e) => e.fmt(f),
+            Error::Utf8(ref e) => e.fmt(f),
         }
     }
 }
@@ -55,4 +59,7 @@ impl From<ReadError> for Error {
 }
 impl From<io::Error> for Error {
     fn from(e: io::Error) -> Error { Error::Io(e) }
+}
+impl From<string::FromUtf8Error> for Error {
+    fn from(e: string::FromUtf8Error) -> Error { Error::Utf8(e) }
 }

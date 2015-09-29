@@ -10,6 +10,8 @@ pub use self::read::read_head;
 pub struct FileHeader {
     /// Repo name
     pub name: String,
+    pub remarks: Vec<String>,
+    pub user_fields: Vec<Vec<u8>>
 }
 
 mod read {
@@ -24,48 +26,71 @@ mod read {
         // A reader which also calculates a checksum:
         let mut sum_reader = sum::HashReader::new256(r);
         
-        let mut buf = [0u8; 16];
         let mut pos: usize = 0;
-        try!(fill(&mut sum_reader, &mut buf, pos));
-        if buf != *b"PIPPINSS20150924" {
+        let mut buf = Vec::new();
+        buf.extend(iter::repeat(0).take(16));   // resize to 16 bytes
+        
+        try!(fill(&mut sum_reader, &mut buf[0..16], pos));
+        if buf != *b"PIPPINSS20150929" {
             return Err(Error::read("not a known Pippin file format", pos));
         }
-        pos += buf.len();
+        pos += 16;
         
-        try!(fill(&mut sum_reader, &mut buf, pos));
+        try!(fill(&mut sum_reader, &mut buf[0..16], pos));
         let repo_name = match String::from_utf8(rtrim(&buf, 0).to_vec()) {
             Ok(name) => name,
             Err(_) => return Err(Error::read("repo name not valid UTF-8", pos))
         };
-        pos += buf.len();
+        pos += 16;
+        
+        let mut remarks = Vec::new();
+        let mut user_fields = Vec::new();
         
         loop {
-            try!(fill(&mut sum_reader, &mut buf, pos));
-            if buf[0] == b'H'{
-                if buf[0..4] == *b"HSUM" {
-                    match &buf[4..] {
-                        b" SHA-2 256  " => { /* we don't support anything else */ },
-                        _ => return Err(Error::read("unknown checksum format", pos))
-                    };
-                    break;      // "HSUM" must be last item of header before final checksum
-                }
-                // else: ignore
+            try!(fill(&mut sum_reader, &mut buf[0..16], pos));
+            let block = if buf[0] == b'H' {
+                pos += 1;
+                &buf[1..16]
             } else if buf[0] == b'Q' {
                 let x: usize = match buf[1] {
                     b'1' ... b'9' => buf[1] - b'0',
                     b'A' ... b'Z' => buf[1] + 10 - b'A',
                     _ => return Err(Error::read("header section Qx... has invalid length specification 'x'", pos))
                 } as usize;
-                let mut qbuf: Vec<u8> = Vec::new();
-                qbuf.reserve_exact(16 * x);
-                qbuf.extend(&buf);
-                qbuf.extend(iter::repeat(0).take(16 * (x-1)));
-                try!(fill(&mut sum_reader, &mut qbuf[16..], pos));
-                //TODO: match against rules
+                let len = x * 16;
+                if buf.len() < len {
+                    let by = len - buf.len();
+                    buf.extend(iter::repeat(0).take(by));
+                }
+                try!(fill(&mut sum_reader, &mut buf[16..len], pos));
+                pos += 2;
+                &buf[2..len]
             } else {
                 return Err(Error::read("unexpected header contents", pos));
+            };
+            
+            if block[0..3] == *b"SUM" {
+                match &block[3..] {
+                    b" SHA-2 256\x00\x00" => { /* we don't support anything else */ },
+                    _ => return Err(Error::read("unknown checksum format", pos))
+                };
+                break;      // "HSUM" must be last item of header before final checksum
+            } else if block[0] == b'R' {
+                remarks.push(try!(String::from_utf8(rtrim(&block, 0).to_vec())));
+            } else if block[0] == b'U' {
+                user_fields.push(block.to_vec());
+            } else if block[0] == b'O' {
+                // Match optional extensions here; we currently have none
+            } else if block[0] >= b'A' && block[0] <= b'Z' {
+                // Match important extensions here; we currently have none
+                // No match:
+                //TODO: proper output of warnings
+                println!("Warning: unrecognised file extension:");
+                println!("{:?}", block);
+            } else {
+                // Match any other block rules here.
             }
-            pos += buf.len();
+            pos += block.len();
         }
         
         // Read checksum (assume SHA-256)
@@ -77,10 +102,11 @@ mod read {
         if buf32 != sum32 {
             return Err(Error::read("header checksum invalid", pos));
         }
-        pos += buf.len();
         
         return Ok(FileHeader{
-            name: repo_name
+            name: repo_name,
+            remarks: remarks,
+            user_fields: user_fields
         });
         
         fn fill<R: io::Read>(r: &mut R, mut buf: &mut [u8], pos: usize) -> Result<()> {
@@ -93,7 +119,6 @@ mod read {
             }
             Ok(())
         }
-        
     }
     
     // "trim" applied to generic arrays: while the last char is v, remove it
@@ -116,15 +141,20 @@ mod read {
         // Note: checksum calculated with Python 3:
         // import hashlib
         // hashlib.sha256(b"PIPPINSS20150924...").digest()
-        let head = b"PIPPINSS20150924\
+        let head = b"PIPPINSS20150929\
                     test AbC \xce\xb1\xce\xb2\xce\xb3\x00\
-                    Hdummy text 1234\
-                    Q2more completel\
+                    HRemark 12345678\
+                    HOoptional rule\x00\
+                    HUuser rule\x00\x00\x00\x00\x00\
+                    Q2REM  completel\
                     y pointless text\
-                    HSUM SHA-2 256  \
-                    PR]\xb4\xecgf9\x0b\xd68\xaa\xd1\xcd{\xb6\
-                    X\xc60\xd9f\xc1\x18\x84\x7f\xaeA\x00\x9b\x0c\xb8L";
+                    H123456789ABCDEF\
+                    HSUM SHA-2 256\x00\x00\
+                    \x16\x0c\xafcWm\xe3i\xb8\xf6T\x92\x05\xb7\xd98\
+                    \x92\x86\xb8\xb6\x15>\x00\x86\"\xfd\xff\x97\xfcAp\xa1";
         let header = read_head(&mut &head[..]).unwrap();
         assert_eq!(header.name, "test AbC αβγ");
+        assert_eq!(header.remarks, vec!["Remark 12345678", "REM  completely pointless text"]);
+        assert_eq!(header.user_fields, vec![b"Uuser rule\x00\x00\x00\x00\x00"]);
     }
 }
