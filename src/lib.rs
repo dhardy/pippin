@@ -1,6 +1,7 @@
 //! Pippin (sync-sets) library
 
 extern crate crypto;
+extern crate chrono;
 
 use std::io;
 use std::collections::HashMap;

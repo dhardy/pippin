@@ -4,6 +4,7 @@
 
 mod sum;
 mod header;
+mod snapshot;
 
 pub use ::detail::header::{read_head, write_head};
 

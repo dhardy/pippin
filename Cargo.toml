@@ -7,3 +7,5 @@ authors = ["Diggory Hardy <github1@dhardy.name>"]
 
 rust-crypto = "*"
 # possible alternatives: sha, shaman
+
+chrono = "*"
