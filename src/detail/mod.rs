@@ -132,7 +132,7 @@ fn test_rtrim() {
 }
 
 /// Write a file header.
-fn write_head(header: &FileHeader, w: &mut io::Write) -> Result<()> {
+pub fn write_head(header: &FileHeader, w: &mut io::Write) -> Result<()> {
     use std::io::Write;
     
     // A writer which calculates the checksum of what was written:

@@ -37,11 +37,14 @@ pub struct Repo {
 
 // Non-member functions on Repo
 impl Repo {
-    // Load a repo from disk
-    /*TODO
-    pub fn load(res: &mut DataResource) -> Repo {
-        Repo{dummy:0}
-    }*/
+    
+    // Create a new repo with the given name
+    pub fn new(name: String) -> Repo {
+        Repo{
+            name: name,
+            elements: HashMap::new()
+        }
+    }
     
     // Load from a snapshot
     //TODO: remove from API
@@ -54,12 +57,15 @@ impl Repo {
         })
     }
     
-    // Create a new repo with the given name
-    pub fn new(name: String) -> Repo {
-        Repo{
-            name: name,
-            elements: HashMap::new()
-        }
+    // TODO API
+    pub fn save(&self, stream: &mut io::Write) -> Result<()> {
+        let head = detail::FileHeader {
+            name: self.name.clone(),
+            remarks: vec![],
+            user_fields: vec![]
+        };
+        
+        detail::write_head(&head, stream)
     }
 }
 

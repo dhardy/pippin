@@ -17,6 +17,7 @@ impl<R: Read> HashReader<Sha256, R> {
     }
 }
 
+#[allow(dead_code)]
 impl<H: Digest, R: Read> HashReader<H, R> {
     /// Get the hasher's Digest interface
     pub fn digest(&mut self) -> &mut Digest { &mut self.hasher }
@@ -48,6 +49,7 @@ impl<W: Write> HashWriter<Sha256, W> {
     }
 }
 
+#[allow(dead_code)]
 impl<H: Digest, W: Write> HashWriter<H, W> {
     /// Get the hasher's Digest interface
     pub fn digest(&mut self) -> &mut Digest { &mut self.hasher }
