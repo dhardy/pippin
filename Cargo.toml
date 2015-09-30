@@ -9,3 +9,6 @@ rust-crypto = "*"
 # possible alternatives: sha, shaman
 
 chrono = "*"
+
+# Not yet stable, and not essential:
+# simd = "*"
