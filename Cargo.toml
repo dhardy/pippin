@@ -12,3 +12,5 @@ chrono = "*"
 
 # Not yet stable, and not essential:
 # simd = "*"
+
+byteorder ="*"

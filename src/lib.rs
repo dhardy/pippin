@@ -2,6 +2,7 @@
 
 extern crate crypto;
 extern crate chrono;
+extern crate byteorder;
 
 use std::io;
 use std::collections::HashMap;
@@ -142,5 +143,5 @@ impl Partition {
 // Holds an element's data in memory
 // TODO: replace with a trait and user-defined implementation?
 pub struct Element {
-    data: Vec<u8>       // TODO: for now we just hold bytes
+    data: Vec<u8>
 }

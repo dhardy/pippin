@@ -157,6 +157,8 @@ pub fn write_head(header: &FileHeader, w: &mut io::Write) -> Result<()> {
     }
     
     try!(sum_writer.write(b"HSUM SHA-2 256\x00\x00"));
+    
+    // Write the checksum of everything above:
     assert_eq!( sum_writer.digest().output_bytes(), 32 );
     let mut sum32 = [0u8; 32];
     sum_writer.digest().result(&mut sum32);

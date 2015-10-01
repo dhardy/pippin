@@ -1,6 +1,7 @@
 //! Internal error structs used by Pippin
 
 use std::{io, error, fmt, result, string};
+use byteorder;
 
 /// Our custom result type
 pub type Result<T> = result::Result<T, Error>;
@@ -10,7 +11,7 @@ pub enum Error {
     Read(ReadError),
     Arg(ArgError),
     Io(io::Error),
-    Utf8(string::FromUtf8Error)
+    Utf8(string::FromUtf8Error),
 }
 
 /// For read errors; adds a read position
@@ -77,4 +78,14 @@ impl From<io::Error> for Error {
 }
 impl From<string::FromUtf8Error> for Error {
     fn from(e: string::FromUtf8Error) -> Error { Error::Utf8(e) }
+}
+impl From<byteorder::Error> for Error {
+    fn from(e: byteorder::Error) -> Error {
+        match e {
+        //TODO (Rust 1.4): use io::ErrorKind::UnexpectedEOF instead of Other
+            byteorder::Error::UnexpectedEOF =>
+                Error::Io(io::Error::new(io::ErrorKind::Other, "unexpected EOF")),
+            byteorder::Error::Io(err) => Error::Io(err)
+        }
+    }
 }

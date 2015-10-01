@@ -6,7 +6,11 @@ the current version but are planned (informally) for later versions.
 
 Chunks are aligned on 16-byte boundaries.
 
-Text must be ASCII or UTF-8. User-defined data is binary.
+Types: u8 refers to an unsigned eight-bit number (also a byte), u64 a 64-bit
+number, i8 a signed byte etc. (these are Rust types). These are written in
+binary big-endian format. (There is no strong reason for chosing big-endian.)
+
+Text must be ASCII or UTF-8. User-defined data is binary (u8 sequence).
 
 Checksums are in whichever format is mentioned in the header. All options start
 `SUM` to be self-documenting. Currently available options: `SUM SHA-2 256 `.
@@ -84,24 +88,27 @@ TBD: information on partition, parent, etc.
 Snapshot
 ------------
 
-Section identifier: `SNAPSHOT` followed by the date of creation as YYYYMMDD.
-(TBD: replace date with something else? It's not essential.)
+Data is written as follows:
 
-In some order:
-
-*   state checksum (doubles as an identifier)
-*   per-element data
-*   number of elements
-*   time stamp
-*   state/commit number?
-*   checksum of data as written in file
+*   `SNAPSHOT` (section identifier)
+*   (??) the date of creation of the snapshot as YYYYMMDD
+*   TBD: state/commit identifier and time stamp
+*   `ELEMENTS` (section identifier)
+*   number of elements as a u64 (binary, TBD endianness)
 
 Per-element data:
 
-*   identifier (u64)
-*   checksum ?
+*   `ELEMENT` to mark section (pad to 8 bytes with zero)
+*   element identifier (u64)
 *   data (byte stream)
-*   version number?
+*   checksum (TBD: could remove)
+
+Finally:
+
+*   `STATESUM` (section identifier)
+*   number of elements as u64 (again, mostly for alignment)
+*   state checksum (doubles as an identifier)
+*   checksum of data as written in file
 
 
 Log files
