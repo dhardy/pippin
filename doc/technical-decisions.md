@@ -168,3 +168,9 @@ This operation reduces the size of the historical log by reducing essentially
 to a few snapshots in history. Elements not mentioned in these snapshots will
 be forgotten completely. The purpose is to allow user-controlled partial
 deletion of history.
+
+
+File extension
+-----------------
+
+`.pip`. Short, peppy, self-contained. Or `.pi`? Shorter, possibly less used.

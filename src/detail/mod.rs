@@ -10,6 +10,7 @@ use std::{io, mem};
 use error::{Error, Result};
 
 pub use ::detail::header::{read_head, write_head};
+pub use ::detail::snapshot::{read_snapshot, write_snapshot};
 
 // Information stored in a file header
 pub struct FileHeader {

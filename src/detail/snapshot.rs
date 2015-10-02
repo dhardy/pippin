@@ -81,7 +81,7 @@ impl ops::BitXor for Sum {
 }
 
 /// Read a snapshot of a set of elements from a stream
-fn read_snapshot(reader: &mut Read) -> Result<HashMap<u64, Element>> {
+pub fn read_snapshot(reader: &mut Read) -> Result<HashMap<u64, Element>> {
     // A reader which calculates the checksum of what was read:
     let mut r = sum::HashReader::new256(reader);
     
@@ -173,7 +173,7 @@ fn read_snapshot(reader: &mut Read) -> Result<HashMap<u64, Element>> {
 }
 
 /// Write a snapshot of a set of elements to a stream
-fn write_snapshot(elts: &HashMap<u64, Element>, writer: &mut Write) -> Result<()>{
+pub fn write_snapshot(elts: &HashMap<u64, Element>, writer: &mut Write) -> Result<()>{
     // A writer which calculates the checksum of what was written:
     let mut w = sum::HashWriter::new256(writer);
     

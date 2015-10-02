@@ -2,9 +2,12 @@ File format
 ========
 
 TBD means To-Be-Defined. "Later" indicates sections which are not included in
-the current version but are planned (informally) for later versions.
+the current version but are planned (informally) for later versions. All parts
+of the format may change but this requires updating the header. The format is
+not currently considered stable.
 
-Chunks are aligned on 16-byte boundaries.
+Chunks are aligned on 16-byte boundaries. Note: this may waste a fair bit of
+space.
 
 Types: u8 refers to an unsigned eight-bit number (also a byte), u64 a 64-bit
 number, i8 a signed byte etc. (these are Rust types). These are written in
@@ -14,7 +17,8 @@ Text must be ASCII or UTF-8. User-defined data is binary (u8 sequence).
 
 Checksums are in whichever format is mentioned in the header. All options start
 `SUM` to be self-documenting. Currently available options: `SUM SHA-2 256 `.
-They are encoded as [bytes or single number?] TBD.
+They are encoded as [bytes or single number?] TBD. Lots of checksums are
+written; this may waste space.
 
 
 Snapshot files

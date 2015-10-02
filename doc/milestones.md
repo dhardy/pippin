@@ -2,6 +2,23 @@ Milestones for sync-sets development
 ========================
 
 
+Store and load without history
+----------------------------------------
+
+Data files for snapshots. Library allows reading into memory, mutating, writing
+out again.
+
+*   necessary parts of file format done
+*   code to load from and save to a snapshot file
+*   code to access elements (identity, data) when in memory (read and modify or
+    replace)
+
+It also requires some basic setup:
+
+*   some code conventions
+*   rudimentary test framework
+
+
 Simple store with history
 --------------------------------
 

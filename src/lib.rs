@@ -11,8 +11,10 @@ extern crate crypto;
 extern crate chrono;
 extern crate byteorder;
 
-use std::{io, fmt};
+use std::{io, fmt, fs};
 use std::collections::HashMap;
+use std::path::Path;
+use std::convert::AsRef;
 
 pub use error::{Error, Result};
 
@@ -47,7 +49,7 @@ pub struct Repo {
 // Non-member functions on Repo
 impl Repo {
     
-    // Create a new repo with the given name
+    /// Create a new repo with the given name
     pub fn new(name: String) -> Repo {
         Repo{
             name: name,
@@ -55,19 +57,26 @@ impl Repo {
         }
     }
     
-    // Load from a snapshot
-    //TODO: remove from API
-    pub fn load(stream: &mut io::Read) -> Result<Repo> {
+    /// Load a snapshot from a stream
+    pub fn load_stream(stream: &mut io::Read) -> Result<Repo> {
         let head = try!(detail::read_head(stream));
+        let elts = try!(detail::read_snapshot(stream));
+        //TODO: could check that we're at the end of the stream (?)
         
         Ok(Repo {
             name: head.name,
-            elements: HashMap::new() /*TODO*/
+            elements: elts
         })
     }
     
-    // TODO API
-    pub fn save(&self, stream: &mut io::Write) -> Result<()> {
+    /// Load a snapshot from a file
+    pub fn load_file<P: AsRef<Path>>(p: P) -> Result<Repo> {
+        let mut f = try!(fs::File::open(p));
+        Repo::load_stream(&mut f)
+    }
+    
+    /// Save a snapshot to a stream
+    pub fn save_stream(&self, stream: &mut io::Write) -> Result<()> {
         let head = detail::FileHeader {
             name: self.name.clone(),
             remarks: vec![],
@@ -75,6 +84,12 @@ impl Repo {
         };
         
         detail::write_head(&head, stream)
+    }
+    
+    /// Save a snapshot to a file
+    pub fn save_file<P: AsRef<Path>>(&self, p: P) -> Result<()> {
+        let mut f = try!(fs::File::create(p));
+        self.save_stream(&mut f)
     }
 }
 
