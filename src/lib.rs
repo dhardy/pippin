@@ -1,10 +1,17 @@
 //! Pippin (sync-sets) library
 
+// because at this stage of development there's a lot of it:
+#![allow(dead_code)]
+
+// https://github.com/rust-lang/rust/issues/27790
+// could be replaced with a stub function if needing to use stable releases
+#![feature(vec_resize)]
+
 extern crate crypto;
 extern crate chrono;
 extern crate byteorder;
 
-use std::io;
+use std::{io, fmt};
 use std::collections::HashMap;
 
 pub use error::{Error, Result};
@@ -142,6 +149,13 @@ impl Partition {
 
 // Holds an element's data in memory
 // TODO: replace with a trait and user-defined implementation?
+#[derive(PartialEq,Eq)]
 pub struct Element {
     data: Vec<u8>
+}
+
+impl fmt::Debug for Element {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "element (len {})", self.data.len())
+    }
 }

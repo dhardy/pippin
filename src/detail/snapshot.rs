@@ -1,16 +1,16 @@
 //! Support for reading and writing Rust snapshots
 
-use std::{io, fmt, ops};
-use std::io::Write;
+use std::{ops};
+use std::io::{Read, Write};
 use std::collections::HashMap;
 use chrono::UTC;
 use crypto::sha2::Sha256;
 use crypto::digest::Digest;
-use byteorder::{BigEndian, WriteBytesExt};
+use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
-use ::{Repo, Element};
-use ::detail::sum;
-use ::error::{Result};
+use ::{Element};
+use ::detail::{sum, fill};
+use ::error::{Error, Result};
 
 // NOTE: when simd is stable, it could be used
 // use simd::u8x16;
@@ -25,6 +25,15 @@ impl Sum {
     fn zero() -> Sum {
 //         Sum { s1: u8x16::splat(0), s2: u8x16::splat(0) }
         Sum { s: [0u8; 32] }
+    }
+    
+    /// True if sum equals that in a buffer
+    fn eq(&self, arr: &[u8]) -> bool {
+        assert_eq!(arr.len(), 32);
+        for i in 0..32 {
+            if self.s[i] != arr[i] { return false; }
+        }
+        return true;
     }
     
     /// Load from a u8 array
@@ -71,8 +80,100 @@ impl ops::BitXor for Sum {
     }
 }
 
+/// Read a snapshot of a set of elements from a stream
+fn read_snapshot(reader: &mut Read) -> Result<HashMap<u64, Element>> {
+    // A reader which calculates the checksum of what was read:
+    let mut r = sum::HashReader::new256(reader);
+    
+    let mut pos: usize = 0;
+    let mut buf = Vec::new();
+    buf.resize(32, 0);
+    
+    try!(fill(&mut r, &mut buf[0..32], pos));
+    if buf[0..8] != *b"SNAPSHOT" {
+        // note: we discard buf[8..16], the encoded date, for now
+        return Err(Error::read("unexpected contents (expected SNAPSHOT)", pos));
+    }
+    pos += 16;
+    
+    if buf[16..24] != *b"ELEMENTS" {
+        return Err(Error::read("unexpected contents (expected ELEMENTS)", pos));
+    }
+    let num_elts = try!((&buf[24..32]).read_u64::<BigEndian>()) as usize;    // TODO: is cast safe?
+    pos += 16;
+    
+    let mut elts = HashMap::new();
+    let mut state_sum = Sum::zero();
+    for _ in 0..num_elts {
+        try!(fill(&mut r, &mut buf[0..32], pos));
+        if buf[0..8] != *b"ELEMENT\x00" {
+            println!("buf: \"{}\", {:?}", String::from_utf8_lossy(&buf[0..8]), &buf[0..8]);
+            return Err(Error::read("unexpected contents (expected ELEMENT\\x00)", pos));
+        }
+        let ident = try!((&buf[8..16]).read_u64::<BigEndian>());
+        pos += 16;
+        
+        if buf[16..24] != *b"BYTES\x00\x00\x00" {
+            return Err(Error::read("unexpected contents (expected BYTES\\x00\\x00\\x00)", pos));
+        }
+        let data_len = try!((&buf[24..32]).read_u64::<BigEndian>()) as usize;   //TODO is cast safe?
+        pos += 16;
+        
+        let mut data = Vec::new();
+        data.resize(data_len, 0);
+        try!(fill(&mut r, &mut data, pos));
+        pos += data_len;
+        
+        let pad_len = 16 * ((data_len + 15) / 16) - data_len;
+        if pad_len > 0 {
+            try!(fill(&mut r, &mut buf[0..pad_len], pos));
+            pos += pad_len;
+        }
+        
+        let elt_sum = Sum::calculate(&data);
+        try!(fill(&mut r, &mut buf[0..32], pos));
+        if !elt_sum.eq(&buf[0..32]) {
+            return Err(Error::read("element checksum mismatch", pos));
+        }
+        pos += 32;
+        
+        state_sum = state_sum ^ elt_sum;
+        elts.insert(ident, Element{ data: data });
+    }
+    
+    try!(fill(&mut r, &mut buf[0..16], pos));
+    if buf[0..8] != *b"STATESUM" {
+        return Err(Error::read("unexpected contents (expected STATESUM)", pos));
+    }
+    pos += 8;
+    if (try!((&buf[8..16]).read_u64::<BigEndian>()) as usize) != num_elts {
+        return Err(Error::read("unexpected contents (number of elements \
+            differs from that previously stated)", pos));
+    }
+    pos += 8;
+    
+    try!(fill(&mut r, &mut buf[0..32], pos));
+    if !state_sum.eq(&buf[0..32]) {
+        return Err(Error::read("state checksum mismatch", pos));
+    }
+    pos += 32;
+    
+    assert_eq!( r.digest().output_bytes(), 32 );
+    let mut sum32 = [0u8; 32];
+    r.digest().result(&mut sum32);
+    let mut r2 = r.into_inner();
+    try!(fill(&mut r2, &mut buf[0..32], pos));
+    if sum32 != buf[0..32] {
+        return Err(Error::read("checksum mismatch", pos));
+    }
+    
+    //TODO: verify at end of file?
+    
+    Ok(elts)
+}
+
 /// Write a snapshot of a set of elements to a stream
-fn write_snapshot(elts: &Repo, writer: &mut Write) -> Result<()>{
+fn write_snapshot(elts: &HashMap<u64, Element>, writer: &mut Write) -> Result<()>{
     // A writer which calculates the checksum of what was written:
     let mut w = sum::HashWriter::new256(writer);
     
@@ -82,17 +183,25 @@ fn write_snapshot(elts: &Repo, writer: &mut Write) -> Result<()>{
     // TODO: state/commit identifier stuff
     
     try!(w.write(b"ELEMENTS"));
-    let num_elts = elts.elements.len() as u64;  // TODO: can we assume cast is safe?
+    let num_elts = elts.len() as u64;  // TODO: can we assume cast is safe?
     try!(w.write_u64::<BigEndian>(num_elts));
     
     // Note: for now we calculate the state checksum whenever we need it. It
     // may make more sense to store it and/or element sums in the future.
     let mut state_sum = Sum::zero();
-    for (ident, elt) in &elts.elements {
-        try!(w.write(b"ELEMENT\xbb"));
+    for (ident, elt) in elts {
+        try!(w.write(b"ELEMENT\x00"));
         try!(w.write_u64::<BigEndian>(*ident));
         
+        try!(w.write(b"BYTES\x00\x00\x00"));
+        try!(w.write_u64::<BigEndian>(elt.data.len() as u64 /*TODO is cast safe?*/));
+        
         try!(w.write(&elt.data));
+        let pad_len = 16 * ((elt.data.len() + 15) / 16) - elt.data.len();
+        if pad_len > 0 {
+            let padding = [0u8; 15];
+            try!(w.write(&padding[0..pad_len]));
+        }
         
         let elt_sum = Sum::calculate(&elt.data);
         try!(elt_sum.write(&mut w));
@@ -136,14 +245,10 @@ fn snapshot_writing() {
     elts.insert(0xFEDCBA9876543210, Element { data: "arstneio[()]123%αρστνειο\
         qwfpluy-QWFPLUY—<{}>456+5≤≥φπλθυ−\
         zxcvm,./ZXCVM;:?`\"ç$0,./ζχψωμ~·÷".as_bytes().to_vec() });
-    let repo = Repo {
-        name: "My repo".to_string(),
-        elements: elts
-    };
     
     let mut result = Vec::new();
-    write_snapshot(&repo, &mut result);
-    // TODO: actually verify the output. Maybe just read it back in and compare
-    // the two `Repo`s.
-    assert_eq!(result.len(), 1296);
+    assert!(write_snapshot(&elts, &mut result).is_ok());
+    
+    let elts2 = read_snapshot(&mut &result[..]).unwrap();
+    assert_eq!(elts, elts2);
 }

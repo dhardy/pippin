@@ -100,7 +100,9 @@ Per-element data:
 
 *   `ELEMENT` to mark section (pad to 8 bytes with zero)
 *   element identifier (u64)
-*   data (byte stream)
+*   `BYTES` (padded to 8) to mark data section and format (byte stream)
+*   length of byte stream (u64)
+*   data (byte stream), padded to the next 16-byte boundary
 *   checksum (TBD: could remove)
 
 Finally:

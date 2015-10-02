@@ -1,9 +1,9 @@
 //! Read and write support for Pippin file headers.
 
-use std::{io, mem, iter, cmp};
+use std::{io, cmp};
 use std::cmp::min;
 use ::error::{Result, Error};
-use ::detail::{sum, FileHeader};
+use ::detail::{sum, FileHeader, fill};
 
 /// Read a file header.
 pub fn read_head(r: &mut io::Read) -> Result<FileHeader> {
@@ -12,7 +12,7 @@ pub fn read_head(r: &mut io::Read) -> Result<FileHeader> {
     
     let mut pos: usize = 0;
     let mut buf = Vec::new();
-    buf.extend(iter::repeat(0).take(16));   // resize to 16 bytes
+    buf.resize(16, 0);
     
     try!(fill(&mut sum_reader, &mut buf[0..16], pos));
     if buf != *b"PIPPINSS20150929" {
@@ -42,10 +42,7 @@ pub fn read_head(r: &mut io::Read) -> Result<FileHeader> {
                 _ => return Err(Error::read("header section Qx... has invalid length specification 'x'", pos))
             } as usize;
             let len = x * 16;
-            if buf.len() < len {
-                let by = len - buf.len();
-                buf.extend(iter::repeat(0).take(by));
-            }
+            if buf.len() < len { buf.resize(len, 0); }
             try!(fill(&mut sum_reader, &mut buf[16..len], pos));
             pos += 2;
             &buf[2..len]
@@ -85,17 +82,6 @@ pub fn read_head(r: &mut io::Read) -> Result<FileHeader> {
     sum_reader.digest().result(&mut sum32);
     if buf32 != sum32 {
         return Err(Error::read("header checksum invalid", pos));
-    }
-    
-    fn fill<R: io::Read>(r: &mut R, mut buf: &mut [u8], pos: usize) -> Result<()> {
-        let mut p = pos;
-        while buf.len() > 0 {
-            match try!(r.read(buf)) {
-                0 => return Err(Error::read("corrupt (file terminates unexpectedly)", p)),
-                n => { buf = &mut mem::replace(&mut buf, &mut [])[n..]; p += n },
-            }
-        }
-        Ok(())
     }
     
     Ok(FileHeader{
