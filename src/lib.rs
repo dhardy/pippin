@@ -13,6 +13,7 @@ extern crate byteorder;
 
 use std::{io, fmt, fs};
 use std::collections::HashMap;
+use std::collections::hash_map::{Keys};
 use std::path::Path;
 use std::convert::AsRef;
 
@@ -124,6 +125,17 @@ impl Repo {
         self.elements.contains_key(&id)
     }
     
+    /// Get an iterator over element identifiers
+    pub fn element_ids(&self) -> Keys<u64, Element> {
+        self.elements.keys()
+    }
+    
+    /// Get an element's data. Returns None if the specified element does not
+    /// exist.
+    pub fn get_element(&self, id: u64) -> Option<&Element> {
+        self.elements.get(&id)
+    }
+    
     /// Insert an element. If overwrite is false and an element with this id
     /// exists, do nothing and return false; otherwise insert the element and
     /// return true.
@@ -195,6 +207,11 @@ impl Partition {
 #[derive(PartialEq,Eq)]
 pub struct Element {
     data: Vec<u8>
+}
+
+impl Element {
+    /// Get a reference to the data (raw)
+    pub fn data(&self) -> &[u8] { &self.data }
 }
 
 impl fmt::Debug for Element {

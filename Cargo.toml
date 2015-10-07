@@ -16,6 +16,5 @@ chrono = "*"
 byteorder = "*"
 
 # Only for the examples:
-#docopt = "*"
-#rustc-serialize = "*" # for docopt
-argparse = "*"
+docopt = "*"
+rustc-serialize = "*" # for docopt
