@@ -21,6 +21,9 @@ pub use error::{Error, Result};
 pub mod error;
 mod detail;
 
+/// Version. The low 16 bits are patch number, next 16 are the minor version
+/// number, the next are the major version number. The top 16 are zero.
+pub const LIB_VERSION: u64 = 0x0000_0000_0000;
 
 /*TODO: partitions/generic resources
 // Method of providing partition data
@@ -48,13 +51,13 @@ pub struct Repo {
 
 // Non-member functions on Repo
 impl Repo {
-    
     /// Create a new repo with the given name
-    pub fn new(name: String) -> Repo {
-        Repo{
+    pub fn new(name: String) -> Result<Repo> {
+        try!(detail::validate_repo_name(&name));
+        Ok(Repo{
             name: name,
             elements: HashMap::new()
-        }
+        })
     }
     
     /// Load a snapshot from a stream
@@ -83,7 +86,8 @@ impl Repo {
             user_fields: vec![]
         };
         
-        detail::write_head(&head, stream)
+        try!(detail::write_head(&head, stream));
+        detail::write_snapshot(&self.elements, stream)
     }
     
     /// Save a snapshot to a file
@@ -107,6 +111,30 @@ impl Repo {
 // even low-speed network connections, such that all computers have a full
 // local copy of the data and its history.
 impl Repo {
+    /// Get the repo name
+    pub fn name(&self) -> &str { &self.name }
+    
+    /// Get the number of elements
+    pub fn num_elts(&self) -> usize {
+        self.elements.len()
+    }
+    
+    /// Return true iff this element exists
+    pub fn has_elt(&self, id: u64) -> bool {
+        self.elements.contains_key(&id)
+    }
+    
+    /// Insert an element. If overwrite is false and an element with this id
+    /// exists, do nothing and return false; otherwise insert the element and
+    /// return true.
+    pub fn insert_elt(&mut self, id: u64, data: &[u8], overwrite: bool) -> bool {
+        if !overwrite && self.elements.contains_key(&id) {
+            return false;
+        }
+        self.elements.insert(id, Element { data: data.to_vec() });
+        true
+    }
+    
     // TODO: list all partitions
     // TODO: check whether a particular partition is loaded
     

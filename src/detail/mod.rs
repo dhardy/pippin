@@ -9,7 +9,7 @@ mod snapshot;
 use std::{io, mem};
 use error::{Error, Result};
 
-pub use ::detail::header::{read_head, write_head};
+pub use ::detail::header::{read_head, write_head, validate_repo_name};
 pub use ::detail::snapshot::{read_snapshot, write_snapshot};
 
 // Information stored in a file header

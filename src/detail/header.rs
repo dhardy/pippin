@@ -5,6 +5,13 @@ use std::cmp::min;
 use ::error::{Result, Error};
 use ::detail::{sum, FileHeader, fill};
 
+pub fn validate_repo_name(name: &str) -> Result<()> {
+    if name.as_bytes().len() > 16 {
+        return Err(Error::arg("repo name too long"));
+    }
+    Ok(())
+}
+
 /// Read a file header.
 pub fn read_head(r: &mut io::Read) -> Result<FileHeader> {
     // A reader which also calculates a checksum:
@@ -99,9 +106,7 @@ pub fn write_head(header: &FileHeader, w: &mut io::Write) -> Result<()> {
     let mut sum_writer = sum::HashWriter::new256(w);
     
     try!(sum_writer.write(b"PIPPINSS20150929"));
-    if header.name.as_bytes().len() > 16 {
-        return Err(Error::arg("repo name too long"));
-    }
+    try!(validate_repo_name(&header.name));
     let len = try!(sum_writer.write(header.name.as_bytes()));
     try!(pad(&mut sum_writer, 16 - len));
     
