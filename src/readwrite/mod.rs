@@ -1,4 +1,4 @@
-//! Pippin implementation details.
+//! Pippin support for reading from and writing to files.
 
 //! Many code forms shamelessly lifted from Alex Crichton's flate2 library.
 
@@ -9,8 +9,8 @@ mod snapshot;
 use std::{io, mem};
 use error::{Error, Result};
 
-pub use ::detail::header::{read_head, write_head, validate_repo_name};
-pub use ::detail::snapshot::{read_snapshot, write_snapshot};
+pub use self::header::{read_head, write_head, validate_repo_name};
+pub use self::snapshot::{read_snapshot, write_snapshot};
 
 // Information stored in a file header
 pub struct FileHeader {

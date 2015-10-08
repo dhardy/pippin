@@ -17,10 +17,13 @@ use std::collections::hash_map::{Keys};
 use std::path::Path;
 use std::convert::AsRef;
 
+use readwrite::{FileHeader, read_head, write_head, validate_repo_name};
+use readwrite::{read_snapshot, write_snapshot};
+
 pub use error::{Error, Result};
 
 pub mod error;
-mod detail;
+mod readwrite;
 
 /// Version. The low 16 bits are patch number, next 16 are the minor version
 /// number, the next are the major version number. The top 16 are zero.
@@ -54,7 +57,7 @@ pub struct Repo {
 impl Repo {
     /// Create a new repo with the given name
     pub fn new(name: String) -> Result<Repo> {
-        try!(detail::validate_repo_name(&name));
+        try!(validate_repo_name(&name));
         Ok(Repo{
             name: name,
             elements: HashMap::new()
@@ -63,8 +66,8 @@ impl Repo {
     
     /// Load a snapshot from a stream
     pub fn load_stream(stream: &mut io::Read) -> Result<Repo> {
-        let head = try!(detail::read_head(stream));
-        let elts = try!(detail::read_snapshot(stream));
+        let head = try!(read_head(stream));
+        let elts = try!(read_snapshot(stream));
         //TODO: could check that we're at the end of the stream (?)
         
         Ok(Repo {
@@ -81,14 +84,14 @@ impl Repo {
     
     /// Save a snapshot to a stream
     pub fn save_stream(&self, stream: &mut io::Write) -> Result<()> {
-        let head = detail::FileHeader {
+        let head = FileHeader {
             name: self.name.clone(),
             remarks: vec![],
             user_fields: vec![]
         };
         
-        try!(detail::write_head(&head, stream));
-        detail::write_snapshot(&self.elements, stream)
+        try!(write_head(&head, stream));
+        write_snapshot(&self.elements, stream)
     }
     
     /// Save a snapshot to a file

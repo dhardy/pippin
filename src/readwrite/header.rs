@@ -3,7 +3,7 @@
 use std::{io, cmp};
 use std::cmp::min;
 use ::error::{Result, Error};
-use ::detail::{sum, FileHeader, fill};
+use super::{sum, FileHeader, fill};
 
 const FILE_HEAD : [u8; 16] = *b"PIPPINSS20150929";
 const SUM_SHA256 : [u8; 16] = *b"HSUM SHA-2 256\x00\x00";

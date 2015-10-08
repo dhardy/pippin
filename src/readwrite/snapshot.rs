@@ -7,8 +7,8 @@ use crypto::digest::Digest;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
 use ::{Element};
-use ::detail::{sum, fill};
-use ::detail::sum::Sum;
+use super::{sum, fill};
+use super::sum::Sum;
 use ::error::{Error, Result};
 
 
