@@ -1,84 +1,16 @@
 //! Support for reading and writing Rust snapshots
 
-use std::{ops};
 use std::io::{Read, Write};
 use std::collections::HashMap;
 use chrono::UTC;
-use crypto::sha2::Sha256;
 use crypto::digest::Digest;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
 use ::{Element};
 use ::detail::{sum, fill};
+use ::detail::sum::Sum;
 use ::error::{Error, Result};
 
-// NOTE: when simd is stable, it could be used
-// use simd::u8x16;
-/// Possibly a more efficient way to represent a checksum
-struct Sum {
-//     s1: u8x16, s2: u8x16
-    s: [u8; 32]
-}
-
-impl Sum {
-    /// A "sum" containing all zeros
-    fn zero() -> Sum {
-//         Sum { s1: u8x16::splat(0), s2: u8x16::splat(0) }
-        Sum { s: [0u8; 32] }
-    }
-    
-    /// True if sum equals that in a buffer
-    fn eq(&self, arr: &[u8]) -> bool {
-        assert_eq!(arr.len(), 32);
-        for i in 0..32 {
-            if self.s[i] != arr[i] { return false; }
-        }
-        return true;
-    }
-    
-    /// Load from a u8 array
-    fn load(arr: &[u8]) -> Sum {
-        assert_eq!(arr.len(), 32);
-//         Sum { s1: u8x16::load(&arr, 0), s2: u8x16::load(&arr, 16) }
-        //TODO there must be a better way than this!
-        let mut result = Sum::zero();
-        for i in 0..32 {
-            result.s[i] = arr[i];
-        }
-        result
-    }
-    
-    /// Calculate from some data
-    fn calculate(data: &[u8]) -> Sum {
-        let mut hasher = Sha256::new();
-        hasher.input(&data);
-        let mut buf = [0u8; 32];
-        assert_eq!(hasher.output_bytes(), buf.len());
-        hasher.result(&mut buf);
-        Sum::load(&buf)
-    }
-    
-    /// Write the checksum bytes to a stream
-    fn write(&self, w: &mut Write) -> Result<()> {
-//         let mut buf = [0u8; 32];
-//         s1.store(&mut buf, 0);
-//         s2.store(&mut buf, 16);
-        try!(w.write(&self.s));
-        Ok(())
-    }
-}
-
-impl ops::BitXor for Sum {
-    type Output = Self;
-    fn bitxor(self, rhs: Sum) -> Sum {
-        //TODO optimise
-        let mut result = Sum::zero();
-        for i in 0..32 {
-            result.s[i] = self.s[i] ^ rhs.s[i];
-        }
-        result
-    }
-}
 
 /// Read a snapshot of a set of elements from a stream
 pub fn read_snapshot(reader: &mut Read) -> Result<HashMap<u64, Element>> {
