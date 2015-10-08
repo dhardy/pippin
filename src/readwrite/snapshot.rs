@@ -8,7 +8,7 @@ use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
 use ::{Element};
 use super::{sum, fill};
-use super::sum::Sum;
+use repres::Sum;
 use ::error::{Error, Result};
 
 

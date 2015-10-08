@@ -11,7 +11,7 @@ extern crate crypto;
 extern crate chrono;
 extern crate byteorder;
 
-use std::{io, fmt, fs};
+use std::{io, fs};
 use std::collections::HashMap;
 use std::collections::hash_map::{Keys};
 use std::path::Path;
@@ -20,10 +20,12 @@ use std::convert::AsRef;
 use readwrite::{FileHeader, read_head, write_head, validate_repo_name};
 use readwrite::{read_snapshot, write_snapshot};
 
+pub use repres::Element;
 pub use error::{Error, Result};
 
 pub mod error;
 mod readwrite;
+mod repres;
 
 /// Version. The low 16 bits are patch number, next 16 are the minor version
 /// number, the next are the major version number. The top 16 are zero.
@@ -204,21 +206,3 @@ impl Partition {
     // TODO
 }
 */
-
-// Holds an element's data in memory
-// TODO: replace with a trait and user-defined implementation?
-#[derive(PartialEq,Eq)]
-pub struct Element {
-    data: Vec<u8>
-}
-
-impl Element {
-    /// Get a reference to the data (raw)
-    pub fn data(&self) -> &[u8] { &self.data }
-}
-
-impl fmt::Debug for Element {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "element (len {})", self.data.len())
-    }
-}
