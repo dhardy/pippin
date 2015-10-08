@@ -70,7 +70,7 @@ pub fn read_snapshot(reader: &mut Read) -> Result<HashMap<u64, Element>> {
         pos += 32;
         
         state_sum = state_sum ^ elt_sum;
-        elts.insert(ident, Element{ data: data });
+        elts.insert(ident, Element{ data: data, sum: elt_sum });
     }
     
     try!(fill(&mut r, &mut buf[0..16], pos));
@@ -135,6 +135,8 @@ pub fn write_snapshot(elts: &HashMap<u64, Element>, writer: &mut Write) -> Resul
             try!(w.write(&padding[0..pad_len]));
         }
         
+        //TODO: now we store the sum, should we use it here? Should we rely on
+        //it or crash if it's wrong??
         let elt_sum = Sum::calculate(&elt.data);
         try!(elt_sum.write(&mut w));
         
@@ -158,7 +160,7 @@ pub fn write_snapshot(elts: &HashMap<u64, Element>, writer: &mut Write) -> Resul
 #[test]
 fn snapshot_writing() {
     let mut elts = HashMap::new();
-    elts.insert(1, Element { data: "But I must explain to you how all this \
+    let data = "But I must explain to you how all this \
         mistaken idea of denouncing pleasure and praising pain was born and I \
         will give you a complete account of the system, and expound the \
         actual teachings of the great explorer of the truth, the master-\
@@ -172,11 +174,14 @@ fn snapshot_writing() {
         undertakes laborious physical exercise, except to obtain some \
         advantage from it? But who has any right to find fault with a man who \
         chooses to enjoy a pleasure that has no annoying consequences, or one \
-        who avoids a pain that produces no resultant pleasure?"
-        .as_bytes().to_vec() } );
-    elts.insert(0xFEDCBA9876543210, Element { data: "arstneio[()]123%αρστνειο\
+        who avoids a pain that produces no resultant pleasure?";
+    elts.insert(1, Element { data: data.as_bytes().to_vec(),
+        sum: Sum::calculate(data.as_bytes()) } );
+    let data = "arstneio[()]123%αρστνειο\
         qwfpluy-QWFPLUY—<{}>456+5≤≥φπλθυ−\
-        zxcvm,./ZXCVM;:?`\"ç$0,./ζχψωμ~·÷".as_bytes().to_vec() });
+        zxcvm,./ZXCVM;:?`\"ç$0,./ζχψωμ~·÷";
+    elts.insert(0xFEDCBA9876543210, Element { data: data.as_bytes().to_vec(),
+        sum: Sum::calculate(data.as_bytes()) } );
     
     let mut result = Vec::new();
     assert!(write_snapshot(&elts, &mut result).is_ok());

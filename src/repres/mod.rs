@@ -1,7 +1,6 @@
 //! In-memory representations of Pippin data
 
 use std::fmt;
-use std::collections::HashMap;
 
 pub use self::sum::Sum;
 
@@ -13,7 +12,9 @@ mod sum;
 #[derive(PartialEq,Eq)]
 pub struct Element {
     //TODO: make this private, but keep it accessible to the readwrite module?
-    pub data: Vec<u8>
+    pub data: Vec<u8>,
+    /// Element checksum, used in calculating state sums
+    pub sum: Sum,
 }
 
 impl Element {

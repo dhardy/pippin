@@ -19,6 +19,7 @@ use std::convert::AsRef;
 
 use readwrite::{FileHeader, read_head, write_head, validate_repo_name};
 use readwrite::{read_snapshot, write_snapshot};
+use repres::Sum;
 
 pub use repres::Element;
 pub use error::{Error, Result};
@@ -148,7 +149,10 @@ impl Repo {
         if !overwrite && self.elements.contains_key(&id) {
             return false;
         }
-        self.elements.insert(id, Element { data: data.to_vec() });
+        self.elements.insert(id, Element {
+            data: data.to_vec(),
+            sum: Sum::load(data)
+        });
         true
     }
     
