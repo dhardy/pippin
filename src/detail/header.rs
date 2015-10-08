@@ -5,6 +5,9 @@ use std::cmp::min;
 use ::error::{Result, Error};
 use ::detail::{sum, FileHeader, fill};
 
+const FILE_HEAD : [u8; 16] = *b"PIPPINSS20150929";
+const SUM_SHA256 : [u8; 16] = *b"HSUM SHA-2 256\x00\x00";
+
 pub fn validate_repo_name(name: &str) -> Result<()> {
     if name.as_bytes().len() > 16 {
         return Err(Error::arg("repo name too long"));
@@ -22,7 +25,7 @@ pub fn read_head(r: &mut io::Read) -> Result<FileHeader> {
     buf.resize(16, 0);
     
     try!(fill(&mut sum_reader, &mut buf[0..16], pos));
-    if buf != *b"PIPPINSS20150929" {
+    if buf != FILE_HEAD {
         return Err(Error::read("not a known Pippin file format", pos));
     }
     pos += 16;
@@ -39,9 +42,9 @@ pub fn read_head(r: &mut io::Read) -> Result<FileHeader> {
     
     loop {
         try!(fill(&mut sum_reader, &mut buf[0..16], pos));
-        let block = if buf[0] == b'H' {
+        let block: &[u8] = if buf[0] == b'H' {
             pos += 1;
-            &buf[1..16]
+            rtrim(&buf[1..16], 0)
         } else if buf[0] == b'Q' {
             let x: usize = match buf[1] {
                 b'1' ... b'9' => buf[1] - b'0',
@@ -52,15 +55,17 @@ pub fn read_head(r: &mut io::Read) -> Result<FileHeader> {
             if buf.len() < len { buf.resize(len, 0); }
             try!(fill(&mut sum_reader, &mut buf[16..len], pos));
             pos += 2;
-            &buf[2..len]
+            rtrim(&buf[2..len], 0)
         } else {
             return Err(Error::read("unexpected header contents", pos));
         };
         
         if block[0..3] == *b"SUM" {
-            match &block[3..] {
-                b" SHA-2 256\x00\x00" => { /* we don't support anything else */ },
-                _ => return Err(Error::read("unknown checksum format", pos))
+            if block[3..] == SUM_SHA256[4..14] {
+                /* we don't support anything else yet, so don't need to
+                 * configure anything here */
+            }else {
+                return Err(Error::read("unknown checksum format", pos))
             };
             break;      // "HSUM" must be last item of header before final checksum
         } else if block[0] == b'R' {
@@ -105,7 +110,7 @@ pub fn write_head(header: &FileHeader, w: &mut io::Write) -> Result<()> {
     // A writer which calculates the checksum of what was written:
     let mut sum_writer = sum::HashWriter::new256(w);
     
-    try!(sum_writer.write(b"PIPPINSS20150929"));
+    try!(sum_writer.write(&FILE_HEAD));
     try!(validate_repo_name(&header.name));
     let len = try!(sum_writer.write(header.name.as_bytes()));
     try!(pad(&mut sum_writer, 16 - len));
@@ -147,7 +152,7 @@ pub fn write_head(header: &FileHeader, w: &mut io::Write) -> Result<()> {
         }
     }
     
-    try!(sum_writer.write(b"HSUM SHA-2 256\x00\x00"));
+    try!(sum_writer.write(&SUM_SHA256));
     
     // Write the checksum of everything above:
     assert_eq!( sum_writer.digest().output_bytes(), 32 );
