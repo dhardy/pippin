@@ -143,9 +143,9 @@ NOTE: merge commits will look a little different!
 
 Each commit should start:
 
-*   with an idenfitier: `COMMIT` (?)
-*   parent commit
+*   with an idenfitier: `COMMIT`
 *   a timestamp TBD
+*   parent commit id / state sum
 *   length of commit data OR number to elements changed (?)
 *   PER ELEMENT DATA
 *   a state checksum
@@ -157,16 +157,17 @@ Each commit should start:
 Where "PER ELEMENT DATA" is written above, a sequence of element-specific
 sections appears. The syntax for each element is:
 
+*   section identifier: `ELT ` followed by one of `DEL` (delete), `INS` (insert
+    with new element id), `REPL` (replace an existing element with new data) or
+    TODO `PATC` (patch an existing element)
 *   element identifier (partition specific, u64)
 
-Each commit contains:
+Contents now depend on the previous identifier:
 
-*   16-byte commit identifier
-*   identifier of each parent commit
-*   date & time of commit
-*   list of items changed; for each, one of: a marker such as MOVED or DELETED,
-    the full data of the item, or a patch
-*   checksum of commit contents
-
-TBD: how is the number of parents specified? Should there be something to make
-it clear when scanning the file where the commit starts?
+*   `DEL`: no extra content
+*   `INS`: identifier `ELT DATA`, data length (u64), data (padded to 16-byte
+    boundary with \\x00), data checksum (32 bytes, used to calculate the state
+    sum)
+*   `REPL`: contents is identical to `INS`, but `INS` is only allowed when the
+    element identifier was free while `REPL` is only allowed when the
+    identifier pointed to an element in the previous state.

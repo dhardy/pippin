@@ -5,6 +5,7 @@
 mod sum;
 mod header;
 mod snapshot;
+mod commitlog;
 
 use std::{io, mem};
 use error::{Error, Result};
