@@ -17,16 +17,15 @@ use std::collections::hash_map::{Keys};
 use std::path::Path;
 use std::convert::AsRef;
 
-use readwrite::{FileHeader, read_head, write_head, validate_repo_name};
-use readwrite::{read_snapshot, write_snapshot};
-use repres::Sum;
+use detail::{FileHeader, read_head, write_head, validate_repo_name};
+use detail::{read_snapshot, write_snapshot};
+use detail::Sum;
 
-pub use repres::Element;
+pub use detail::Element;
 pub use error::{Error, Result};
 
 pub mod error;
-mod readwrite;
-mod repres;
+mod detail;
 
 /// Version. The low 16 bits are patch number, next 16 are the minor version
 /// number, the next are the major version number. The top 16 are zero.

@@ -5,7 +5,7 @@ use std::io::{Read, Write, Result};
 use crypto::digest::Digest;
 use crypto::sha2::Sha256;
 
-use repres::Sum;
+use detail::Sum;
 
 impl Sum {
     /// Calculate from some data

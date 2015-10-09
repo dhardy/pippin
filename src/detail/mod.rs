@@ -3,8 +3,12 @@
 use std::fmt;
 use std::collections::HashMap;
 
+pub use self::readwrite::{FileHeader, read_head, write_head, validate_repo_name};
+pub use self::readwrite::{read_snapshot, write_snapshot};
+
 pub use self::sum::Sum;
 
+mod readwrite;
 mod sum;
 
 
@@ -12,7 +16,7 @@ mod sum;
 // TODO: replace with a trait and user-defined implementation?
 #[derive(PartialEq,Eq)]
 pub struct Element {
-    //TODO: make this private, but keep it accessible to the readwrite module?
+    /// Element data TODO make private
     pub data: Vec<u8>,
     /// Element checksum, used in calculating state sums
     pub sum: Sum,
@@ -33,13 +37,13 @@ impl fmt::Debug for Element {
 /// A commit: a set of changes
 pub struct Commit {
     /// Expected resultant state sum; doubles as an ID
-    pub statesum: Sum,
+    statesum: Sum,
     /// State sum (ID) of parent commit/snapshot
-    pub parent: Sum,
+    parent: Sum,
     /// Time when this commit was made (TODO)
-    pub timestamp: (),
+    timestamp: (),
     /// Per-element changes
-    pub changes: HashMap<u64, EltChange>
+    changes: HashMap<u64, EltChange>
 }
 
 /// Per-element changes
