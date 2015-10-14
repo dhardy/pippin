@@ -19,9 +19,9 @@ use std::convert::AsRef;
 
 use detail::{FileHeader, read_head, write_head, validate_repo_name};
 use detail::{read_snapshot, write_snapshot};
-use detail::Sum;
+use detail::{Sum, RepoState};
 
-pub use detail::Element;
+pub use detail::{Element};
 pub use error::{Error, Result};
 
 pub mod error;
@@ -51,8 +51,7 @@ pub trait DataResource {
 // Handle on a repository
 pub struct Repo {
     name: String,
-    // NOTE: with sequential keys VecMap could be an alternative to HashMap
-    elements: HashMap<u64, Element>
+    state: RepoState
 }
 
 // Non-member functions on Repo
@@ -62,19 +61,19 @@ impl Repo {
         try!(validate_repo_name(&name));
         Ok(Repo{
             name: name,
-            elements: HashMap::new()
+            state: RepoState::new()
         })
     }
     
     /// Load a snapshot from a stream
     pub fn load_stream(stream: &mut io::Read) -> Result<Repo> {
         let head = try!(read_head(stream));
-        let elts = try!(read_snapshot(stream));
+        let state = try!(read_snapshot(stream));
         //TODO: could check that we're at the end of the stream (?)
         
         Ok(Repo {
             name: head.name,
-            elements: elts
+            state: state
         })
     }
     
@@ -93,7 +92,7 @@ impl Repo {
         };
         
         try!(write_head(&head, stream));
-        write_snapshot(&self.elements, stream)
+        write_snapshot(&self.state, stream)
     }
     
     /// Save a snapshot to a file
@@ -122,37 +121,29 @@ impl Repo {
     
     /// Get the number of elements
     pub fn num_elts(&self) -> usize {
-        self.elements.len()
+        self.state.num_elts()
     }
     
     /// Return true iff this element exists
     pub fn has_elt(&self, id: u64) -> bool {
-        self.elements.contains_key(&id)
+        self.state.has_elt(id)
     }
     
     /// Get an iterator over element identifiers
     pub fn element_ids(&self) -> Keys<u64, Element> {
-        self.elements.keys()
+        self.state.elt_ids()
     }
     
     /// Get an element's data. Returns None if the specified element does not
     /// exist.
     pub fn get_element(&self, id: u64) -> Option<&Element> {
-        self.elements.get(&id)
+        self.state.get_elt(id)
     }
     
-    /// Insert an element. If overwrite is false and an element with this id
-    /// exists, do nothing and return false; otherwise insert the element and
-    /// return true.
-    pub fn insert_elt(&mut self, id: u64, data: &[u8], overwrite: bool) -> bool {
-        if !overwrite && self.elements.contains_key(&id) {
-            return false;
-        }
-        self.elements.insert(id, Element {
-            data: data.to_vec(),
-            sum: Sum::load(data)
-        });
-        true
+    /// Insert an element and return true, unless the id is already used in
+    /// which case the function does nothing but return false.
+    pub fn insert_elt(&mut self, id: u64, elt: Element) -> bool {
+        self.state.insert_elt(id, elt)
     }
     
     // TODO: list all partitions
@@ -163,12 +154,6 @@ impl Repo {
     
     // Commit all changes to disk
     pub fn commit_all(&mut self) {}
-    
-    //TODO: when partitions are introduced, item_id will be specific to the partition
-    // Get an item as a byte vector. Panics on invalid item_id.
-    pub fn get_item(&self, item_id: u64) -> &Element {
-        self.elements.get(&item_id).unwrap()
-    }
 }
 
 /* TODO: add partitioning

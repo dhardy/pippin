@@ -8,7 +8,7 @@ use std::process::exit;
 use std::path::PathBuf;
 use std::fs;
 use docopt::Docopt;
-use pippin::{Repo, Result};
+use pippin::{Repo, Element, Result};
 
 const USAGE: &'static str = "
 Pippin command-line UI. This is a demo app and should not be relied upon for
@@ -31,7 +31,7 @@ Options:
   insert <id> <data>    Insert some element to the repo.
   
   -f --file <file>      File to load/save a repository from/to.
-  -F --force            Overwrite file/element instead of failing.
+  -F --force            Overwrite file instead of failing.
   -h --help             Show this message.
   --version             Show version.
 ";
@@ -121,7 +121,7 @@ fn main_inner(args: Args) -> Result<()> {
             let elt = extract(args.arg_id, "<id>");
             let data = extract(args.arg_data, "<data>");
             
-            if repo.insert_elt(elt, data.as_bytes(), args.flag_force) {
+            if repo.insert_elt(elt, Element::from_vec(data.into())) {
                 println!("Element {} inserted.", elt);
             } else {
                 println!("Element {} already exists!", elt);

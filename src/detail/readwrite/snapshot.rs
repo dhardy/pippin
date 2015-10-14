@@ -6,14 +6,13 @@ use chrono::UTC;
 use crypto::digest::Digest;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
-use ::{Element};
 use super::{sum, fill};
-use detail::Sum;
+use detail::{Sum, Element, RepoState};
 use ::error::{Error, Result};
 
 
 /// Read a snapshot of a set of elements from a stream
-pub fn read_snapshot(reader: &mut Read) -> Result<HashMap<u64, Element>> {
+pub fn read_snapshot(reader: &mut Read) -> Result<RepoState> {
     // A reader which calculates the checksum of what was read:
     let mut r = sum::HashReader::new256(reader);
     
@@ -70,7 +69,7 @@ pub fn read_snapshot(reader: &mut Read) -> Result<HashMap<u64, Element>> {
         pos += 32;
         
         state_sum = state_sum ^ elt_sum;
-        elts.insert(ident, Element{ data: data, sum: elt_sum });
+        elts.insert(ident, Element::new(data, elt_sum));
     }
     
     try!(fill(&mut r, &mut buf[0..16], pos));
@@ -101,13 +100,15 @@ pub fn read_snapshot(reader: &mut Read) -> Result<HashMap<u64, Element>> {
     
     //TODO: verify at end of file?
     
-    Ok(elts)
+    Ok(RepoState::from_hash_map(elts))
 }
 
 /// Write a snapshot of a set of elements to a stream
-pub fn write_snapshot(elts: &HashMap<u64, Element>, writer: &mut Write) -> Result<()>{
+pub fn write_snapshot(state: &RepoState, writer: &mut Write) -> Result<()>{
     // A writer which calculates the checksum of what was written:
     let mut w = sum::HashWriter::new256(writer);
+    
+    let elts = state.map();
     
     //TODO: date shouldn't really be today but the time the snapshot was created
     try!(write!(&mut w, "SNAPSHOT{}", UTC::today().format("%Y%m%d")));
@@ -126,10 +127,10 @@ pub fn write_snapshot(elts: &HashMap<u64, Element>, writer: &mut Write) -> Resul
         try!(w.write_u64::<BigEndian>(*ident));
         
         try!(w.write(b"BYTES\x00\x00\x00"));
-        try!(w.write_u64::<BigEndian>(elt.data.len() as u64 /*TODO is cast safe?*/));
+        try!(w.write_u64::<BigEndian>(elt.data_len() as u64 /*TODO is cast safe?*/));
         
-        try!(w.write(&elt.data));
-        let pad_len = 16 * ((elt.data.len() + 15) / 16) - elt.data.len();
+        try!(w.write(&elt.data()));
+        let pad_len = 16 * ((elt.data_len() + 15) / 16) - elt.data_len();
         if pad_len > 0 {
             let padding = [0u8; 15];
             try!(w.write(&padding[0..pad_len]));
@@ -137,7 +138,7 @@ pub fn write_snapshot(elts: &HashMap<u64, Element>, writer: &mut Write) -> Resul
         
         //TODO: now we store the sum, should we use it here? Should we rely on
         //it or crash if it's wrong??
-        let elt_sum = Sum::calculate(&elt.data);
+        let elt_sum = Sum::calculate(&elt.data());
         try!(elt_sum.write(&mut w));
         
         state_sum = state_sum ^ elt_sum;
@@ -175,17 +176,16 @@ fn snapshot_writing() {
         advantage from it? But who has any right to find fault with a man who \
         chooses to enjoy a pleasure that has no annoying consequences, or one \
         who avoids a pain that produces no resultant pleasure?";
-    elts.insert(1, Element { data: data.as_bytes().to_vec(),
-        sum: Sum::calculate(data.as_bytes()) } );
+    elts.insert(1, Element::from_str(data));
     let data = "arstneio[()]123%αρστνειο\
         qwfpluy-QWFPLUY—<{}>456+5≤≥φπλθυ−\
         zxcvm,./ZXCVM;:?`\"ç$0,./ζχψωμ~·÷";
-    elts.insert(0xFEDCBA9876543210, Element { data: data.as_bytes().to_vec(),
-        sum: Sum::calculate(data.as_bytes()) } );
+    elts.insert(0xFEDCBA9876543210, Element::from_str(data));
+    let state = RepoState::from_hash_map(elts);
     
     let mut result = Vec::new();
-    assert!(write_snapshot(&elts, &mut result).is_ok());
+    assert!(write_snapshot(&state, &mut result).is_ok());
     
-    let elts2 = read_snapshot(&mut &result[..]).unwrap();
-    assert_eq!(elts, elts2);
+    let state2 = read_snapshot(&mut &result[..]).unwrap();
+    assert_eq!(state, state2);
 }

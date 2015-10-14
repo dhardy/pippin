@@ -7,7 +7,7 @@ use std::ops;
 // NOTE: when simd is stable, it could be used
 // use simd::u8x16;
 /// A convenient way to manage and manipulate a checksum
-#[derive(Copy, Clone, PartialEq, Eq)]
+#[derive(Copy, Clone, PartialEq, Eq, Hash)]
 pub struct Sum {
 //     s1: u8x16, s2: u8x16
     s: [u8; 32]

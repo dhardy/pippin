@@ -12,6 +12,7 @@ use error::{Error, Result};
 
 pub use self::header::{read_head, write_head, validate_repo_name};
 pub use self::snapshot::{read_snapshot, write_snapshot};
+pub use self::commitlog::{CommitReceiver, read_log};
 
 // Information stored in a file header
 pub struct FileHeader {

@@ -9,14 +9,15 @@ use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
 use ::{Element};
 use super::{sum, fill};
-use detail::{Sum, Commit, EltChange};
+use detail::{Sum};
+use detail::states::EltChange;
 use ::error::{Error, Result};
 
 /// Implement this to use read_log().
 pub trait CommitReceiver {
     /// Implement to receive a commit once it has been read. Return true to
     /// continue reading or false to stop reading more commits.
-    fn receive(&mut self, commit: Commit) -> bool;
+    fn receive(&mut self, statesum: Sum, parent: Sum, changes: HashMap<u64, EltChange>) -> bool;
 }
 
 /// Read a commit log from a stream
@@ -81,7 +82,7 @@ pub fn read_log(reader_: &mut Read, receiver: &mut CommitReceiver) -> Result<()>
             pos += 16;
             
             let change = match change_t {
-                Change::Delete => EltChange::Deletion,
+                Change::Delete => EltChange::deletion(),
                 Change::Insert | Change::Replace => {
                     try!(fill(&mut r, &mut buf[0..16], pos));
                     if buf[0..8] != *b"ELT DATA" {
@@ -108,10 +109,10 @@ pub fn read_log(reader_: &mut Read, receiver: &mut CommitReceiver) -> Result<()>
                     }
                     pos += 32;
                     
-                    let elt = Element { data: data, sum: data_sum };
+                    let elt = Element::new(data, data_sum);
                     match change_t {
-                        Change::Insert => EltChange::Insertion(elt),
-                        Change::Replace => EltChange::Replacement(elt),
+                        Change::Insert => EltChange::insertion(elt),
+                        Change::Replace => EltChange::replacement(elt),
                         _ => panic!()
                     }
                 }
@@ -133,12 +134,7 @@ pub fn read_log(reader_: &mut Read, receiver: &mut CommitReceiver) -> Result<()>
         }
         
         // TODO: now we've read a commit...
-        let cont = receiver.receive(Commit {
-            statesum: commit_sum,
-            parent: parent_sum,
-            timestamp: (),
-            changes: changes
-        });
+        let cont = receiver.receive(commit_sum, parent_sum, changes);
         if !cont { break; }
     }
     
