@@ -188,7 +188,11 @@ impl EltChange {
 
 // —————  log replay  —————
 
-/// Struct holding data used during log replay
+/// Struct holding data used during log replay.
+///
+/// This stores *all* recreated states since it does not know which may be used
+/// as parents of future commits. API currently only allows access to the tip,
+/// but could be modified.
 struct LogReplay {
     states: HashMap<Sum, RepoState>,
     tips: HashSet<Sum>

@@ -33,12 +33,15 @@ pub struct ReplayError {
 }
 
 impl Error {
+    /// Create a "read" error with read position
     pub fn read(msg: &'static str, pos: usize) -> Error {
         Error::Read(ReadError { msg: msg, pos: pos })
     }
+    /// Create an "invalid argument" error
     pub fn arg(msg: &'static str) -> Error {
         Error::Arg(ArgError { msg: msg })
     }
+    /// Create a "log replay" error
     pub fn replay(msg: &'static str) -> Error {
         Error::Replay(ReplayError { msg: msg })
     }

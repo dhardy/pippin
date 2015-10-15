@@ -20,10 +20,10 @@ mod states;
 // TODO: put data at end and make this an unsized type?
 #[derive(PartialEq,Eq)]
 pub struct Element {
-    /// Element data TODO make private
-    pub data: Rc<Vec<u8>>,
+    /// Element data
+    data: Rc<Vec<u8>>,
     /// Element checksum, used in calculating state sums
-    pub sum: Sum,
+    sum: Sum,
 }
 
 impl Element {

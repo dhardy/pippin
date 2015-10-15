@@ -48,7 +48,7 @@ pub trait DataResource {
     fn append(&mut self, name: &str, len: u64) -> io::Result<io::Write>;
 }*/
 
-// Handle on a repository
+/// Handle on a repository
 pub struct Repo {
     name: String,
     state: RepoState
