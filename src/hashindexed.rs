@@ -10,7 +10,15 @@ use std::collections::hash_set;
 use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;
 
+/// Configures how values are indexd.
 pub trait KeyExtractor<T, K> {
+    /// This function should return a key extracted from the value.
+    /// `eq` and `hash` are implemented on this key.
+    /// 
+    /// Note: in theory the interface could allow implementation of hash and eq
+    /// functions instead of returning a key, which would be necessary where
+    /// the key is not embedded in the value (excepting if the return type were
+    /// changed from `&K` to `K`).
     fn extract_key(value: &T) -> &K;
 }
 
