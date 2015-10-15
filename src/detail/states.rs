@@ -26,8 +26,8 @@ TODO: when partitioning is introduced, some of this will change.
 
 use std::collections::{HashSet, HashMap};
 use std::collections::hash_map::{Keys};
-use std::hash::{Hash, Hasher};
 use std::clone::Clone;
+use hashindexed::{HashIndexed, KeyExtractor};
 
 use detail::{Sum, Element};
 use detail::readwrite::CommitReceiver;
@@ -95,10 +95,16 @@ impl Clone for RepoState {
     }
 }
 
+struct ExtractCommitSum;
+impl KeyExtractor<Commit, Sum> for ExtractCommitSum {
+    fn extract_key(value: &Commit) -> &Sum {
+        &value.statesum
+    }
+}
 
 /// Holds a set of commits
 struct CommitSet {
-    commits: HashSet<Commit>
+    commits: HashIndexed<Commit, Sum, ExtractCommitSum>
 }
 
 impl CommitReceiver for CommitSet {
@@ -145,22 +151,6 @@ struct Commit {
     timestamp: (),
     /// Per-element changes
     changes: HashMap<u64, EltChange>
-}
-
-impl PartialEq<Commit> for Commit {
-    fn eq(&self, other: &Commit) -> bool {
-        //TODO: should we *assert* that other fields of self and other and
-        // equal? If two paths to the same result exist, we may silently drop
-        // one of those paths. Provided the result *is* the same (not a hash
-        // collision), presumably this is okay...
-        self.statesum == other.statesum
-    }
-}
-impl Eq for Commit {}
-impl Hash for Commit {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.statesum.hash(state)
-    }
 }
 
 /// Per-element changes

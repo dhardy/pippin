@@ -2,7 +2,6 @@
 
 use std::fmt;
 use std::rc::Rc;
-use std::collections::HashMap;
 use std::clone::Clone;
 
 pub use self::readwrite::{FileHeader, read_head, write_head, validate_repo_name};
@@ -20,10 +19,10 @@ mod states;
 // TODO: put data at end and make this an unsized type?
 #[derive(PartialEq,Eq)]
 pub struct Element {
-    /// Element data
-    data: Rc<Vec<u8>>,
     /// Element checksum, used in calculating state sums
     sum: Sum,
+    /// Element data
+    data: Rc<Vec<u8>>,
 }
 
 impl Element {

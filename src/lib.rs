@@ -12,20 +12,20 @@ extern crate chrono;
 extern crate byteorder;
 
 use std::{io, fs};
-use std::collections::HashMap;
 use std::collections::hash_map::{Keys};
 use std::path::Path;
 use std::convert::AsRef;
 
 use detail::{FileHeader, read_head, write_head, validate_repo_name};
 use detail::{read_snapshot, write_snapshot};
-use detail::{Sum, RepoState};
+use detail::{RepoState};
 
 pub use detail::{Element};
 pub use error::{Error, Result};
 
 pub mod error;
 mod detail;
+mod hashindexed;
 
 /// Version. The low 16 bits are patch number, next 16 are the minor version
 /// number, the next are the major version number. The top 16 are zero.
