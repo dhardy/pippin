@@ -10,6 +10,7 @@ pub type Result<T> = result::Result<T, Error>;
 pub enum Error {
     Read(ReadError),
     Arg(ArgError),
+    Replay(ReplayError),
     Io(io::Error),
     Utf8(string::FromUtf8Error),
 }
@@ -25,12 +26,21 @@ pub struct ArgError {
     msg: &'static str
 }
 
+/// Errors in log replay (due either to corruption or providing incompatible
+/// states and commit logs)
+pub struct ReplayError {
+    msg: &'static str
+}
+
 impl Error {
     pub fn read(msg: &'static str, pos: usize) -> Error {
         Error::Read(ReadError { msg: msg, pos: pos })
     }
     pub fn arg(msg: &'static str) -> Error {
         Error::Arg(ArgError { msg: msg })
+    }
+    pub fn replay(msg: &'static str) -> Error {
+        Error::Replay(ReplayError { msg: msg })
     }
 }
 
@@ -40,6 +50,7 @@ impl error::Error for Error {
         match *self {
             Error::Read(ref e) => e.msg,
             Error::Arg(ref e) => e.msg,
+            Error::Replay(ref e) => e.msg,
             Error::Io(ref e) => e.description(),
             Error::Utf8(ref e) => e.description(),
         }
@@ -50,6 +61,7 @@ impl fmt::Display for Error {
         match *self {
             Error::Read(ref e) => write!(f, "Position {}: {}", e.pos, e.msg),
             Error::Arg(ref e) => write!(f, "Invalid argument: {}", e.msg),
+            Error::Replay(ref e) => write!(f, "Failed to recreate state from log: {}", e.msg),
             Error::Io(ref e) => e.fmt(f),
             Error::Utf8(ref e) => e.fmt(f),
         }
@@ -60,6 +72,7 @@ impl fmt::Debug for Error {
         match *self {
             Error::Read(ref e) => write!(f, "Position {}: {}", e.pos, e.msg),
             Error::Arg(ref e) => write!(f, "Invalid argument: {}", e.msg),
+            Error::Replay(ref e) => write!(f, "Failed to recreate state from log: {}", e.msg),
             Error::Io(ref e) => e.fmt(f),
             Error::Utf8(ref e) => e.fmt(f),
         }
@@ -72,6 +85,9 @@ impl From<ReadError> for Error {
 }
 impl From<ArgError> for Error {
     fn from(e: ArgError) -> Error { Error::Arg(e) }
+}
+impl From<ReplayError> for Error {
+    fn from(e: ReplayError) -> Error { Error::Replay(e) }
 }
 impl From<io::Error> for Error {
     fn from(e: io::Error) -> Error { Error::Io(e) }

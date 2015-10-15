@@ -3,6 +3,7 @@
 use std::fmt;
 use std::rc::Rc;
 use std::collections::HashMap;
+use std::clone::Clone;
 
 pub use self::readwrite::{FileHeader, read_head, write_head, validate_repo_name};
 pub use self::readwrite::{read_snapshot, write_snapshot};
@@ -61,5 +62,11 @@ impl Element {
 impl fmt::Debug for Element {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "element (len {})", self.data.len())
+    }
+}
+impl Clone for Element {
+    /// Elements are Copy-On-Write, so cloning is cheap
+    fn clone(&self) -> Self {
+        Element { data: self.data.clone(), sum: self.sum }
     }
 }

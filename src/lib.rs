@@ -140,9 +140,9 @@ impl Repo {
         self.state.get_elt(id)
     }
     
-    /// Insert an element and return true, unless the id is already used in
-    /// which case the function does nothing but return false.
-    pub fn insert_elt(&mut self, id: u64, elt: Element) -> bool {
+    /// Insert an element and return (), unless the id is already used in
+    /// which case the function stops with an error.
+    pub fn insert_elt(&mut self, id: u64, elt: Element) -> Result<()> {
         self.state.insert_elt(id, elt)
     }
     

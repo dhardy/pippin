@@ -27,9 +27,11 @@ TODO: when partitioning is introduced, some of this will change.
 use std::collections::{HashSet, HashMap};
 use std::collections::hash_map::{Keys};
 use std::hash::{Hash, Hasher};
+use std::clone::Clone;
 
 use detail::{Sum, Element};
 use detail::readwrite::CommitReceiver;
+use ::{Result, Error};
 
 /// State of the repository (see module doc)
 #[derive(PartialEq,Eq,Debug)]
@@ -67,12 +69,29 @@ impl RepoState {
     pub fn elt_ids(&self) -> Keys<u64, Element> {
         self.elts.keys()
     }
-    /// Insert an element and return true, unless the id is already used in
-    /// which case the function does nothing but return false.
-    pub fn insert_elt(&mut self, id: u64, elt: Element) -> bool {
-        if self.elts.contains_key(&id) { return false; }
+    /// Insert an element and return (), unless the id is already used in
+    /// which case the function stops with an error.
+    pub fn insert_elt(&mut self, id: u64, elt: Element) -> Result<()> {
+        if self.elts.contains_key(&id) { return Err(Error::arg("insertion conflicts with an existing element")); }
         self.elts.insert(id, elt);
-        true
+        Ok(())
+    }
+    /// Replace an existing element and return the replaced element, unless the
+    /// id is not already used in which case the function stops with an error.
+    pub fn replace_elt(&mut self, id: u64, elt: Element) -> Result<Element> {
+        self.elts.insert(id, elt).ok_or(Error::arg("replacement failed: no existing element"))
+    }
+    /// Remove an element, returning it.
+    pub fn remove_elt(&mut self, id: u64) -> Result<Element> {
+        self.elts.remove(&id).ok_or(Error::arg("deletion failed: no element"))
+    }
+}
+
+impl Clone for RepoState {
+    /// Clone the state. Elements are considered Copy-On-Write so cloning the
+    /// state is not particularly expensive.
+    fn clone(&self) -> Self {
+        RepoState { elts: self.elts.clone() }
     }
 }
 
@@ -163,5 +182,95 @@ impl EltChange {
     }
     pub fn deletion() -> EltChange {
         EltChange::Deletion
+    }
+}
+
+
+// —————  log replay  —————
+
+/// Struct holding data used during log replay
+struct LogReplay {
+    states: HashMap<Sum, RepoState>,
+    tips: HashSet<Sum>
+}
+
+impl LogReplay {
+    /// Create the structure from an initial state and sum
+    pub fn from_initial(state: RepoState, sum: Sum) -> LogReplay {
+        let mut states = HashMap::new();
+        states.insert(sum, state);
+        let mut tips = HashSet::new();
+        tips.insert(sum);
+        LogReplay { states: states, tips: tips }
+    }
+    
+    /// Recreate all known states from a set of commits. On success, return a
+    /// reference to self. Will fail if a commit applies to an unknown state or
+    /// any checksum is incorrect.
+    pub fn replay(&mut self, commits: CommitSet) -> Result<&Self> {
+        for commit in commits.commits {
+            let mut sum = commit.parent;
+            let mut state = try!(self.states.get(&commit.parent)
+                .ok_or(Error::replay("parent state of commit not found")))
+                .clone();
+            
+            for (id,change) in commit.changes {
+                match change {
+                    EltChange::Deletion => {
+                        let removed = try!(state.remove_elt(id));
+                        sum = sum ^ removed.sum;
+                    },
+                    EltChange::Insertion(elt) => {
+                        sum = sum ^ elt.sum;
+                        try!(state.insert_elt(id, elt));
+                    }
+                    EltChange::Replacement(elt) => {
+                        sum = sum ^ elt.sum;
+                        let replaced = try!(state.replace_elt(id, elt));
+                        sum = sum ^ replaced.sum;
+                    }
+                }
+            }
+            
+            if sum != commit.statesum {
+                return Err(Error::replay("checksum failure of replayed commit"));
+            }
+            //TODO: what if there's a collision now??
+            self.states.insert(sum, state);
+            
+            self.tips.insert(sum);
+            self.tips.remove(&commit.parent);
+        }
+        Ok(self)
+    }
+    
+    /// Merge all latest states into a single tip.
+    pub fn merge(&mut self) -> Result<&Self> {
+        //TODO
+        Ok(self)
+    }
+    
+    /// Return the latest state, if there is a single latest state; otherwise
+    /// fail. You should probably call merge() first to make sure these is only
+    /// a single latest state.
+    pub fn tip(&self) -> Result<&RepoState> {
+        let tip = try!(self.tip_sum());
+        Ok(self.states.get(&tip).expect("tip should point to a state"))
+    }
+    
+    /// As tip(), but consume self and return ownership of the state.
+    pub fn into_tip(mut self) -> Result<RepoState> {
+        let tip = try!(self.tip_sum());
+        Ok(self.states.remove(&tip).expect("tip should point to a state"))
+    }
+    
+    fn tip_sum(&self) -> Result<Sum> {
+        if self.tips.len() > 1 {
+            return Err(Error::replay("no single latest state (merge required)"));
+        }
+        for tip in &self.tips {
+            return Ok(*tip);
+        }
+        panic!("There should be at least one tip!")
     }
 }

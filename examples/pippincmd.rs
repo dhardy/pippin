@@ -108,24 +108,23 @@ fn main_inner(args: Args) -> Result<()> {
                 println!("  {}", id);
             }
         } else if args.cmd_get {
-            let elt = extract(args.arg_id, "<id>");
+            let id = extract(args.arg_id, "<id>");
             
-            match repo.get_element(elt) {
-                None => { println!("No element {}", elt); },
+            match repo.get_element(id) {
+                None => { println!("No element {}", id); },
                 Some(d) => {
-                    println!("Element {}:", elt);
+                    println!("Element {}:", id);
                     println!("{}", String::from_utf8_lossy(d.data()));
                 }
             }
         } else if args.cmd_insert {
-            let elt = extract(args.arg_id, "<id>");
+            let id = extract(args.arg_id, "<id>");
             let data = extract(args.arg_data, "<data>");
             
-            if repo.insert_elt(elt, Element::from_vec(data.into())) {
-                println!("Element {} inserted.", elt);
-            } else {
-                println!("Element {} already exists!", elt);
-            }
+            match repo.insert_elt(id, Element::from_vec(data.into())) {
+                Ok(()) => { println!("Element {} inserted.", id); },
+                Err(e) => { println!("Element {} couldn't be inserted: {}", id, e); }
+            };
             
             //TODO: only if changed
             try!(repo.save_file(&path));
