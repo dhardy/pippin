@@ -27,7 +27,6 @@ TODO: when partitioning is introduced, some of this will change.
 use std::collections::{HashSet, HashMap};
 use std::collections::hash_map::{Keys};
 use std::clone::Clone;
-use hashindexed::{HashIndexed, KeyComparator};
 
 use detail::{Sum, Element};
 use detail::readwrite::CommitReceiver;
@@ -120,26 +119,29 @@ impl Clone for RepoState {
     }
 }
 
-struct CommitSumComparator;
-impl KeyComparator<Commit, Sum> for CommitSumComparator {
-    fn extract_key(value: &Commit) -> &Sum {
-        &value.statesum
-    }
-}
-
 /// Holds a set of commits
 struct CommitSet {
-    commits: HashIndexed<Commit, Sum, CommitSumComparator>
+    // These must be ordered. We only ever access by iteration so a `Vec` is
+    // fine.
+    commits: Vec<Commit>
+}
+
+impl CommitSet {
+    pub fn new() -> CommitSet {
+        CommitSet { commits: Vec::new() }
+    }
+    pub fn push(&mut self, commit: Commit) {
+        self.commits.push(commit);
+    }
 }
 
 impl CommitReceiver for CommitSet {
     fn receive(&mut self, statesum: Sum, parent: Sum,
         changes: HashMap<u64, EltChange>) -> bool {
         
-        let key_already_present = !self.commits.insert(
+        self.commits.push(
             Commit { statesum: statesum, parent: parent, changes: changes });
-        if key_already_present {
-            //TODO: what should we do about this case?
+            //TODO: what should we do when commit statesums clash?
             //
             // Possible exploit: someone forks the repo, creates a new state
             // decending from an ancestor of commit X but with checksum
@@ -153,9 +155,6 @@ impl CommitReceiver for CommitSet {
             // Possible bug: a commit reverts to the previous state, thus its
             // sum collides with that of an ancestor commit. This could be
             // problematic!
-            println!("Warning: multiple commits reach the same checksum (and \
-                presumably state). Some will be ignored.");
-        }
         
         true    // continue reading to EOF
     }
@@ -252,8 +251,9 @@ struct LogReplay {
 
 impl LogReplay {
     /// Create the structure from an initial state and sum
-    pub fn from_initial(state: RepoState, sum: Sum) -> LogReplay {
+    pub fn from_initial(state: RepoState) -> LogReplay {
         let mut states = HashMap::new();
+        let sum = state.statesum();
         states.insert(sum, state);
         let mut tips = HashSet::new();
         tips.insert(sum);
@@ -297,7 +297,7 @@ impl LogReplay {
     
     /// Merge all latest states into a single tip.
     pub fn merge(&mut self) -> Result<&Self> {
-        //TODO
+        //TODO: write and test
         Ok(self)
     }
     
@@ -324,4 +324,38 @@ impl LogReplay {
         }
         panic!("There should be at least one tip!")
     }
+}
+
+
+#[test]
+fn commit_creation_and_replay(){
+    let mut state = RepoState::new();
+    let mut commits = CommitSet::new();
+    
+    state.insert_elt(1, Element::from_str("one")).unwrap();
+    state.insert_elt(2, Element::from_str("two")).unwrap();
+    let state_a = state.clone();
+    
+    state.insert_elt(3, Element::from_str("three")).unwrap();
+    state.insert_elt(4, Element::from_str("four")).unwrap();
+    state.insert_elt(5, Element::from_str("five")).unwrap();
+    let state_b = state.clone();
+    commits.push(Commit::from_diff(&state_a, &state_b));
+    
+    state.insert_elt(6, Element::from_str("six")).unwrap();
+    state.insert_elt(7, Element::from_str("seven")).unwrap();
+    state.remove_elt(4).unwrap();
+    state.replace_elt(3, Element::from_str("half six")).unwrap();
+    let state_c = state.clone();
+    commits.push(Commit::from_diff(&state_b, &state_c));
+    
+    state.insert_elt(8, Element::from_str("eight")).unwrap();
+    state.insert_elt(4, Element::from_str("half eight")).unwrap();
+    let state_d = state.clone();
+    commits.push(Commit::from_diff(&state_c, &state_d));
+    
+    let mut replayer = LogReplay::from_initial(state_a);
+    replayer.replay(commits).unwrap();
+    let replayed_state = replayer.into_tip().unwrap();
+    assert_eq!(replayed_state, state_d);
 }
