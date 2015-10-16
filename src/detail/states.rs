@@ -93,7 +93,7 @@ impl RepoState {
     pub fn replace_elt(&mut self, id: u64, elt: Element) -> Result<Element> {
         self.statesum = self.statesum ^ elt.sum();
         match self.elts.insert(id, elt) {
-            None => Err(Error::arg("replacement failed: no existing element")),
+            None => Err(Error::no_elt("replacement failed: no existing element")),
             Some(removed) => {
                 self.statesum = self.statesum ^ removed.sum();
                 Ok(removed)
@@ -103,7 +103,7 @@ impl RepoState {
     /// Remove an element, returning it.
     pub fn remove_elt(&mut self, id: u64) -> Result<Element> {
         match self.elts.remove(&id) {
-            None => Err(Error::arg("deletion failed: no element")),
+            None => Err(Error::no_elt("deletion failed: no element")),
             Some(removed) => {
                 self.statesum = self.statesum ^ removed.sum();
                 Ok(removed)
@@ -137,8 +137,7 @@ impl CommitReceiver for CommitSet {
         changes: HashMap<u64, EltChange>) -> bool {
         
         let key_already_present = !self.commits.insert(
-            Commit { statesum: statesum, parent: parent,
-            timestamp: (), changes: changes });
+            Commit { statesum: statesum, parent: parent, changes: changes });
         if key_already_present {
             //TODO: what should we do about this case?
             //
@@ -172,8 +171,6 @@ struct Commit {
     statesum: Sum,
     /// State sum (ID) of parent commit/snapshot
     parent: Sum,
-    /// Time when this commit was made (TODO)
-    timestamp: (),
     /// Per-element changes
     changes: HashMap<u64, EltChange>
 }
@@ -197,6 +194,44 @@ impl EltChange {
     }
     pub fn deletion() -> EltChange {
         EltChange::Deletion
+    }
+}
+
+// —————  patch creation from differences  —————
+
+impl Commit {
+    /// Create a commit from an old state and a new state.
+    /// 
+    /// This is one of two ways to create a commit; the other would be to track
+    /// changes to a state (possibly the latter is the more sensible approach
+    /// for most applications).
+    pub fn from_diff(old_state: &RepoState, new_state: &RepoState) -> Commit {
+        let mut state = new_state.clone();
+        let mut changes = HashMap::new();
+        for (id, old_elt) in old_state.map() {
+            match state.remove_elt(*id) {
+                Ok(new_elt) => {
+                    if new_elt == *old_elt {
+                        /* no change */
+                    } else {
+                        changes.insert(*id, EltChange::replacement(new_elt));
+                    }
+                },
+                Err(Error::NoEltFound(_)) => {
+                    changes.insert(*id, EltChange::deletion());
+                },
+                Err(_) => panic!("should be impossible") /*TODO refactor or deal with this properly*/
+            }
+        }
+        for (id, new_elt) in state.map() /*TODO: into iter*/ {
+            changes.insert(*id, EltChange::insertion(new_elt.clone() /*TODO move not clone*/));
+        }
+        
+        Commit {
+            statesum: new_state.statesum(),
+            parent: old_state.statesum(),
+            changes: changes
+        }
     }
 }
 
@@ -230,7 +265,6 @@ impl LogReplay {
     /// any checksum is incorrect.
     pub fn replay(&mut self, commits: CommitSet) -> Result<&Self> {
         for commit in commits.commits {
-            let mut sum = commit.parent;
             let mut state = try!(self.states.get(&commit.parent)
                 .ok_or(Error::replay("parent state of commit not found")))
                 .clone();
@@ -238,28 +272,24 @@ impl LogReplay {
             for (id,change) in commit.changes {
                 match change {
                     EltChange::Deletion => {
-                        let removed = try!(state.remove_elt(id));
-                        sum = sum ^ removed.sum;
+                        try!(state.remove_elt(id));
                     },
                     EltChange::Insertion(elt) => {
-                        sum = sum ^ elt.sum;
                         try!(state.insert_elt(id, elt));
                     }
                     EltChange::Replacement(elt) => {
-                        sum = sum ^ elt.sum;
-                        let replaced = try!(state.replace_elt(id, elt));
-                        sum = sum ^ replaced.sum;
+                        try!(state.replace_elt(id, elt));
                     }
                 }
             }
             
-            if sum != commit.statesum {
+            if state.statesum() != commit.statesum {
                 return Err(Error::replay("checksum failure of replayed commit"));
             }
             //TODO: what if there's a collision now??
-            self.states.insert(sum, state);
+            self.states.insert(commit.statesum, state);
             
-            self.tips.insert(sum);
+            self.tips.insert(commit.statesum);
             self.tips.remove(&commit.parent);
         }
         Ok(self)
@@ -272,7 +302,7 @@ impl LogReplay {
     }
     
     /// Return the latest state, if there is a single latest state; otherwise
-    /// fail. You should probably call merge() first to make sure these is only
+    /// fail. You should probably call merge() first to make sure there is only
     /// a single latest state.
     pub fn tip(&self) -> Result<&RepoState> {
         let tip = try!(self.tip_sum());

@@ -10,6 +10,8 @@ pub type Result<T> = result::Result<T, Error>;
 pub enum Error {
     Read(ReadError),
     Arg(ArgError),
+    /// No element found for replacement/removal/retrieval
+    NoEltFound(&'static str),
     Replay(ReplayError),
     Io(io::Error),
     Utf8(string::FromUtf8Error),
@@ -41,6 +43,10 @@ impl Error {
     pub fn arg(msg: &'static str) -> Error {
         Error::Arg(ArgError { msg: msg })
     }
+    /// Create a "no element found" error
+    pub fn no_elt(msg: &'static str) -> Error {
+        Error::NoEltFound(msg)
+    }
     /// Create a "log replay" error
     pub fn replay(msg: &'static str) -> Error {
         Error::Replay(ReplayError { msg: msg })
@@ -53,6 +59,7 @@ impl error::Error for Error {
         match *self {
             Error::Read(ref e) => e.msg,
             Error::Arg(ref e) => e.msg,
+            Error::NoEltFound(msg) => msg,
             Error::Replay(ref e) => e.msg,
             Error::Io(ref e) => e.description(),
             Error::Utf8(ref e) => e.description(),
@@ -64,6 +71,7 @@ impl fmt::Display for Error {
         match *self {
             Error::Read(ref e) => write!(f, "Position {}: {}", e.pos, e.msg),
             Error::Arg(ref e) => write!(f, "Invalid argument: {}", e.msg),
+            Error::NoEltFound(msg) => write!(f, "{}", msg),
             Error::Replay(ref e) => write!(f, "Failed to recreate state from log: {}", e.msg),
             Error::Io(ref e) => e.fmt(f),
             Error::Utf8(ref e) => e.fmt(f),
@@ -75,6 +83,7 @@ impl fmt::Debug for Error {
         match *self {
             Error::Read(ref e) => write!(f, "Position {}: {}", e.pos, e.msg),
             Error::Arg(ref e) => write!(f, "Invalid argument: {}", e.msg),
+            Error::NoEltFound(msg) => write!(f, "{}", msg),
             Error::Replay(ref e) => write!(f, "Failed to recreate state from log: {}", e.msg),
             Error::Io(ref e) => e.fmt(f),
             Error::Utf8(ref e) => e.fmt(f),
