@@ -77,6 +77,17 @@ impl<T, K, E> HashIndexed<T, K, E> where E: KeyComparator<T, K>, K: Eq + Hash {
         HashIndexed { set: HashSet::new() }
     }
     
+//     /// Returns a reference to the value corresponding to the key.
+//     /// 
+//     /// The key may be any borrowed form of the container's key type, but Hash
+//     /// and Eq on the borrowed form must match those for the key type.
+//     fn get<Q: ?Sized>(&self, k: &Q) -> Option<&T>
+//         where K: Borrow<Q>, Q: Hash + Eq
+//     {
+//         NOTE: we cannot implement this on top of the current HashMap or HashSet
+//         APIs because they provide no way of getting the key (except iterating).
+//     }
+    
     /// Adds a value to the set. Returns true if the value was not already
     /// present in the collection.
     pub fn insert(&mut self, value: T) -> bool {

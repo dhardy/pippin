@@ -49,6 +49,10 @@ impl Element {
             sum: Sum::calculate(data.as_bytes())
         }
     }
+    
+    /// Get a reference to the checksum
+    pub fn sum(&self) -> Sum { self.sum }
+    
     /// Get a reference to the data (raw)
     pub fn data(&self) -> &[u8] { &*self.data }
     

@@ -6,8 +6,9 @@ use std::ops;
 
 // NOTE: when simd is stable, it could be used
 // use simd::u8x16;
+//TODO: make Debug impl print out hexadecimal dump of sum, not bytes
 /// A convenient way to manage and manipulate a checksum
-#[derive(Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 pub struct Sum {
 //     s1: u8x16, s2: u8x16
     s: [u8; 32]

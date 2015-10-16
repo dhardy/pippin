@@ -1,7 +1,6 @@
 //! Support for reading and writing Rust snapshots
 
 use std::io::{Read, Write};
-use std::collections::HashMap;
 use chrono::UTC;
 use crypto::digest::Digest;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
@@ -11,7 +10,11 @@ use detail::{Sum, Element, RepoState};
 use ::error::{Error, Result};
 
 
-/// Read a snapshot of a set of elements from a stream
+/// Read a snapshot of a set of elements from a stream.
+/// 
+/// This function reads to the end of the snapshot. It does not check whether
+/// this is in fact the end of the file (or other data stream), though
+/// according to the specified file format this should be the case.
 pub fn read_snapshot(reader: &mut Read) -> Result<RepoState> {
     // A reader which calculates the checksum of what was read:
     let mut r = sum::HashReader::new256(reader);
@@ -33,8 +36,7 @@ pub fn read_snapshot(reader: &mut Read) -> Result<RepoState> {
     let num_elts = try!((&buf[24..32]).read_u64::<BigEndian>()) as usize;    // TODO: is cast safe?
     pos += 16;
     
-    let mut elts = HashMap::new();
-    let mut state_sum = Sum::zero();
+    let mut state = RepoState::new();
     for _ in 0..num_elts {
         try!(fill(&mut r, &mut buf[0..32], pos));
         if buf[0..8] != *b"ELEMENT\x00" {
@@ -68,8 +70,7 @@ pub fn read_snapshot(reader: &mut Read) -> Result<RepoState> {
         }
         pos += 32;
         
-        state_sum = state_sum ^ elt_sum;
-        elts.insert(ident, Element::new(data, elt_sum));
+        try!(state.insert_elt(ident, Element::new(data, elt_sum)));
     }
     
     try!(fill(&mut r, &mut buf[0..16], pos));
@@ -84,7 +85,7 @@ pub fn read_snapshot(reader: &mut Read) -> Result<RepoState> {
     pos += 8;
     
     try!(fill(&mut r, &mut buf[0..32], pos));
-    if !state_sum.eq(&buf[0..32]) {
+    if !state.statesum().eq(&buf[0..32]) {
         return Err(Error::read("state checksum mismatch", pos));
     }
     pos += 32;
@@ -98,9 +99,7 @@ pub fn read_snapshot(reader: &mut Read) -> Result<RepoState> {
         return Err(Error::read("checksum mismatch", pos));
     }
     
-    //TODO: verify at end of file?
-    
-    Ok(RepoState::from_hash_map(elts))
+    Ok(state)
 }
 
 /// Write a snapshot of a set of elements to a stream
@@ -119,9 +118,6 @@ pub fn write_snapshot(state: &RepoState, writer: &mut Write) -> Result<()>{
     let num_elts = elts.len() as u64;  // TODO: can we assume cast is safe?
     try!(w.write_u64::<BigEndian>(num_elts));
     
-    // Note: for now we calculate the state checksum whenever we need it. It
-    // may make more sense to store it and/or element sums in the future.
-    let mut state_sum = Sum::zero();
     for (ident, elt) in elts {
         try!(w.write(b"ELEMENT\x00"));
         try!(w.write_u64::<BigEndian>(*ident));
@@ -140,13 +136,13 @@ pub fn write_snapshot(state: &RepoState, writer: &mut Write) -> Result<()>{
         //it or crash if it's wrong??
         let elt_sum = Sum::calculate(&elt.data());
         try!(elt_sum.write(&mut w));
-        
-        state_sum = state_sum ^ elt_sum;
     }
     
+    // We write the checksum we kept in memory, the idea being that in-memory
+    // corruption will be detected on next load.
     try!(w.write(b"STATESUM"));
     try!(w.write_u64::<BigEndian>(num_elts));
-    try!(state_sum.write(&mut w));
+    try!(state.statesum().write(&mut w));
     
     // Write the checksum of everything above:
     assert_eq!( w.digest().output_bytes(), 32 );
@@ -160,7 +156,7 @@ pub fn write_snapshot(state: &RepoState, writer: &mut Write) -> Result<()>{
 
 #[test]
 fn snapshot_writing() {
-    let mut elts = HashMap::new();
+    let mut state = RepoState::new();
     let data = "But I must explain to you how all this \
         mistaken idea of denouncing pleasure and praising pain was born and I \
         will give you a complete account of the system, and expound the \
@@ -176,12 +172,11 @@ fn snapshot_writing() {
         advantage from it? But who has any right to find fault with a man who \
         chooses to enjoy a pleasure that has no annoying consequences, or one \
         who avoids a pain that produces no resultant pleasure?";
-    elts.insert(1, Element::from_str(data));
+    state.insert_elt(1, Element::from_str(data)).unwrap();
     let data = "arstneio[()]123%αρστνειο\
         qwfpluy-QWFPLUY—<{}>456+5≤≥φπλθυ−\
         zxcvm,./ZXCVM;:?`\"ç$0,./ζχψωμ~·÷";
-    elts.insert(0xFEDCBA9876543210, Element::from_str(data));
-    let state = RepoState::from_hash_map(elts);
+    state.insert_elt(0xFEDCBA9876543210, Element::from_str(data)).unwrap();
     
     let mut result = Vec::new();
     assert!(write_snapshot(&state, &mut result).is_ok());

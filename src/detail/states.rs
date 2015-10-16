@@ -36,24 +36,34 @@ use ::{Result, Error};
 /// State of the repository (see module doc)
 #[derive(PartialEq,Eq,Debug)]
 pub struct RepoState {
-    pub elts: HashMap<u64, Element>
+    statesum: Sum,
+    elts: HashMap<u64, Element>
 }
 
 impl RepoState {
     /// Create a new state, with no elements
     pub fn new() -> RepoState {
-        RepoState { elts: HashMap::new() }
+        RepoState { statesum: Sum::zero(), elts: HashMap::new() }
     }
     /// Create from a map of elements
-    pub fn from_hash_map(map: HashMap<u64, Element>) -> RepoState {
-        RepoState { elts: map }
+    pub fn from_hash_map(map: HashMap<u64, Element>, statesum: Sum) -> RepoState {
+        RepoState { statesum: statesum, elts: map }
+    }
+    
+    /// Get the state sum
+    pub fn statesum(&self) -> Sum {
+        self.statesum
     }
     
     /// Get access to the map holding elements
     pub fn map(&self) -> &HashMap<u64, Element> {
         &self.elts
     }
-    /// Get a reference to some element
+    /// Get a reference to some element.
+    /// 
+    /// Note that elements can't be modified directly but must instead be
+    /// replaced, hence there is no version of this function returning a
+    /// mutable reference.
     pub fn get_elt(&self, id: u64) -> Option<&Element> {
         self.elts.get(&id)
     }
@@ -69,21 +79,36 @@ impl RepoState {
     pub fn elt_ids(&self) -> Keys<u64, Element> {
         self.elts.keys()
     }
+    
     /// Insert an element and return (), unless the id is already used in
     /// which case the function stops with an error.
     pub fn insert_elt(&mut self, id: u64, elt: Element) -> Result<()> {
         if self.elts.contains_key(&id) { return Err(Error::arg("insertion conflicts with an existing element")); }
+        self.statesum = self.statesum ^ elt.sum();
         self.elts.insert(id, elt);
         Ok(())
     }
     /// Replace an existing element and return the replaced element, unless the
     /// id is not already used in which case the function stops with an error.
     pub fn replace_elt(&mut self, id: u64, elt: Element) -> Result<Element> {
-        self.elts.insert(id, elt).ok_or(Error::arg("replacement failed: no existing element"))
+        self.statesum = self.statesum ^ elt.sum();
+        match self.elts.insert(id, elt) {
+            None => Err(Error::arg("replacement failed: no existing element")),
+            Some(removed) => {
+                self.statesum = self.statesum ^ removed.sum();
+                Ok(removed)
+            }
+        }
     }
     /// Remove an element, returning it.
     pub fn remove_elt(&mut self, id: u64) -> Result<Element> {
-        self.elts.remove(&id).ok_or(Error::arg("deletion failed: no element"))
+        match self.elts.remove(&id) {
+            None => Err(Error::arg("deletion failed: no element")),
+            Some(removed) => {
+                self.statesum = self.statesum ^ removed.sum();
+                Ok(removed)
+            }
+        }
     }
 }
 
@@ -91,12 +116,12 @@ impl Clone for RepoState {
     /// Clone the state. Elements are considered Copy-On-Write so cloning the
     /// state is not particularly expensive.
     fn clone(&self) -> Self {
-        RepoState { elts: self.elts.clone() }
+        RepoState { statesum: self.statesum, elts: self.elts.clone() }
     }
 }
 
-struct ExtractCommitSum;
-impl KeyComparator<Commit, Sum> for ExtractCommitSum {
+struct CommitSumComparator;
+impl KeyComparator<Commit, Sum> for CommitSumComparator {
     fn extract_key(value: &Commit) -> &Sum {
         &value.statesum
     }
@@ -104,7 +129,7 @@ impl KeyComparator<Commit, Sum> for ExtractCommitSum {
 
 /// Holds a set of commits
 struct CommitSet {
-    commits: HashIndexed<Commit, Sum, ExtractCommitSum>
+    commits: HashIndexed<Commit, Sum, CommitSumComparator>
 }
 
 impl CommitReceiver for CommitSet {
@@ -184,6 +209,8 @@ impl EltChange {
 /// as parents of future commits. API currently only allows access to the tip,
 /// but could be modified.
 struct LogReplay {
+    //TODO: use HashIndexed instead of HashMap to avoid storing the key twice.
+    // Except we cannot since HashIndexed cannot implement get() !
     states: HashMap<Sum, RepoState>,
     tips: HashSet<Sum>
 }
