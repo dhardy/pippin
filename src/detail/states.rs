@@ -27,7 +27,7 @@ TODO: when partitioning is introduced, some of this will change.
 use std::collections::{HashSet, HashMap};
 use std::collections::hash_map::{Keys};
 use std::clone::Clone;
-use hashindexed::{HashIndexed, KeyExtractor};
+use hashindexed::{HashIndexed, KeyComparator};
 
 use detail::{Sum, Element};
 use detail::readwrite::CommitReceiver;
@@ -96,7 +96,7 @@ impl Clone for RepoState {
 }
 
 struct ExtractCommitSum;
-impl KeyExtractor<Commit, Sum> for ExtractCommitSum {
+impl KeyComparator<Commit, Sum> for ExtractCommitSum {
     fn extract_key(value: &Commit) -> &Sum {
         &value.statesum
     }

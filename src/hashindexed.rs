@@ -11,7 +11,11 @@ use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;
 
 /// Configures how values are indexd.
-pub trait KeyExtractor<T, K> {
+/// 
+/// User should either implement extract_key() or implement key_eq() and
+/// key_hash() (in the latter case, extract_key() technically needs an
+/// implementation but will never be used, so it can simply panic).
+pub trait KeyComparator<T, K> where K: Eq + Hash {
     /// This function should return a key extracted from the value.
     /// `eq` and `hash` are implemented on this key.
     /// 
@@ -20,6 +24,16 @@ pub trait KeyExtractor<T, K> {
     /// the key is not embedded in the value (excepting if the return type were
     /// changed from `&K` to `K`).
     fn extract_key(value: &T) -> &K;
+    
+    /// Test equality of keys extracted from given values u, v.
+    fn key_eq(u: &T, v: &T) -> bool {
+        Self::extract_key(u) == Self::extract_key(v)
+    }
+    
+    /// Generate a hash of a key retrieved from a given value.
+    fn key_hash<H: Hasher>(value: &T, state: &mut H) {
+        Self::extract_key(value).hash(state)
+    }
 }
 
 struct IndexableValue<T, K, E> {
@@ -38,16 +52,16 @@ impl<T, K, E> IndexableValue<T, K, E> {
 }
 
 impl<T, K, E> PartialEq<IndexableValue<T, K, E>> for IndexableValue<T, K, E>
-    where E: KeyExtractor<T, K>, K: Eq
+    where E: KeyComparator<T, K>, K: Eq + Hash
 {
     fn eq(&self, other: &IndexableValue<T, K, E>) -> bool {
-        E::extract_key(&self.value) == E::extract_key(&other.value)
+        E::key_eq(&self.value, &other.value)
     }
 }
-impl<T, K, E> Eq for IndexableValue<T, K, E> where E: KeyExtractor<T, K>, K: Eq {}
-impl<T, K, E> Hash for IndexableValue<T, K, E> where E: KeyExtractor<T, K>, K: Hash {
+impl<T, K, E> Eq for IndexableValue<T, K, E> where E: KeyComparator<T, K>, K: Eq + Hash {}
+impl<T, K, E> Hash for IndexableValue<T, K, E> where E: KeyComparator<T, K>, K: Eq + Hash {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        E::extract_key(&self.value).hash(state)
+        E::key_hash(&self.value, state)
     }
 }
 
@@ -57,7 +71,7 @@ pub struct HashIndexed<T, K, E> {
     set: HashSet<IndexableValue<T, K, E>>
 }
 
-impl<T, K, E> HashIndexed<T, K, E> where E: KeyExtractor<T, K>, K: Eq + Hash {
+impl<T, K, E> HashIndexed<T, K, E> where E: KeyComparator<T, K>, K: Eq + Hash {
     /// Creates an empty HashIndexed collection.
     pub fn new() -> HashIndexed<T, K, E> {
         HashIndexed { set: HashSet::new() }
@@ -93,7 +107,7 @@ pub struct IntoIter<T, K, E> {
 }
 
 impl<'a, T, K, E> IntoIterator for &'a HashIndexed<T, K, E>
-    where K: Eq + Hash, E: KeyExtractor<T, K>
+    where K: Eq + Hash, E: KeyComparator<T, K>
 {
     type Item = &'a T;
     type IntoIter = Iter<'a, T, K, E>;
@@ -103,7 +117,7 @@ impl<'a, T, K, E> IntoIterator for &'a HashIndexed<T, K, E>
 }
 
 impl<'a, T, K, E> IntoIterator for HashIndexed<T, K, E>
-    where K: Eq + Hash, E: KeyExtractor<T, K>
+    where K: Eq + Hash, E: KeyComparator<T, K>
 {
     type Item = T;
     type IntoIter = IntoIter<T, K, E>;
