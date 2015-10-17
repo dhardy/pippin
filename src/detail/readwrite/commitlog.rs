@@ -10,7 +10,7 @@ use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use ::{Element};
 use super::{sum, fill};
 use detail::{Sum};
-use detail::states::EltChange;
+use detail::commits::EltChange;
 use ::error::{Error, Result};
 
 /// Implement this to use read_log().

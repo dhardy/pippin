@@ -12,6 +12,7 @@ pub use self::sum::Sum;
 mod readwrite;
 mod sum;
 mod states;
+mod commits;
 
 
 /// Holds an element's data in memory
