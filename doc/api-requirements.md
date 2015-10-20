@@ -1,12 +1,17 @@
 API requirements
 ===========
 
-Paths and partititons
------------------------------
+Partititoning
+----------------
 
-Partitions are what allow datasets to grow large without requiring massive
-memory usage or otherwise impeding performance too much. To some extent it
-is desirable that they are handled implicitly.
+It must be possible to split the repository into multiple partitions
+automatically where the need arises. Partitions allow datasets to grow large
+without requiring massive memory usage, massive files on disk and slow read
+and write operations.
+
+Data must be partitioned using some user-customisable properties so that where
+applications require only some subset of elements loaded, they can avoid
+loading a large proportion of the unrequired elements.
 
 Paths are one possible approach to explicit partitioning aids, the idea being
 that all data items are stored under some path explicitly and partitions are
@@ -14,22 +19,18 @@ created implicitly to span one or more paths. There is no real requirement that
 paths be hierarchical, but there is a definite advantage in having some
 explicit categorisation.
 
-Partitions should be created automatically. One method would be to split
-over-large partitions by placing the N largest "paths" in the partition in a
-new partition, where N equalises the partitions or is the smallest N yielding
-sufficiently large new partitions (possibly creating more than two partitions
-after the split).
-
 
 Load/initialise
 -------------------
 
-The first operation should be to load a collection from disk or to initialise a
-new one. When loading, the program could load the entire dataset, load only
-some of it (e.g. recent data), or simply find out which "paths" are known.
+Operations required:
 
-Load/unload: it may be useful to allow explicit loading and unloading of
-partitions.
+*   initialise a new repository
+*   load an entire repository
+*   load part of the repository according to properties used for partitioning
+    (but selecting partitions automatically)
+*   scan available partitions and list loaded partitions
+*   load/unload specific partitions
 
 
 Read support

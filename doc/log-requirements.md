@@ -4,64 +4,6 @@ Log requirements
 Premise: see "requirements.md" file.
 
 
-Element identifiers
---------------
-
-How should elements be identified?
-
-**By name?** Using a user-defined name would for example make it possible to
-identify the partition containing data associated with some element while only knowing
-the start of the name, but is useless if e.g. the start isn't known or an element is searched
-for by some other criteria.
-
-**By checksum of name?** This helps avoid biased partitioning, but makes searches
-by name harder.
-
-**By some unguessable checksum or random key?** Since searches by full contents
-should be possible in any case, there may not be much advantage to making identifiers
-predictable.
-
-**By time of creation?** This would aid in making partitioning of elements into
-subsets useful, in that one could for example quickly list all mails received recently
-without worrying about archives from last month/year; however finding old messages
-still contained in the inbox would be slower.
-
-### Reasoning of possibilities
-
-Elements need to have an identifier for fast and precise identification (a) for
-use in memory and (b) for use in commits and snapshots in the save files. In
-files, it would in theory be possible to identify elements by their checksums,
-but this would require using an extra lookup table while reconstructing the
-state from a snapshot and commits. In memory, one could:
-
-1.  Put all elements in a vector and use the index. In theory this should work
-    but it might only take a small bug to cause the wrong element to get
-    selected.
-2.  Use some user-defined classifier based on the element's properties. Doable,
-    but in order to be practical the domain needs to be fixed (e.g. `u64`) and
-    the value guaranteed unique. Guaranteeing uniqueness may require perturbing
-    the element, which might require attaching a random number field or similar
-    and, since elements should not change other than when explicitly modified,
-    this requires that the perturbation be done when adding or modifying an
-    element and that the classification function does not change.
-3.  Attach some "id" property for this purpose.
-
-Option 1 is a little fragile. Option 2 is complex, a little fragile, and might
-slow loading of the file to memory. Option 3 is therefore selected, also
-because it avoids the need for an extra lookup table during loading.
-
-Identifiers could be assigned randomly, sequentually or from some property of
-the element (e.g. from a checksum). I see no particular advantage any of these
-methods has over others save that sequentual allocation might make vec-maps
-usable but requires more work when combining partitions.
-
-Note: the identifier is only required to be unique to the API "partition" and
-the file; further, since not all partitions may be loaded, it may not be
-reasonably possible to ensure global uniqueness. This implies that if
-partitions are ever combined, it may be required to alter identifiers, which
-means either there must be an API for this or identifiers must be assignable
-by the library.
-
 
 Partitioning
 ------------
@@ -90,6 +32,23 @@ can be read and edited quickly even if the entire data-set or history is huge.
 
 Rewriting: it would probably make sense if old entries are never removed from
 the history log but can be "deleted" from some partition by a new log entry.
+
+### Inter-partition integrity
+
+Given that an element is moved from one partition to another, how can you
+ensure it is neither lost nor duplicated during the move?
+
+Option 1) record details of the move in both partitions. When loading either,
+force loading of the other to check that the move was indeed recorded there
+too. In the worst case this could force loading of all partitions, which
+defeats the purpose of partitioning; note however that "loading" could be
+short-cut to just "check the log".
+
+Option 2) record details in the destination log first and possibly verify this,
+then commit to the source log. Does not protect against duplication.
+
+Option 3) admit to users of the library that moves between partitions are not
+fully safeguarded.
 
 ### Partitions, files and identification
 
@@ -191,19 +150,6 @@ It would be desirable that two nodes performing compaction independently but
 then synchronising would end up with the same result, even if compaction were
 done in multiple stages on one node. There should be some fixed algorithm for
 choosing which time-points to keep.
-
-
-Checksums
----------------
-
-Checksums should be added such that (a) data corruption can be detected and (b)
-replay of log-entries can be verified.
-
-State checksums: a deterministic method of producing a single checksum on the
-full current state of a partition (data of all entries). Question: combine entry
-data in a commutative method or not? For: easier parallelisation of calculation,
-should be possible to calculate the new checksum from the old and a knowledge
-of changed entries; against: nothing?
 
 
 Evaluation of options

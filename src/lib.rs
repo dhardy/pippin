@@ -31,6 +31,11 @@ mod hashindexed;
 /// number, the next are the major version number. The top 16 are zero.
 pub const LIB_VERSION: u64 = 0x0000_0000_0000;
 
+/// Interface provides:
+/// 
+/// 1) a list of 
+
+
 /*TODO: partitions/generic resources
 // Method of providing partition data
 pub trait DataResource {

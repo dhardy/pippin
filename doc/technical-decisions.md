@@ -33,12 +33,6 @@ History log (commits):
 Identifiers
 ------------------
 
-Most identifiers will be ASCII and right-padded to 8 or 16 bytes with space
-(0x20) bytes, or they will be binary.
-
-File format: 16 bytes: PIPPIN-space-YYYYMMDD-space (e.g. `PIPPIN 20150916 `). It is expected
-that many versions get created but that few survive to the release stage.
-
 Commit identifiers: use the commit checksum as an identifier like git etc.,
 *but* this is only to identify the commit (as a patch between two states of the
 repository). Use state checksums to identify repository states.
@@ -48,23 +42,27 @@ to deleting old history, commits will either be forgotten entirely or merged
 into larger commits with new checksums. State checksums, however, will remain
 the same (for those states which survive).
 
+TODO: revisit commit identifiers (do we need them?) and state identifiers
+(should there be a commit number or something added to prevent a revert commit
+returning to a previous state sum?).
+
 Initial state: give it a special identifier, all zeros (i.e. the result of XOR
 combining zero element checksums).
 
-Element identifiers will be 64-bit unsigned numbers unique to the
-file/partition. There may be an API for suggesting identifiers but the library
-will give final approval/disapproval. It may be necessary to change identifiers
-in the case that partitions are joined. Rationale: uniqueness to the partition
-is important, uniqueness beyond that is hard to determine when partitioning
-means that not all elements are loaded.
+### Element identifiers
+
+Element identifiers are a unique `u64` (unsigned 64-bit number). The first
+32 bits (high part) is fixed for the partition or some subset of the partition
+(TBD). The low 32 bits are simply a number unique within the subset using the
+high 32-bit number. (Example: a partition might use 123 as the high part. A new
+element can be assigned any 32-bit number unique within the partition, e.g. 5.
+The element identifier would then be 123 × (2^32) + 5.)
 
 
-Elements
+Element data
 ------------
 
-Elements have a 64-bit unique numeric identifier and a checksum.
-
-TBD: rest of data (user-defined format?).
+For now this is just a binary byte array. TBD.
 
 
 Partitions
@@ -86,10 +84,36 @@ than warn of this.
 
 ### Classifiers
 
-User-defined functions map from elements to values. TBD: domain of the functions
-(multiple options, generic, only a fixed number?).
+Classifiers are user-defined functions mapping elements to a number, which is
+either a user defined enumeration or a user-defined range of integers (TBD:
+32-bit? signed?). Each function must have a name (TBD: allowable identifiers).
 
-Priority of the classifier functions is user defined.
+The names of classifier functions and their domains (enumeration or integer
+range) are recorded in each snapshot and may not change. The functions
+themselves are provided by the user and *should* not change; if they do, the
+library will provide options for dealing with this (search by iteration over
+all elements of a partitioning, reclassification of all elements in a
+partition), but searching/filtering by classifiers may not return the correct
+elements until reclassification is complete.
+
+Classifier functions may not be removed (as a work-around, they can be changed
+to output only a single value and values reclassified). New classifier
+functions may be added with lowest priority but will only be recorded in new
+snapshots.
+
+It is an error if snapshots do not agree on classifier function domains with
+either other snapshots or the user-provided functions. It is an error if
+snapshots record classifier functions not provided by the user. In either case,
+the library may provide only limited functionality (e.g. read-only with limited
+search capabilities or require reclassification of all partitions), or the
+library may simply crash with a suitable error message.
+
+Priority of the classifier functions is user defined. This is recorded in
+snapshots but may be changed; however partitioning will not be changed until
+either the user or the library decides to repartition.
+In the mean time, existing snapshots may or may not be updated
+with the new priorities while new snapshots will record the new priorities but
+continue to represent the old partition.
 
 ### Identifiers
 
