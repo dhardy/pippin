@@ -36,9 +36,9 @@ impl RepoState {
     }
     
     /// Get the state sum
-    pub fn statesum(&self) -> Sum {
-        self.statesum
-    }
+    pub fn statesum(&self) -> Sum { self.statesum }
+    /// Get the state sum by reference
+    pub fn statesum_ref(&self) -> &Sum { &self.statesum }
     
     /// Get access to the map holding elements
     pub fn map(&self) -> &HashMap<u64, Element> {

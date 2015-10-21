@@ -7,6 +7,9 @@
 // could be replaced with a stub function if needing to use stable releases
 #![feature(vec_resize)]
 
+// used in hashindexed
+#![feature(set_recovery)]
+
 extern crate crypto;
 extern crate chrono;
 extern crate byteorder;
@@ -25,7 +28,8 @@ pub use error::{Error, Result};
 
 pub mod error;
 mod detail;
-mod hashindexed;
+//TODO: this could be moved to a separate crate
+pub mod hashindexed;
 
 /// Version. The low 16 bits are patch number, next 16 are the minor version
 /// number, the next are the major version number. The top 16 are zero.

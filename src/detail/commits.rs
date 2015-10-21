@@ -6,6 +6,7 @@ use std::clone::Clone;
 use detail::{Sum, Element, RepoState};
 use detail::readwrite::CommitReceiver;
 use ::{Result, Error};
+use hashindexed::{HashIndexed, KeyComparator};
 
 
 /// Holds a set of commits, ordered by insertion order.
@@ -130,24 +131,29 @@ impl Commit {
 
 // —————  log replay  —————
 
+struct SumComparator;
+impl KeyComparator<RepoState, Sum> for SumComparator {
+    fn extract_key(value: &RepoState) -> &Sum {
+        value.statesum_ref()
+    }
+}
+
 /// Struct holding data used during log replay.
 ///
 /// This stores *all* recreated states since it does not know which may be used
 /// as parents of future commits. API currently only allows access to the tip,
 /// but could be modified.
 struct LogReplay {
-    //TODO: use HashIndexed instead of HashMap to avoid storing the key twice.
-    // Except we cannot since HashIndexed cannot implement get() !
-    states: HashMap<Sum, RepoState>,
+    states: HashIndexed<RepoState, Sum, SumComparator>,
     tips: HashSet<Sum>
 }
 
 impl LogReplay {
     /// Create the structure from an initial state and sum
     pub fn from_initial(state: RepoState) -> LogReplay {
-        let mut states = HashMap::new();
+        let mut states = HashIndexed::new();
         let sum = state.statesum();
-        states.insert(sum, state);
+        states.insert(state);
         let mut tips = HashSet::new();
         tips.insert(sum);
         LogReplay { states: states, tips: tips }
@@ -180,7 +186,7 @@ impl LogReplay {
                 return Err(Error::replay("checksum failure of replayed commit"));
             }
             //TODO: what if there's a collision now??
-            self.states.insert(commit.statesum, state);
+            self.states.insert(state);
             
             self.tips.insert(commit.statesum);
             self.tips.remove(&commit.parent);
