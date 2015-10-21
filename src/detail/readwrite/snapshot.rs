@@ -20,8 +20,7 @@ pub fn read_snapshot(reader: &mut Read) -> Result<RepoState> {
     let mut r = sum::HashReader::new256(reader);
     
     let mut pos: usize = 0;
-    let mut buf = Vec::new();
-    buf.resize(32, 0);
+    let mut buf = vec![0; 32];
     
     try!(fill(&mut r, &mut buf[0..32], pos));
     if buf[0..8] != *b"SNAPSHOT" {
@@ -52,8 +51,7 @@ pub fn read_snapshot(reader: &mut Read) -> Result<RepoState> {
         let data_len = try!((&buf[24..32]).read_u64::<BigEndian>()) as usize;   //TODO is cast safe?
         pos += 16;
         
-        let mut data = Vec::new();
-        data.resize(data_len, 0);
+        let mut data = vec![0; data_len];
         try!(fill(&mut r, &mut data, pos));
         pos += data_len;
         

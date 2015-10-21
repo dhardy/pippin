@@ -24,8 +24,7 @@ pub trait CommitReceiver {
 pub fn read_log(reader_: &mut Read, receiver: &mut CommitReceiver) -> Result<()> {
     let mut reader = reader_;
     let mut pos: usize = 0;
-    let mut buf = Vec::new();
-    buf.resize(32, 0);
+    let mut buf = vec![0; 32];
     
     try!(fill(&mut reader, &mut buf[0..32], pos));
     if buf[0..16] != *b"COMMIT LOG\x00\x00\x00\x00\x00\x00" {
@@ -91,8 +90,7 @@ pub fn read_log(reader_: &mut Read, receiver: &mut CommitReceiver) -> Result<()>
                     let data_len = try!((&buf[8..16]).read_u64::<BigEndian>()) as usize;   //TODO is cast safe?
                     pos += 16;
                     
-                    let mut data = Vec::new();
-                    data.resize(data_len, 0);
+                    let mut data = vec![0; data_len];
                     try!(fill(&mut r, &mut data, pos));
                     pos += data_len;
                     

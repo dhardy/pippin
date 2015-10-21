@@ -21,8 +21,7 @@ pub fn read_head(r: &mut io::Read) -> Result<FileHeader> {
     let mut sum_reader = sum::HashReader::new256(r);
     
     let mut pos: usize = 0;
-    let mut buf = Vec::new();
-    buf.resize(16, 0);
+    let mut buf = vec![0; 16];
     
     try!(fill(&mut sum_reader, &mut buf[0..16], pos));
     if buf != FILE_HEAD {
