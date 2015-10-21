@@ -1,77 +1,110 @@
 API requirements
 ===========
 
-Partititoning
-----------------
+Partitions
+-----------
 
-It must be possible to split the repository into multiple partitions
-automatically where the need arises. Partitions allow datasets to grow large
-without requiring massive memory usage, massive files on disk and slow read
-and write operations.
+There should be an interface representing a single partition's data in memory;
+call this `Partition`.
 
-Data must be partitioned using some user-customisable properties so that where
-applications require only some subset of elements loaded, they can avoid
-loading a large proportion of the unrequired elements.
+A `Partition` should be able to represent multiple states of its data; this is
+needed for commit replay and commit creation, as well as for history browsing.
+In particular, a `Partition` must represent at least two states (which may be
+equal): the current state, and the last saved state.
 
-Paths are one possible approach to explicit partitioning aids, the idea being
-that all data items are stored under some path explicitly and partitions are
-created implicitly to span one or more paths. There is no real requirement that
-paths be hierarchical, but there is a definite advantage in having some
-explicit categorisation.
+Interfaces for creating a `Partition`:
 
+1.  Create empty
+2.  Load all snapshots and commit logs provided by some interface
+3.  Ditto, but with restrictions (e.g. only latest state)
 
-Load/initialise
--------------------
+Interfaces for modifying a `Partition`:
 
-Operations required:
+1.  Load more snapshots/logs provided initially, optionally with restrictions
+2.  Modify the current state, by:
+    
+    *   inserting an element
+    *   replacing an element
+    *   deleting an element
+3.  Create a new commit from the current state
+4.  Writting all changes to a commit log (automatically choosing whether or not
+    to additionally create a new snapshot)
+5.  Write a new snapshot
 
-*   initialise a new repository
-*   load an entire repository
-*   load part of the repository according to properties used for partitioning
-    (but selecting partitions automatically)
-*   scan available partitions and list loaded partitions
-*   load/unload specific partitions
+Interfaces for reading data from a `Partition`:
 
+1.  List element identifiers
+2.  Iterate over elements, perhaps with filters
+3.  Retrieve a specified element
 
-Read support
-------------------
-
-Get item: given a full path/identifier, return the specified item in full.
-
-Enumerate: given a path (some type of partition specifier), list identifiers
-for all relevant items.
-
-List: as enumerate, but including whichever details are asked for (e.g. name,
-subject, full contents). From the point of view of the storage format, listing
-any details besides identifier *may* require more work than simply enumerating
-identifiers. Restricting the contents listed (e.g. to just a "subject" field)
-will not be different, except that some kind of filter will be used to map full
-details to those requested.
-
-Search: given some possible restrictions on partitions, execute some selective
-function capable of extracting desired contents and performing tests against
-them, saving any details it wishes to some external container. Essentially this
-is a convenience wrapper around the list functionality, except that allows easy
-parallelisations (so long as whatever manipulations of external containers are
-used don't result in too much locking/waiting).
-
-List paths/partitions: return information on the paths or partition specifiers
-used. Maybe list all at once or maybe only relative ones and not recursively.
-
-List partitions: this is an implementation detail which the user shouldn't
-really need to know.
+Note that this is incomplete: some mechanism is required in order to (a)
+provide snapshot and commit log data streams for loading, (b) provide a data
+stream for writing a new snapshot, (c) provide a data stream for writing a
+commit log as well as removing obsolete commit logs.
 
 
-Write support
------------------
+### Partition file discovery
 
-Add/replace item: given a full identifier and contents, insert a new item (or
-possibly replace an existing item).
+There should be some interface for discovering partition snapshots and log
+files given a path to a snapshot file, either limited to the specified snapshot
+file plus its commit logs, or resolving all snapshots and commit logs for the
+same partition.
 
-Modify item: rewrite some given field of an item.
+Creation:
 
-Flush: should changes be written immediately or later? Or immediately to a
-"temporary" file and later more permanently?
+1.  Snapshot only, via path
+2.  1 + find corresponding commit logs
+3.  Extrapolate to all files for the partition
+
+Interface: this should implement some trait used by `Partition`, allowing
+retrieval of the latest snapshot, all snapshots in historical order, commit
+logs for each snapshot (maybe via a sub-interface), creation of new snapshot
+files (more accurately writable streams), and creation of new log files.
+
+
+Repositories
+--------------
+
+An interface for representing a multiple-partition repository in memory is
+required; call this `Repository`.
+
+A repository could be created:
+
+1.  Empty, with a name and some classifier functions (possibly empty)
+2.  Loading partitioning data given some data source
+
+It could then provide:
+
+1.  A list of partitions available and partitions loaded
+
+and could be modified by:
+
+1.  Loading all partitions at the latest state
+2.  Loading or unloading a specific partition
+3.  Per element operations, which optionally load on demand:
+    
+    *   iterate over elements according to some filters
+    *   insertion of an element
+    *   deletion of an element
+    *   replacement of an element
+    *   retrieval of an element by id
+4.  Adding a classifier function
+5.  Reprioritising classifier functions
+6.  Repartitioning some or all data
+7.  Committing all changes
+
+### Repository discovery
+
+There should be some interface for discovering partition files given a
+repository's location (directory or any one snapshot).
+
+It would implement a trait provided alongside `Repository`, returning a list of
+partitions found, each as a partition file discovery object. It would also be
+used to store new partitions.
+
+Note: this leaves interpretation of partitioning to `Repository`, not the
+discovery tool. This is better for the case where the discovery tool is not
+used.
 
 
 Maintenance operations
