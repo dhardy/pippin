@@ -2,9 +2,9 @@
 
 use std::collections::{HashSet, HashMap, hash_map};
 use std::clone::Clone;
-use hashindexed::{HashIndexed, KeyComparator};
+use hashindexed::HashIndexed;
 
-use detail::{Sum, Element, RepoState};
+use detail::{Sum, Element, PartitionState, PartitionStateSumComparator};
 use detail::readwrite::CommitReceiver;
 use ::{Result, Error};
 
@@ -111,7 +111,7 @@ impl Commit {
     /// This is one of two ways to create a commit; the other would be to track
     /// changes to a state (possibly the latter is the more sensible approach
     /// for most applications).
-    pub fn from_diff(old_state: &RepoState, new_state: &RepoState) -> Commit {
+    pub fn from_diff(old_state: &PartitionState, new_state: &PartitionState) -> Commit {
         let mut state = new_state.clone();
         let mut changes = HashMap::new();
         for (id, old_elt) in old_state.map() {
@@ -149,26 +149,19 @@ impl Commit {
 
 // —————  log replay  —————
 
-struct SumComparator;
-impl KeyComparator<RepoState, Sum> for SumComparator {
-    fn extract_key(value: &RepoState) -> &Sum {
-        value.statesum_ref()
-    }
-}
-
 /// Struct holding data used during log replay.
 ///
 /// This stores *all* recreated states since it does not know which may be used
 /// as parents of future commits. API currently only allows access to the tip,
 /// but could be modified.
 struct LogReplay {
-    states: HashIndexed<RepoState, Sum, SumComparator>,
+    states: HashIndexed<PartitionState, Sum, PartitionStateSumComparator>,
     tips: HashSet<Sum>
 }
 
 impl LogReplay {
     /// Create the structure from an initial state and sum
-    pub fn from_initial(state: RepoState) -> LogReplay {
+    pub fn from_initial(state: PartitionState) -> LogReplay {
         let mut states = HashIndexed::new();
         let sum = state.statesum();
         states.insert(state);
@@ -221,13 +214,13 @@ impl LogReplay {
     /// Return the latest state, if there is a single latest state; otherwise
     /// fail. You should probably call merge() first to make sure there is only
     /// a single latest state.
-    pub fn tip(&self) -> Result<&RepoState> {
+    pub fn tip(&self) -> Result<&PartitionState> {
         let tip = try!(self.tip_sum());
         Ok(self.states.get(&tip).expect("tip should point to a state"))
     }
     
     /// As tip(), but consume self and return ownership of the state.
-    pub fn into_tip(mut self) -> Result<RepoState> {
+    pub fn into_tip(mut self) -> Result<PartitionState> {
         let tip = try!(self.tip_sum());
         Ok(self.states.remove(&tip).expect("tip should point to a state"))
     }
@@ -246,7 +239,7 @@ impl LogReplay {
 
 #[test]
 fn commit_creation_and_replay(){
-    let mut state = RepoState::new();
+    let mut state = PartitionState::new();
     let mut commits = CommitQueue::new();
     
     state.insert_elt(1, Element::from_str("one")).unwrap();

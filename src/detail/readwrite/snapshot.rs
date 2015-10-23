@@ -6,7 +6,7 @@ use crypto::digest::Digest;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
 use super::{sum, fill};
-use detail::{Sum, Element, RepoState};
+use detail::{Sum, Element, PartitionState};
 use ::error::{Error, Result};
 
 
@@ -15,7 +15,7 @@ use ::error::{Error, Result};
 /// This function reads to the end of the snapshot. It does not check whether
 /// this is in fact the end of the file (or other data stream), though
 /// according to the specified file format this should be the case.
-pub fn read_snapshot(reader: &mut Read) -> Result<RepoState> {
+pub fn read_snapshot(reader: &mut Read) -> Result<PartitionState> {
     // A reader which calculates the checksum of what was read:
     let mut r = sum::HashReader::new256(reader);
     
@@ -35,7 +35,7 @@ pub fn read_snapshot(reader: &mut Read) -> Result<RepoState> {
     let num_elts = try!((&buf[24..32]).read_u64::<BigEndian>()) as usize;    // TODO: is cast safe?
     pos += 16;
     
-    let mut state = RepoState::new();
+    let mut state = PartitionState::new();
     for _ in 0..num_elts {
         try!(fill(&mut r, &mut buf[0..32], pos));
         if buf[0..8] != *b"ELEMENT\x00" {
@@ -101,7 +101,7 @@ pub fn read_snapshot(reader: &mut Read) -> Result<RepoState> {
 }
 
 /// Write a snapshot of a set of elements to a stream
-pub fn write_snapshot(state: &RepoState, writer: &mut Write) -> Result<()>{
+pub fn write_snapshot(state: &PartitionState, writer: &mut Write) -> Result<()>{
     // A writer which calculates the checksum of what was written:
     let mut w = sum::HashWriter::new256(writer);
     
@@ -154,7 +154,7 @@ pub fn write_snapshot(state: &RepoState, writer: &mut Write) -> Result<()>{
 
 #[test]
 fn snapshot_writing() {
-    let mut state = RepoState::new();
+    let mut state = PartitionState::new();
     let data = "But I must explain to you how all this \
         mistaken idea of denouncing pleasure and praising pain was born and I \
         will give you a complete account of the system, and expound the \

@@ -3,12 +3,13 @@
 use std::collections::{HashMap};
 use std::collections::hash_map::{Keys};
 use std::clone::Clone;
+use hashindexed::KeyComparator;
 
 use detail::{Sum, Element};
 use ::{Result, Error};
 
 
-/// State of the repository
+/// A state of elements within a partition.
 /// 
 /// Essentially this holds a map of element identifiers to elements plus some
 /// machinery to calculate checksums.
@@ -20,19 +21,19 @@ use ::{Result, Error};
 /// Elements may be inserted, deleted or replaced. Direct modification is not
 /// supported.
 #[derive(PartialEq,Eq,Debug)]
-pub struct RepoState {
+pub struct PartitionState {
     statesum: Sum,
     elts: HashMap<u64, Element>
 }
 
-impl RepoState {
+impl PartitionState {
     /// Create a new state, with no elements
-    pub fn new() -> RepoState {
-        RepoState { statesum: Sum::zero(), elts: HashMap::new() }
+    pub fn new() -> PartitionState {
+        PartitionState { statesum: Sum::zero(), elts: HashMap::new() }
     }
     /// Create from a map of elements
-    pub fn from_hash_map(map: HashMap<u64, Element>, statesum: Sum) -> RepoState {
-        RepoState { statesum: statesum, elts: map }
+    pub fn from_hash_map(map: HashMap<u64, Element>, statesum: Sum) -> PartitionState {
+        PartitionState { statesum: statesum, elts: map }
     }
     
     /// Get the state sum
@@ -97,10 +98,18 @@ impl RepoState {
     }
 }
 
-impl Clone for RepoState {
+impl Clone for PartitionState {
     /// Clone the state. Elements are considered Copy-On-Write so cloning the
     /// state is not particularly expensive.
     fn clone(&self) -> Self {
-        RepoState { statesum: self.statesum, elts: self.elts.clone() }
+        PartitionState { statesum: self.statesum, elts: self.elts.clone() }
+    }
+}
+
+/// Helper to use PartitionState with HashIndexed
+pub struct PartitionStateSumComparator;
+impl KeyComparator<PartitionState, Sum> for PartitionStateSumComparator {
+    fn extract_key(value: &PartitionState) -> &Sum {
+        value.statesum_ref()
     }
 }

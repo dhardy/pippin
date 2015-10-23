@@ -22,7 +22,7 @@ use std::convert::AsRef;
 
 use detail::{FileHeader, read_head, write_head, validate_repo_name};
 use detail::{read_snapshot, write_snapshot};
-use detail::{RepoState};
+use detail::{PartitionState};
 
 pub use detail::{Element};
 pub use error::{Error, Result};
@@ -59,7 +59,7 @@ pub trait DataResource {
 /// Handle on a repository
 pub struct Repo {
     name: String,
-    state: RepoState
+    state: PartitionState
 }
 
 // Non-member functions on Repo
@@ -69,7 +69,7 @@ impl Repo {
         try!(validate_repo_name(&name));
         Ok(Repo{
             name: name,
-            state: RepoState::new()
+            state: PartitionState::new()
         })
     }
     
