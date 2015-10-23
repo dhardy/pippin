@@ -15,6 +15,7 @@ mod readwrite;
 mod sum;
 mod states;
 mod commits;
+mod partition;
 
 
 /// Holds an element's data in memory
