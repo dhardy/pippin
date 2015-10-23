@@ -50,6 +50,12 @@ impl Sum {
         try!(w.write(&self.s));
         Ok(())
     }
+    
+    /// Change self to self ^ other
+    /// Note that this operation is its own inverse: x.permute(y).permute(y) == x.
+    pub fn permute(&mut self, other: &Self) {
+        (*self) = (*self) ^ (*other);
+    }
 }
 
 impl ops::BitXor for Sum {

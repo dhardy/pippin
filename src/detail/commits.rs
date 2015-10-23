@@ -1,12 +1,12 @@
 //! Pippin: commit structs and functionality
 
-use std::collections::{HashSet, HashMap};
+use std::collections::{HashSet, HashMap, hash_map};
 use std::clone::Clone;
+use hashindexed::{HashIndexed, KeyComparator};
 
 use detail::{Sum, Element, RepoState};
 use detail::readwrite::CommitReceiver;
 use ::{Result, Error};
-use hashindexed::{HashIndexed, KeyComparator};
 
 
 /// Holds a set of commits, ordered by insertion order.
@@ -30,25 +30,22 @@ impl CommitQueue {
 
 impl CommitReceiver for CommitQueue {
     /// Implement function required by readwrite::read_log().
-    fn receive(&mut self, statesum: Sum, parent: Sum,
-        changes: HashMap<u64, EltChange>) -> bool {
-        
-        self.commits.push(
-            Commit { statesum: statesum, parent: parent, changes: changes });
-            //TODO: what should we do when commit statesums clash?
-            //
-            // Possible exploit: someone forks the repo, creates a new state
-            // decending from an ancestor of commit X but with checksum
-            // collision against X, pushes it back to the local repo and thus
-            // rewrites history. Okay, this involves being able to forge SHA256
-            // hash collisions *and* get your target to pull your changes.
-            // 
-            // More likely case: two commits are made which reach the same
-            // state and thus have the same sum. One gets ignored. Maybe okay?
-            //
-            // Possible bug: a commit reverts to the previous state, thus its
-            // sum collides with that of an ancestor commit. This could be
-            // problematic!
+    fn receive(&mut self, commit: Commit) -> bool {
+        self.commits.push(commit);
+        //TODO: what should we do when commit statesums clash?
+        //
+        // Possible exploit: someone forks the repo, creates a new state
+        // decending from an ancestor of commit X but with checksum
+        // collision against X, pushes it back to the local repo and thus
+        // rewrites history. Okay, this involves being able to forge SHA256
+        // hash collisions *and* get your target to pull your changes.
+        // 
+        // More likely case: two commits are made which reach the same
+        // state and thus have the same sum. One gets ignored. Maybe okay?
+        //
+        // Possible bug: a commit reverts to the previous state, thus its
+        // sum collides with that of an ancestor commit. This could be
+        // problematic!
         
         true    // continue reading to EOF
     }
@@ -56,10 +53,8 @@ impl CommitReceiver for CommitQueue {
 
 
 /// A commit: a set of changes
-///
-/// Note: "eq" is implemented such that two commits are equal when their
-/// statesum is equal. See note on PartialEq implementation for ramifications.
-struct Commit {
+#[derive(Eq, PartialEq, Debug)]
+pub struct Commit {
     /// Expected resultant state sum; doubles as an ID
     statesum: Sum,
     /// State sum (ID) of parent commit/snapshot
@@ -69,6 +64,7 @@ struct Commit {
 }
 
 /// Per-element changes
+#[derive(Eq, PartialEq, Debug)]
 pub enum EltChange {
     /// Element was deleted
     Deletion,
@@ -79,20 +75,37 @@ pub enum EltChange {
     //TODO: patches (?)
 }
 impl EltChange {
+    /// Create an `Insertion`
     pub fn insertion(elt: Element) -> EltChange {
         EltChange::Insertion(elt)
     }
+    /// Create a `Replacement`
     pub fn replacement(elt: Element) -> EltChange {
         EltChange::Replacement(elt)
     }
+    /// Create a `Deletion`
     pub fn deletion() -> EltChange {
         EltChange::Deletion
     }
+    /// Get `Some(elt)` or `None`
+    pub fn element(&self) -> Option<&Element> {
+        match self {
+            &EltChange::Deletion => None,
+            &EltChange::Insertion(ref elt) => Some(elt),
+            &EltChange::Replacement(ref elt) => Some(elt),
+        }
+    }
 }
 
-// —————  patch creation from differences  —————
+// —————  Commit operations  —————
 
 impl Commit {
+    /// Create a commit from parts. It is suggested not to use this unless you
+    /// are sure all sums are correct.
+    pub fn new(statesum: Sum, parent: Sum, changes: HashMap<u64, EltChange>) -> Commit {
+        Commit { statesum: statesum, parent: parent, changes: changes }
+    }
+    
     /// Create a commit from an old state and a new state.
     /// 
     /// This is one of two ways to create a commit; the other would be to track
@@ -126,6 +139,11 @@ impl Commit {
             changes: changes
         }
     }
+
+    pub fn statesum(&self) -> &Sum { &self.statesum }
+    pub fn parent(&self) -> &Sum { &self.parent }
+    pub fn num_changes(&self) -> usize { self.changes.len() }
+    pub fn changes_iter(&self) -> hash_map::Iter<u64, EltChange> { self.changes.iter() }
 }
 
 

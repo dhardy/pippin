@@ -7,6 +7,8 @@ use std::clone::Clone;
 pub use self::readwrite::{FileHeader, read_head, write_head, validate_repo_name};
 pub use self::readwrite::{read_snapshot, write_snapshot};
 pub use self::states::{RepoState};
+pub use self::readwrite::{read_log, write_commit};
+pub use self::commits::Commit;
 pub use self::sum::Sum;
 
 mod readwrite;
@@ -52,7 +54,7 @@ impl Element {
     }
     
     /// Get a reference to the checksum
-    pub fn sum(&self) -> Sum { self.sum }
+    pub fn sum(&self) -> &Sum { &self.sum }
     
     /// Get a reference to the data (raw)
     pub fn data(&self) -> &[u8] { &*self.data }

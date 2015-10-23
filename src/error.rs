@@ -42,7 +42,6 @@ pub struct ReadErrorFormatter<'a> {
 }
 impl<'a> fmt::Display for ReadErrorFormatter<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> result::Result<(), fmt::Error> {
-        const HEX: &'static str = "0123456789ABCDEF";
         const SPACE: &'static str = "                        ";
         const MARK: &'static str = "^^^^^^^^^^^^^^^^^^^^^^^^";
         
@@ -55,12 +54,7 @@ impl<'a> fmt::Display for ReadErrorFormatter<'a> {
                 try!(writeln!(f, "insufficient data to display!"));
                 break;
             }
-            let v = &self.data[line_start..line_start+8];
-            for i in 0..8 {
-                let (high,low) = (v[i] as usize / 16, v[i] as usize & 0xF);
-                try!(write!(f, "{}{} ", &HEX[high..(high+1)], &HEX[low..(low+1)]));
-            }
-            try!(writeln!(f, "{}", String::from_utf8_lossy(&v)));
+            try!(write_hex_line(&self.data[line_start..line_start+8], f));
             let p0 = max(self.err.pos + self.err.off_start, line_start) - line_start;
             let p1 = min(self.err.pos + self.err.off_end, line_start + 8) - line_start;
             assert!(p0 <= p1 && p1 <= 8);
@@ -69,6 +63,26 @@ impl<'a> fmt::Display for ReadErrorFormatter<'a> {
         }
         Ok(())
     }
+}
+
+// Utility function: dump a line as hex
+// 
+// Line length is determined by the slice passed.
+fn write_hex_line(line: &[u8], f: &mut fmt::Formatter) -> result::Result<(), fmt::Error> {
+    const HEX: &'static str = "0123456789ABCDEF";
+    
+    for i in 0..line.len() {
+        let (high,low) = (line[i] as usize / 16, line[i] as usize & 0xF);
+        try!(write!(f, "{}{} ", &HEX[high..(high+1)], &HEX[low..(low+1)]));
+    }
+    let mut v: Vec<u8> = Vec::from(line);
+    for i in 0..v.len() {
+        let c = v[i];
+        // replace spaces, tabs and undisplayable characters:
+        if c <= 0x32 || c == 0x7F { v[i] = b'.'; }
+    }
+    try!(writeln!(f, "{}", String::from_utf8_lossy(&v)));
+    Ok(())
 }
 
 /// Any error where an invalid argument was supplied

@@ -69,18 +69,18 @@ impl RepoState {
     /// which case the function stops with an error.
     pub fn insert_elt(&mut self, id: u64, elt: Element) -> Result<()> {
         if self.elts.contains_key(&id) { return Err(Error::arg("insertion conflicts with an existing element")); }
-        self.statesum = self.statesum ^ elt.sum();
+        self.statesum.permute(elt.sum());
         self.elts.insert(id, elt);
         Ok(())
     }
     /// Replace an existing element and return the replaced element, unless the
     /// id is not already used in which case the function stops with an error.
     pub fn replace_elt(&mut self, id: u64, elt: Element) -> Result<Element> {
-        self.statesum = self.statesum ^ elt.sum();
+        self.statesum.permute(elt.sum());
         match self.elts.insert(id, elt) {
             None => Err(Error::no_elt("replacement failed: no existing element")),
             Some(removed) => {
-                self.statesum = self.statesum ^ removed.sum();
+                self.statesum.permute(removed.sum());
                 Ok(removed)
             }
         }
@@ -90,7 +90,7 @@ impl RepoState {
         match self.elts.remove(&id) {
             None => Err(Error::no_elt("deletion failed: no element")),
             Some(removed) => {
-                self.statesum = self.statesum ^ removed.sum();
+                self.statesum.permute(removed.sum());
                 Ok(removed)
             }
         }
