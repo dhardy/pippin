@@ -7,6 +7,9 @@
 // could be replaced with a stub function if needing to use stable releases
 #![feature(vec_resize)]
 
+// Used for error display; not essential
+#![feature(step_by)]
+
 extern crate crypto;
 extern crate chrono;
 extern crate byteorder;

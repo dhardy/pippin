@@ -29,7 +29,7 @@ fn fill<R: io::Read>(r: &mut R, mut buf: &mut [u8], pos: usize) -> Result<()> {
     let mut p = pos;
     while buf.len() > 0 {
         match try!(r.read(buf)) {
-            0 => return Err(Error::read("corrupt (file terminates unexpectedly)", p)),
+            0 => return Err(Error::read("corrupt (file terminates unexpectedly)", p, (0, 0))),
             n => { buf = &mut mem::replace(&mut buf, &mut [])[n..]; p += n },
         }
     }

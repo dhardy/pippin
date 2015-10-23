@@ -25,14 +25,14 @@ pub fn read_head(r: &mut io::Read) -> Result<FileHeader> {
     
     try!(fill(&mut sum_reader, &mut buf[0..16], pos));
     if buf != FILE_HEAD {
-        return Err(Error::read("not a known Pippin file format", pos));
+        return Err(Error::read("not a known Pippin file format", pos, (0, 16)));
     }
     pos += 16;
     
     try!(fill(&mut sum_reader, &mut buf[0..16], pos));
     let repo_name = match String::from_utf8(rtrim(&buf, 0).to_vec()) {
         Ok(name) => name,
-        Err(_) => return Err(Error::read("repo name not valid UTF-8", pos))
+        Err(_) => return Err(Error::read("repo name not valid UTF-8", pos, (0, 16)))
     };
     pos += 16;
     
@@ -41,22 +41,22 @@ pub fn read_head(r: &mut io::Read) -> Result<FileHeader> {
     
     loop {
         try!(fill(&mut sum_reader, &mut buf[0..16], pos));
-        let block: &[u8] = if buf[0] == b'H' {
+        let (block, off): (&[u8], usize) = if buf[0] == b'H' {
             pos += 1;
-            rtrim(&buf[1..16], 0)
+            (rtrim(&buf[1..16], 0), 1)
         } else if buf[0] == b'Q' {
             let x: usize = match buf[1] {
                 b'1' ... b'9' => buf[1] - b'0',
                 b'A' ... b'Z' => buf[1] + 10 - b'A',
-                _ => return Err(Error::read("header section Qx... has invalid length specification 'x'", pos))
+                _ => return Err(Error::read("header section Qx... has invalid length specification 'x'", pos, (0, 2)))
             } as usize;
             let len = x * 16;
             if buf.len() < len { buf.resize(len, 0); }
             try!(fill(&mut sum_reader, &mut buf[16..len], pos));
             pos += 2;
-            rtrim(&buf[2..len], 0)
+            (rtrim(&buf[2..len], 0), 2)
         } else {
-            return Err(Error::read("unexpected header contents", pos));
+            return Err(Error::read("unexpected header contents", pos, (0, 1)));
         };
         
         if block[0..3] == *b"SUM" {
@@ -64,7 +64,7 @@ pub fn read_head(r: &mut io::Read) -> Result<FileHeader> {
                 /* we don't support anything else yet, so don't need to
                  * configure anything here */
             }else {
-                return Err(Error::read("unknown checksum format", pos))
+                return Err(Error::read("unknown checksum format", pos, (3+off, 13+off)))
             };
             break;      // "HSUM" must be last item of header before final checksum
         } else if block[0] == b'R' {
@@ -92,7 +92,7 @@ pub fn read_head(r: &mut io::Read) -> Result<FileHeader> {
     let mut sum32 = [0u8; 32];
     sum_reader.digest().result(&mut sum32);
     if buf32 != sum32 {
-        return Err(Error::read("header checksum invalid", pos));
+        return Err(Error::read("header checksum invalid", pos, (0, 32)));
     }
     
     Ok(FileHeader{

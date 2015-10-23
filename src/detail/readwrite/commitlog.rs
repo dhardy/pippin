@@ -29,7 +29,7 @@ pub fn read_log(reader_: &mut Read, receiver: &mut CommitReceiver) -> Result<()>
     try!(fill(&mut reader, &mut buf[0..32], pos));
     if buf[0..16] != *b"COMMIT LOG\x00\x00\x00\x00\x00\x00" {
         return Err(Error::read("unexpected contents (expected \
-            COMMIT LOG\\x00\\x00\\x00\\x00\\x00\\x00)", pos));
+            COMMIT LOG\\x00\\x00\\x00\\x00\\x00\\x00)", pos, (0, 16)));
     }
     pos += 16;
     
@@ -45,7 +45,7 @@ pub fn read_log(reader_: &mut Read, receiver: &mut CommitReceiver) -> Result<()>
         if l < 16 { try!(fill(&mut r, &mut buf[l..16], pos)); /*not EOF, buf haven't filled buffer*/ }
         
         if buf[0..8] != *b"COMMIT\x00\x00" {
-            return Err(Error::read("unexpected contents (expected COMMIT\\x00\\x00)", pos));
+            return Err(Error::read("unexpected contents (expected COMMIT\\x00\\x00)", pos, (0, 8)));
         }
         // TODO: timestamp
         pos += 16;
@@ -56,7 +56,7 @@ pub fn read_log(reader_: &mut Read, receiver: &mut CommitReceiver) -> Result<()>
         
         try!(fill(&mut r, &mut buf[0..16], pos));
         if buf[0..8] != *b"ELEMENTS" {
-            return Err(Error::read("unexpected contents (expected ELEMENTS)", pos));
+            return Err(Error::read("unexpected contents (expected ELEMENTS)", pos, (0, 8)));
         }
         let num_elts = try!((&buf[8..16]).read_u64::<BigEndian>()) as usize;   //TODO is cast safe?
         pos += 16;
@@ -66,7 +66,7 @@ pub fn read_log(reader_: &mut Read, receiver: &mut CommitReceiver) -> Result<()>
         for _ in 0..num_elts {
             try!(fill(&mut r, &mut buf[0..16], pos));
             if buf[0..4] != *b"ELT " {
-                return Err(Error::read("unexpected contents (expected ELT\\x20)", pos));
+                return Err(Error::read("unexpected contents (expected ELT\\x20)", pos, (0, 4)));
             }
             let elt_id = try!((&buf[8..16]).read_u64::<BigEndian>());
             let change_t = match &buf[4..8] {
@@ -75,7 +75,7 @@ pub fn read_log(reader_: &mut Read, receiver: &mut CommitReceiver) -> Result<()>
                 b"REPL" => { Change::Replace },
                 _ => {
                     return Err(Error::read("unexpected contents (expected one \
-                        of DEL\\x00, INS\\x00, REPL)", pos+4));
+                        of DEL\\x00, INS\\x00, REPL)", pos, (4, 8)));
                 }
             };
             pos += 16;
@@ -85,7 +85,7 @@ pub fn read_log(reader_: &mut Read, receiver: &mut CommitReceiver) -> Result<()>
                 Change::Insert | Change::Replace => {
                     try!(fill(&mut r, &mut buf[0..16], pos));
                     if buf[0..8] != *b"ELT DATA" {
-                        return Err(Error::read("unexpected contents (expected ELT DATA)", pos));
+                        return Err(Error::read("unexpected contents (expected ELT DATA)", pos, (0, 8)));
                     }
                     let data_len = try!((&buf[8..16]).read_u64::<BigEndian>()) as usize;   //TODO is cast safe?
                     pos += 16;
@@ -103,7 +103,7 @@ pub fn read_log(reader_: &mut Read, receiver: &mut CommitReceiver) -> Result<()>
                     let data_sum = Sum::calculate(&data);
                     try!(fill(&mut r, &mut buf[0..32], pos));
                     if !data_sum.eq(&buf[0..32]) {
-                        return Err(Error::read("element checksum mismatch", pos));
+                        return Err(Error::read("element checksum mismatch", pos, (0, 32)));
                     }
                     pos += 32;
                     
@@ -128,7 +128,7 @@ pub fn read_log(reader_: &mut Read, receiver: &mut CommitReceiver) -> Result<()>
         reader = r.into_inner();
         try!(fill(&mut reader, &mut buf[0..32], pos));
         if sum32 != buf[0..32] {
-            return Err(Error::read("checksum mismatch", pos));
+            return Err(Error::read("checksum mismatch", pos, (0, 32)));
         }
         
         // TODO: now we've read a commit...
