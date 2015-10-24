@@ -3,10 +3,25 @@
 use std::{io, cmp};
 use std::cmp::min;
 use ::error::{Result, Error};
-use super::{sum, FileHeader, fill};
+use super::{sum, fill};
 
-const FILE_HEAD : [u8; 16] = *b"PIPPINSS20150929";
+const HEAD_SNAPSHOT : [u8; 16] = *b"PIPPINSS20150929";
+const HEAD_COMMITLOG : [u8; 16] = *b"PIPPINCL20150929";
 const SUM_SHA256 : [u8; 16] = *b"HSUM SHA-2 256\x00\x00";
+
+pub enum PippinFile {
+    Snapshot,
+    CommitLog,
+}
+
+// Information stored in a file header
+pub struct FileHeader {
+    pub ftype: PippinFile,
+    /// Repo name
+    pub name: String,
+    pub remarks: Vec<String>,
+    pub user_fields: Vec<Vec<u8>>
+}
 
 pub fn validate_repo_name(name: &str) -> Result<()> {
     if name.as_bytes().len() > 16 {
@@ -24,9 +39,13 @@ pub fn read_head(r: &mut io::Read) -> Result<FileHeader> {
     let mut buf = vec![0; 16];
     
     try!(fill(&mut sum_reader, &mut buf[0..16], pos));
-    if buf != FILE_HEAD {
+    let ftype = if buf == HEAD_SNAPSHOT {
+        PippinFile::Snapshot
+    } else if buf == HEAD_COMMITLOG {
+        PippinFile::CommitLog
+    } else {
         return Err(Error::read("not a known Pippin file format", pos, (0, 16)));
-    }
+    };
     pos += 16;
     
     try!(fill(&mut sum_reader, &mut buf[0..16], pos));
@@ -96,6 +115,7 @@ pub fn read_head(r: &mut io::Read) -> Result<FileHeader> {
     }
     
     Ok(FileHeader{
+        ftype: ftype,
         name: repo_name,
         remarks: remarks,
         user_fields: user_fields
@@ -109,7 +129,14 @@ pub fn write_head(header: &FileHeader, w: &mut io::Write) -> Result<()> {
     // A writer which calculates the checksum of what was written:
     let mut sum_writer = sum::HashWriter::new256(w);
     
-    try!(sum_writer.write(&FILE_HEAD));
+    match header.ftype {
+        PippinFile::Snapshot => {
+            try!(sum_writer.write(&HEAD_SNAPSHOT));
+        },
+        PippinFile::CommitLog => {
+            try!(sum_writer.write(&HEAD_COMMITLOG));
+        },
+    };
     try!(validate_repo_name(&header.name));
     let len = try!(sum_writer.write(header.name.as_bytes()));
     try!(pad(&mut sum_writer, 16 - len));

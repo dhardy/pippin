@@ -6,7 +6,7 @@ use std::clone::Clone;
 
 pub use self::readwrite::{FileHeader, read_head, write_head, validate_repo_name};
 pub use self::readwrite::{read_snapshot, write_snapshot};
-pub use self::readwrite::{read_log, write_commit};
+pub use self::readwrite::{read_log, start_log, write_commit};
 pub use self::states::{PartitionState, PartitionStateSumComparator};
 pub use self::commits::Commit;
 pub use self::sum::Sum;

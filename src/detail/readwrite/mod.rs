@@ -10,17 +10,9 @@ mod commitlog;
 use std::{io, mem};
 use error::{Error, Result};
 
-pub use self::header::{read_head, write_head, validate_repo_name};
+pub use self::header::{FileHeader, read_head, write_head, validate_repo_name};
 pub use self::snapshot::{read_snapshot, write_snapshot};
-pub use self::commitlog::{CommitReceiver, read_log, write_commit};
-
-// Information stored in a file header
-pub struct FileHeader {
-    /// Repo name
-    pub name: String,
-    pub remarks: Vec<String>,
-    pub user_fields: Vec<Vec<u8>>
-}
+pub use self::commitlog::{CommitReceiver, read_log, start_log, write_commit};
 
 
 // Utilities for reading from streams:

@@ -4,7 +4,7 @@ use std::io::{Read, Write};
 use hashindexed::HashIndexed;
 
 use super::{Sum, Commit, PartitionState, PartitionStateSumComparator};
-use super::{write_head, read_snapshot, write_snapshot, write_commit};
+use super::{write_head, read_snapshot, write_snapshot, start_log, write_commit};
 use error::{Result};
 
 /// A writable stream for commits
@@ -139,7 +139,8 @@ impl Partition {
         if !self.unsaved.is_empty() {
             let writer = match try!(self.io.write_commit()) {
                 CommitStream::New(w) => {
-                    write_head(header, w);      //TODO: commit log header not snapshot!
+                    write_head(header, &mut w);      //TODO: commit log header not snapshot!
+                    start_log(&mut w);
                     w
                 },
                 CommitStream::Append(w) => w
