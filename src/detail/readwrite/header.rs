@@ -9,14 +9,14 @@ const HEAD_SNAPSHOT : [u8; 16] = *b"PIPPINSS20150929";
 const HEAD_COMMITLOG : [u8; 16] = *b"PIPPINCL20150929";
 const SUM_SHA256 : [u8; 16] = *b"HSUM SHA-2 256\x00\x00";
 
-pub enum PippinFile {
+pub enum FileType {
     Snapshot,
     CommitLog,
 }
 
 // Information stored in a file header
 pub struct FileHeader {
-    pub ftype: PippinFile,
+    pub ftype: FileType,
     /// Repo name
     pub name: String,
     pub remarks: Vec<String>,
@@ -40,9 +40,9 @@ pub fn read_head(r: &mut io::Read) -> Result<FileHeader> {
     
     try!(fill(&mut sum_reader, &mut buf[0..16], pos));
     let ftype = if buf == HEAD_SNAPSHOT {
-        PippinFile::Snapshot
+        FileType::Snapshot
     } else if buf == HEAD_COMMITLOG {
-        PippinFile::CommitLog
+        FileType::CommitLog
     } else {
         return Err(Error::read("not a known Pippin file format", pos, (0, 16)));
     };
@@ -130,10 +130,10 @@ pub fn write_head(header: &FileHeader, w: &mut io::Write) -> Result<()> {
     let mut sum_writer = sum::HashWriter::new256(w);
     
     match header.ftype {
-        PippinFile::Snapshot => {
+        FileType::Snapshot => {
             try!(sum_writer.write(&HEAD_SNAPSHOT));
         },
-        PippinFile::CommitLog => {
+        FileType::CommitLog => {
             try!(sum_writer.write(&HEAD_COMMITLOG));
         },
     };
@@ -242,6 +242,7 @@ fn read_header() {
 #[test]
 fn write_header() {
     let header = FileHeader {
+        ftype: FileType::Snapshot,
         name: "Ähnliche Unsinn".to_string(),
         remarks: vec!["Remark ω".to_string(), "R Quatsch Quatsch Quatsch".to_string()],
         user_fields: vec![b" rsei noasr auyv 10()% xovn".to_vec()]

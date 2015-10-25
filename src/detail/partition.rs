@@ -4,15 +4,16 @@ use std::io::{Read, Write};
 use hashindexed::HashIndexed;
 
 use super::{Sum, Commit, PartitionState, PartitionStateSumComparator};
-use super::{write_head, read_snapshot, write_snapshot, start_log, write_commit};
+use super::{FileHeader, FileType, write_head, read_snapshot, write_snapshot, start_log,
+    write_commit};
 use error::{Result};
 
 /// A writable stream for commits
 pub enum CommitStream {
     /// This is a new file/object. A header should be written first.
-    New(Write),
+    New(Box<Write>),
     /// This is an append stream on an existing file.
-    Append(Write)
+    Append(Box<Write>)
 }
 
 /// An interface providing read and/or write access to a suitable location.
@@ -25,7 +26,7 @@ pub trait PartitionIO {
     
     /// Open a write stream on a commit file.
     /// This may be a new file or an existing file to append to.
-    fn write_commit(&mut self) -> Result<Box<CommitStream>>;
+    fn write_commit(&mut self) -> Result<CommitStream>;
     
     /// Open a write stream on a new snapshot file.
     fn write_snapshot(&mut self) -> Result<Box<Write>>;
@@ -126,34 +127,41 @@ impl Partition {
     pub fn commit(&mut self, mode: CommitMode) {
         // First step: make a new commit
         // TODO: diff-based commit?
-        let last_state = self.states.get(self.parent).unwrap();        // TODO: error
-        if self.cur != last_state {
+        let last_state = self.states.get(&self.parent).unwrap();        // TODO: error
+        if self.cur != *last_state {
             let state = self.cur.clone();
             self.states.insert(state);
-            let commit = Commit::from_diff(last_state, state);
+            let commit = Commit::from_diff(last_state, &state);
             self.unsaved.push(commit);
         }
         if mode == CommitMode::IN_MEM { return; }
         
         // Second step: write commits
         if !self.unsaved.is_empty() {
-            let writer = match try!(self.io.write_commit()) {
+            let cs: CommitStream = try!(self.io.write_commit());
+            let writer = match cs {
                 CommitStream::New(w) => {
-                    write_head(header, &mut w);      //TODO: commit log header not snapshot!
+                    let header = FileHeader {
+                        ftype: FileType::CommitLog,
+                        name: "".to_string() /*TODO: repo name?*/,
+                        remarks: Vec::new(),
+                        user_fields: Vec::new(),
+                    };
+                    write_head(&header, &mut w);      //TODO: commit log header not snapshot!
                     start_log(&mut w);
                     w
                 },
                 CommitStream::Append(w) => w
             };
             for commit in self.unsaved {
-                try!(write_commit(commit, &mut writer));
+                try!(write_commit(&commit, &mut writer));
             }
             self.unsaved.clear();
         }
         if mode == CommitMode::FAST_WRITE { return; }
         
         // Third step: maintenance operations
-        if new_snapshot_needed {
+        if false /*TODO new_snapshot_needed*/ {
             self.write_snapshot();
         }
         assert_eq!( mode, CommitMode::WRITE );
@@ -168,6 +176,7 @@ impl Partition {
     }
 }
 
+#[derive(Eq, PartialEq, Debug)]
 enum CommitMode {
     // Create a commit but don't save it to the disk
     IN_MEM,

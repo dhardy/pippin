@@ -10,6 +10,8 @@
 // Used for error display; not essential
 #![feature(step_by)]
 
+#![feature(box_syntax)]
+
 extern crate crypto;
 extern crate chrono;
 extern crate byteorder;
