@@ -126,6 +126,7 @@ impl Partition {
         
         loop {
             if let Some(mut r) = try!(self.io.read_snapshot(num)) {
+                try!(self.validate_header(try!(read_head(&mut r))));
                 let state = try!(read_snapshot(&mut r));
                 self.tips.insert(state.statesum());
                 self.states.insert(state);
@@ -139,8 +140,7 @@ impl Partition {
         for ss in num..(latest_num+1) {
             for c in 0..self.io.num_logs_for_snapshot(ss) {
                 let mut r = try!(self.io.read_snapshot_log(ss, c));
-                let header = try!(read_head(&mut r));
-                //TODO: validate header (repo name, partition)
+                try!(self.validate_header(try!(read_head(&mut r))));
                 try!(read_log(&mut r, &mut queue));
             }
         }
@@ -148,6 +148,41 @@ impl Partition {
         let mut replayer = LogReplay::from_sets(&mut self.states, &mut self.tips);
         try!(replayer.replay(queue));
         
+        Ok(())
+    }
+    
+    /// Load all history available
+    pub fn load_everything(&mut self) -> Result<()> {
+        let latest_num = self.io.latest_snapshot_number();
+        
+        for num in 0..(latest_num + 1) {
+            if let Some(mut r) = try!(self.io.read_snapshot(num)) {
+                try!(self.validate_header(try!(read_head(&mut r))));
+                let state = try!(read_snapshot(&mut r));
+                self.tips.insert(state.statesum());
+                self.states.insert(state);
+            }
+            
+            let mut queue = CommitQueue::new();
+            for c in 0..self.io.num_logs_for_snapshot(num) {
+                let mut r = try!(self.io.read_snapshot_log(num, c));
+                try!(self.validate_header(try!(read_head(&mut r))));
+                try!(read_log(&mut r, &mut queue));
+            }
+            let mut replayer = LogReplay::from_sets(&mut self.states, &mut self.tips);
+            try!(replayer.replay(queue));
+        }
+        
+        Ok(())
+    }
+    
+    /// Accept a header, and check that the file corresponds to this repository
+    /// and partition. If this `Partition` is new, it is instead assigned to
+    /// the repository and partition identified by the file. This function is
+    /// called for every file loaded.
+    pub fn validate_header(&mut self, _header: FileHeader) -> Result<()> {
+        // TODO: I guess we need to assign repository and partition UUIDs or
+        // something, and consider how to handle history across repartitioning.
         Ok(())
     }
 }
