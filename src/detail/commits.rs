@@ -11,7 +11,7 @@ use ::{Result, Error};
 
 /// Holds a set of commits, ordered by insertion order.
 /// This is only really needed for readwrite::read_log().
-struct CommitQueue {
+pub struct CommitQueue {
     // These must be ordered. We only ever access by iteration so a `Vec` is
     // fine.
     commits: Vec<Commit>
@@ -149,25 +149,29 @@ impl Commit {
 
 // —————  log replay  —————
 
+pub type StatesSet = HashIndexed<PartitionState, Sum, PartitionStateSumComparator>;
+
 /// Struct holding data used during log replay.
 ///
 /// This stores *all* recreated states since it does not know which may be used
 /// as parents of future commits. API currently only allows access to the tip,
 /// but could be modified.
-struct LogReplay {
-    states: HashIndexed<PartitionState, Sum, PartitionStateSumComparator>,
-    tips: HashSet<Sum>
+pub struct LogReplay<'a> {
+    states: &'a mut StatesSet,
+    tips: &'a mut HashSet<Sum>
 }
 
-impl LogReplay {
-    /// Create the structure from an initial state and sum
-    pub fn from_initial(state: PartitionState) -> LogReplay {
-        let mut states = HashIndexed::new();
-        let sum = state.statesum();
-        states.insert(state);
-        let mut tips = HashSet::new();
-        tips.insert(sum);
+impl<'a> LogReplay<'a> {
+    /// Create the structure, binding to two sets. These may be empty; in this
+    /// case call `add_state()` to add an initial state.
+    pub fn from_sets(states: &'a mut StatesSet, tips: &'a mut HashSet<Sum>) -> LogReplay<'a> {
         LogReplay { states: states, tips: tips }
+    }
+    
+    /// Insert an initial state (pass by value or clone).
+    pub fn add_state(&mut self, state: PartitionState) {
+        self.tips.insert(state.statesum());
+        self.states.insert(state);
     }
     
     /// Recreate all known states from a set of commits. On success, return a
@@ -196,8 +200,16 @@ impl LogReplay {
             if state.statesum() != commit.statesum {
                 return Err(Error::replay("checksum failure of replayed commit"));
             }
-            //TODO: what if there's a collision now??
-            self.states.insert(state);
+            let has_existing = if let Some(existing) = self.states.get(&state.statesum()) {
+                if *existing != state {
+                    // Collision. Probably best not to replace the existing,
+                    // but (TODO) should we emit a warning or something?
+                }
+                true
+            } else { false };
+            if !has_existing {
+                self.states.insert(state);
+            }
             
             self.tips.insert(commit.statesum);
             self.tips.remove(&commit.parent);
@@ -229,7 +241,7 @@ impl LogReplay {
         if self.tips.len() > 1 {
             return Err(Error::replay("no single latest state (merge required)"));
         }
-        for tip in &self.tips {
+        for tip in self.tips.iter() {
             return Ok(*tip);
         }
         panic!("There should be at least one tip!")
@@ -264,7 +276,9 @@ fn commit_creation_and_replay(){
     let state_d = state.clone();
     commits.push(Commit::from_diff(&state_c, &state_d));
     
-    let mut replayer = LogReplay::from_initial(state_a);
+    let (mut states, mut tips) = (HashIndexed::new(), HashSet::new());
+    let mut replayer = LogReplay::from_sets(&mut states, &mut tips);
+    replayer.add_state(state_a);
     replayer.replay(commits).unwrap();
     let replayed_state = replayer.into_tip().unwrap();
     assert_eq!(replayed_state, state_d);
