@@ -53,6 +53,8 @@ impl PartitionState {
     pub fn get_elt(&self, id: u64) -> Option<&Element> {
         self.elts.get(&id)
     }
+    /// True if there are no elements
+    pub fn is_empty(&self) -> bool { self.elts.is_empty() }
     /// Get the number of elements
     pub fn num_elts(&self) -> usize {
         self.elts.len()

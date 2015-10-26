@@ -22,7 +22,7 @@ use std::collections::hash_map::{Keys};
 use std::path::Path;
 use std::convert::AsRef;
 
-use detail::{FileHeader, read_head, write_head, validate_repo_name};
+use detail::{FileHeader, FileType, read_head, write_head, validate_repo_name};
 use detail::{read_snapshot, write_snapshot};
 use detail::{PartitionState};
 
@@ -74,6 +74,7 @@ impl Repo {
     /// Save a snapshot to a stream
     pub fn save_stream(&self, stream: &mut io::Write) -> Result<()> {
         let head = FileHeader {
+            ftype: FileType::Snapshot,
             name: self.name.clone(),
             remarks: vec![],
             user_fields: vec![]

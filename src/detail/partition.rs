@@ -118,70 +118,96 @@ impl Partition {
     /// In all modes, this will create a new commit in memory (if there are any
     /// changes to commit).
     /// 
-    /// If mode is at least `CommitMode::FAST_WRITE`, then any pending changes
+    /// If mode is at least `CommitMode::FastWrite`, then any pending changes
     /// will be written to the disk.
     /// 
-    /// Finally, if mode is `CommitMode::WRITE`, any maintenance operations
+    /// Finally, if mode is `CommitMode::Write`, any maintenance operations
     /// required will be done (for example creating a new snapshot when the
     /// current commit log is too long).
-    pub fn commit(&mut self, mode: CommitMode) {
+    /// 
+    /// Note that writing to disk can fail. In this case it may be worth trying
+    /// again
+    pub fn commit(&mut self, mode: CommitMode) -> Result<()> {
         // First step: make a new commit
         // TODO: diff-based commit?
-        let last_state = self.states.get(&self.parent).unwrap();        // TODO: error
-        if self.cur != *last_state {
-            let state = self.cur.clone();
-            self.states.insert(state);
-            let commit = Commit::from_diff(last_state, &state);
-            self.unsaved.push(commit);
+        if self.parent == Sum::zero() {
+            if !self.cur.is_empty() {
+                self.states.insert(self.cur.clone());
+                self.unsaved.push(Commit::from_diff(&PartitionState::new(), &self.cur));
+            }
+        } else {
+            let new_commit = if let Some(state) = self.states.get(&self.parent) {
+                if self.cur != *state {
+                    Some(Commit::from_diff(state, &self.cur))
+                } else {
+                    None
+                }
+            } else {
+                //TODO: should we panic? In this case either there is in-memory
+                // corruption or there is a code error. It is doubtful we can recover.
+                panic!("Partition: state not found!");
+            };
+            // If we have a new commit, insert now that the borrow on self.states has expired.
+            if let Some(commit) = new_commit {
+                self.unsaved.push(commit);
+                self.states.insert(self.cur.clone());
+            }
         }
-        if mode == CommitMode::IN_MEM { return; }
+        if mode == CommitMode::InMem { return Ok(()); }
         
         // Second step: write commits
         if !self.unsaved.is_empty() {
             let cs: CommitStream = try!(self.io.write_commit());
-            let writer = match cs {
-                CommitStream::New(w) => {
+            let mut writer = match cs {
+                CommitStream::New(mut w) => {
                     let header = FileHeader {
                         ftype: FileType::CommitLog,
                         name: "".to_string() /*TODO: repo name?*/,
                         remarks: Vec::new(),
                         user_fields: Vec::new(),
                     };
-                    write_head(&header, &mut w);      //TODO: commit log header not snapshot!
-                    start_log(&mut w);
+                    try!(write_head(&header, &mut w));
+                    try!(start_log(&mut w));
                     w
                 },
                 CommitStream::Append(w) => w
             };
-            for commit in self.unsaved {
-                try!(write_commit(&commit, &mut writer));
+            while !self.unsaved.is_empty() {
+                // We try to write the commit, then when successful remove it
+                // from the list of 'unsaved' commits.
+                try!(write_commit(&self.unsaved[self.unsaved.len()-1], &mut writer));
+                self.unsaved.pop();
             }
-            self.unsaved.clear();
         }
-        if mode == CommitMode::FAST_WRITE { return; }
+        if mode == CommitMode::FastWrite { return Ok(()); }
         
         // Third step: maintenance operations
         if false /*TODO new_snapshot_needed*/ {
-            self.write_snapshot();
+            try!(self.write_snapshot());
         }
-        assert_eq!( mode, CommitMode::WRITE );
+        assert_eq!( mode, CommitMode::Write );
+        Ok(())
     }
     
-    /// Unconditionally write a new snapshot from the latest commit.
-    pub fn write_snapshot(&mut self) {
-        // TODO: error handling
-        let state = self.states.get(self.parent).unwrap();
-        let writer = try!(self.io.new_snapshot());
-        try!(write_snapshot(state, &mut writer));
+    /// Write a new snapshot from the latest commit, unless the partition has
+    /// no commits, in which case do nothing.
+    pub fn write_snapshot(&mut self) -> Result<()> {
+        match self.states.get(&self.parent) {
+            None => { Ok(()) },
+            Some(state) => {
+                let mut writer = try!(self.io.write_snapshot());
+                write_snapshot(state, &mut writer)
+            }
+        }
     }
 }
 
 #[derive(Eq, PartialEq, Debug)]
 enum CommitMode {
     // Create a commit but don't save it to the disk
-    IN_MEM,
+    InMem,
     // Create and write, but don't do any long maintenance operations
-    FAST_WRITE,
+    FastWrite,
     // Create, write and do any required maintenance operations
-    WRITE
+    Write
 }
