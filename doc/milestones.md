@@ -18,7 +18,7 @@ It also requires some basic setup:
 *   some code conventions
 *   rudimentary test framework
 
-Done (excepting test framework).
+Done.
 
 
 Simple store with history

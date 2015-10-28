@@ -214,7 +214,7 @@ fn test_rtrim() {
     assert_eq!(rtrim(&[0, 15, 8], 15), &[0, 15, 8]);
     assert_eq!(rtrim(&[0, 15, 8, 8], 8), &[0, 15]);
     assert_eq!(rtrim(&[2.5], 2.5), &[]);
-    assert_eq!(rtrim(&[], 'a'), &[]);
+    assert_eq!(rtrim(&[], 'a'), &[] as &'static [char]);
 }
 
 #[test]

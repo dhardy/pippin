@@ -10,14 +10,6 @@ use super::{FileHeader, FileType, read_head, write_head,
     read_snapshot, write_snapshot, read_log, start_log, write_commit};
 use error::{Result};
 
-/// A writable stream for commits
-pub enum CommitStream {
-    /// This is a new file/object. A header should be written first.
-    New(Box<Write>),
-    /// This is an append stream on an existing file.
-    Append(Box<Write>)
-}
-
 /// An interface providing read and/or write access to a suitable location.
 pub trait PartitionIO {
     /// Return the number of the latest snapshot found. This may or may not

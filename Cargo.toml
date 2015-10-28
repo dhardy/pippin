@@ -5,18 +5,23 @@ authors = ["Diggory Hardy <github1@dhardy.name>"]
 
 [dependencies]
 
+# We need a SHA2 implementation:
 rust-crypto = "*"
 # possible alternatives: sha, shaman
 
+# For timestamps in commits/files.
 chrono = "*"
 
+# This might make calculating "state sums" faster.
 # Not yet stable, and not essential:
 # simd = "*"
 
+# For reading and writing binary numbers with fixed endianness.
 byteorder = "*"
 
-# Only for the examples:
+# Command-line option handling for the examples:
 docopt = "*"
 rustc-serialize = "*" # for docopt
 
+# Data structure used internally.
 hashindexed = "*"
