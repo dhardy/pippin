@@ -12,10 +12,15 @@
 
 #![feature(box_syntax)]
 
+// Using this until PathExt is folded in...
+#![feature(path_ext)]
+
 extern crate crypto;
 extern crate chrono;
 extern crate byteorder;
 extern crate hashindexed;
+extern crate regex;
+extern crate vec_map;
 
 use std::{io, fs};
 use std::collections::hash_map::{Keys};

@@ -12,51 +12,59 @@ use error::{Result};
 
 /// An interface providing read and/or write access to a suitable location.
 pub trait PartitionIO {
-    /// Return the number of the latest snapshot found. This may or may not
-    /// have commit logs.
+    /// Return one greater than the snapshot number of the latest snapshot file
+    /// or log file found.
     /// 
-    /// If this is greater than zero, the snapshot *should* exist, however
-    /// if it does not, an attempt should be made to reconstruct it from a
-    /// previous snapshot plus commit-logs.
+    /// The idea is that each snapshot and each set of log files can be put
+    /// into a sparse vector with this length (sparse because entries may be
+    /// missing; especially old entries may have been deleted).
     /// 
-    /// For any number less than this and greater than zero, a snapshot may or
-    /// may not be present. Commit-logs may or may not be present.
+    /// Snapshots and commit logs with a number greater than or equal to this
+    /// number probably won't exist and may in any case be ignored.
     /// 
-    /// Snapshots and commit logs with a number greater than this probably
-    /// won't exist and may in any case be ignored.
-    /// 
-    /// Convention: if this is zero, there may not be an actual snapshot, but
+    /// Convention: snapshot "zero" may not be an actual snapshot but
     /// either way the snapshot should be empty (no elements and the state-sum
     /// should be zero).
     /// 
     /// This number must not change except to increase when write_snapshot()
     /// is called.
-    fn latest_snapshot_number(&self) -> usize;
+    fn ss_len(&self) -> usize;
     
-    /// Get a snapshot with the given number. If no snapshot is present, None
-    /// will be returned. If the number is greater than that given by
-    /// latest_snapshot_number(), it will return None.
+    /// One greater than the number of the last log file available for some snapshot
+    fn ss_cl_len(&self, ss_num: usize) -> usize;
+    
+    /// Get a snapshot with the given number. If no snapshot is present or if
+    /// ss_num is too large, None will be returned.
     /// 
-    /// This may fail due to IO operations failing.
-    fn read_snapshot(&self, ss_num: usize) -> Result<Option<Box<Read>>>;
+    /// This can fail due to IO operations failing.
+    fn read_ss(&self, ss_num: usize) -> Result<Option<Box<Read>>>;
     
-    /// Get the number of log files available for some snapshot
-    fn num_logs_for_snapshot(&self, ss_num: usize) -> usize;
+    /// Get a commit log (numbered `cl_num`) file for a snapshot (numbered
+    /// `ss_num`). If none is found, return Ok(None).
+    fn read_ss_cl(&self, ss_num: usize, cl_num: usize) -> Result<Option<Box<Read>>>;
     
-    /// Get a log file for a snapshot
-    fn read_snapshot_log(&self, ss_num: usize, log_num: usize) -> Result<Box<Read>>;
-    
-    /// Open a write stream on a commit file for the latest snapshot.
+    /// Open a write stream on a new snapshot file, numbered ss_num.
+    /// This will increase the number returned by ss_len().
     /// 
-    /// On success, the write stream is returned along with a boolean which is
-    /// true if and only if the write stream is new (has no header).
-    /// 
-    /// This may be a new file or an existing file to append to.
-    fn write_commit(&mut self) -> Result<(Box<Write>, bool)>;
+    /// Fails if a snapshot with number ss_num already exists.
+    fn new_ss(&mut self, ss_num: usize) -> Result<Box<Write>>;
     
-    /// Open a write stream on a new snapshot file. This will increase the
-    /// number returned by latest_snapshot_number().
-    fn write_snapshot(&mut self) -> Result<Box<Write>>;
+    /// Open an append-write stream on an existing commit file. Writes may be
+    /// atomic. Each commit should be written via a single write operation.
+    //TODO: verify atomicity of writes
+    fn append_ss_cl(&mut self, ss_num: usize, cl_num: usize) -> Result<Box<Write>>;
+    
+    /// Open a write-stream on a new commit file. As with the append version,
+    /// the file will be opened in append mode, thus writes may be atomic.
+    /// Each commit (and the header, including commit section marker) should be
+    /// written via a single write operation.
+    /// 
+    /// Fails if a commit log with number `cl_num` for snapshot `ss_num`
+    /// already exists.
+    //TODO: verify atomicity of writes
+    fn new_ss_cl(&mut self, ss_num: usize, cl_num: usize) -> Result<Box<Write>>;
+    
+    // TODO: other operations (delete file, extend commit log, ...?)
 }
 
 /// A *partition* is a sub-set of the entire set such that (a) each element is
@@ -113,11 +121,11 @@ impl Partition {
     /// Load the latest known state of a partition, using the latest available
     /// snapshot and all subsequent commit logs.
     pub fn load_latest(&mut self) -> Result<()> {
-        let latest_num = self.io.latest_snapshot_number();
-        let mut num = latest_num;
+        let ss_len = self.io.ss_len();
+        let mut num = ss_len - 1;
         
         loop {
-            if let Some(mut r) = try!(self.io.read_snapshot(num)) {
+            if let Some(mut r) = try!(self.io.read_ss(num)) {
                 try!(self.validate_header(try!(read_head(&mut r))));
                 let state = try!(read_snapshot(&mut r));
                 self.tips.insert(state.statesum());
@@ -129,11 +137,12 @@ impl Partition {
         }
         
         let mut queue = CommitQueue::new();
-        for ss in num..(latest_num+1) {
-            for c in 0..self.io.num_logs_for_snapshot(ss) {
-                let mut r = try!(self.io.read_snapshot_log(ss, c));
-                try!(self.validate_header(try!(read_head(&mut r))));
-                try!(read_log(&mut r, &mut queue));
+        for ss in num..ss_len {
+            for c in 0..self.io.ss_cl_len(ss) {
+                if let Some(mut r) = try!(self.io.read_ss_cl(ss, c)) {
+                    try!(self.validate_header(try!(read_head(&mut r))));
+                    try!(read_log(&mut r, &mut queue));
+                }
             }
         }
         
@@ -145,10 +154,10 @@ impl Partition {
     
     /// Load all history available
     pub fn load_everything(&mut self) -> Result<()> {
-        let latest_num = self.io.latest_snapshot_number();
+        let ss_len = self.io.ss_len();
         
-        for num in 0..(latest_num + 1) {
-            if let Some(mut r) = try!(self.io.read_snapshot(num)) {
+        for num in 0..ss_len {
+            if let Some(mut r) = try!(self.io.read_ss(num)) {
                 try!(self.validate_header(try!(read_head(&mut r))));
                 let state = try!(read_snapshot(&mut r));
                 self.tips.insert(state.statesum());
@@ -156,10 +165,11 @@ impl Partition {
             }
             
             let mut queue = CommitQueue::new();
-            for c in 0..self.io.num_logs_for_snapshot(num) {
-                let mut r = try!(self.io.read_snapshot_log(num, c));
-                try!(self.validate_header(try!(read_head(&mut r))));
-                try!(read_log(&mut r, &mut queue));
+            for c in 0..self.io.ss_cl_len(num) {
+                if let Some(mut r) = try!(self.io.read_ss_cl(num, c)) {
+                    try!(self.validate_header(try!(read_head(&mut r))));
+                    try!(read_log(&mut r, &mut queue));
+                }
             }
             let mut replayer = LogReplay::from_sets(&mut self.states, &mut self.tips);
             try!(replayer.replay(queue));
@@ -225,7 +235,10 @@ impl Partition {
         
         // Second step: write commits
         if !self.unsaved.is_empty() {
-            let (mut w,is_new) = try!(self.io.write_commit());
+            // TODO: we need a proper commit policy!
+            let ss_num = self.io.ss_len() - 1;  // assume commit number (TODO: this is wrong)
+            let cl_num = self.io.ss_cl_len(ss_num);     // new commit (TODO don't always want this)
+            let (mut w,is_new) = (try!(self.io.new_ss_cl(ss_num, cl_num)), true);
             if is_new {
                 let header = FileHeader {
                     ftype: FileType::CommitLog,
@@ -255,11 +268,17 @@ impl Partition {
     
     /// Write a new snapshot from the latest commit, unless the partition has
     /// no commits, in which case do nothing.
+    //TODO: writing a new snapshot is only acceptable when we are currently on
+    // the latest state, otherwise what was the latest state will be "hidden"
+    // (only the latest snapshot is read normally).
+    // Make partition read-only until latest state is read?
     pub fn write_snapshot(&mut self) -> Result<()> {
         match self.states.get(&self.parent) {
             None => { Ok(()) },
             Some(state) => {
-                let mut writer = try!(self.io.write_snapshot());
+                //TODO: we should try a new snapshot number if this fails with AlreadyExists
+                let ss_num = self.io.ss_len();
+                let mut writer = try!(self.io.new_ss(ss_num));
                 write_snapshot(state, &mut writer)
             }
         }

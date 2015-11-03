@@ -1,8 +1,9 @@
 //! Internal error structs used by Pippin
 
-use std::{io, error, fmt, result, string};
+use std::{io, error, fmt, result, string, num};
 use std::cmp::{min, max};
 use byteorder;
+use regex;
 
 /// Our custom result type
 pub type Result<T> = result::Result<T, Error>;
@@ -14,8 +15,11 @@ pub enum Error {
     /// No element found for replacement/removal/retrieval
     NoEltFound(&'static str),
     Replay(ReplayError),
+    RepoFiles(String),
     Io(io::Error),
     Utf8(string::FromUtf8Error),
+    ParseInt(num::ParseIntError),
+    Regex(regex::Error),
 }
 
 /// For read errors; adds a read position
@@ -114,6 +118,14 @@ impl Error {
     pub fn replay(msg: &'static str) -> Error {
         Error::Replay(ReplayError { msg: msg })
     }
+    /// Create a "repo files" error
+    pub fn repo_files(msg: String) -> Error {
+        Error::RepoFiles(msg)
+    }
+    /// Use io::error::new to make an IO error
+    pub fn io(kind: io::ErrorKind, msg: &'static str) -> Error {
+        Error::Io(io::Error::new(kind, msg))
+    }
 }
 
 // Important impls for compound type
@@ -124,8 +136,11 @@ impl error::Error for Error {
             Error::Arg(ref e) => e.msg,
             Error::NoEltFound(msg) => msg,
             Error::Replay(ref e) => e.msg,
+            Error::RepoFiles(ref msg) => msg,
             Error::Io(ref e) => e.description(),
             Error::Utf8(ref e) => e.description(),
+            Error::ParseInt(ref e) => e.description(),
+            Error::Regex(ref e) => e.description(),
         }
     }
 }
@@ -134,10 +149,13 @@ impl fmt::Display for Error {
         match *self {
             Error::Read(ref e) => write!(f, "Position {}, offset ({}, {}): {}", e.pos, e.off_start, e.off_end, e.msg),
             Error::Arg(ref e) => write!(f, "Invalid argument: {}", e.msg),
-            Error::NoEltFound(msg) => write!(f, "{}", msg),
+            Error::NoEltFound(ref msg) => write!(f, "{}", msg),
             Error::Replay(ref e) => write!(f, "Failed to recreate state from log: {}", e.msg),
+            Error::RepoFiles(ref msg) => write!(f, "{}", msg),
             Error::Io(ref e) => e.fmt(f),
             Error::Utf8(ref e) => e.fmt(f),
+            Error::ParseInt(ref e) => e.fmt(f),
+            Error::Regex(ref e) => e.fmt(f),
         }
     }
 }
@@ -146,10 +164,13 @@ impl fmt::Debug for Error {
         match *self {
             Error::Read(ref e) => write!(f, "Position {}, offset ({}, {}): {}", e.pos, e.off_start, e.off_end, e.msg),
             Error::Arg(ref e) => write!(f, "Invalid argument: {}", e.msg),
-            Error::NoEltFound(msg) => write!(f, "{}", msg),
+            Error::NoEltFound(ref msg) => write!(f, "{}", msg),
             Error::Replay(ref e) => write!(f, "Failed to recreate state from log: {}", e.msg),
+            Error::RepoFiles(ref msg) => write!(f, "{}", msg),
             Error::Io(ref e) => e.fmt(f),
             Error::Utf8(ref e) => e.fmt(f),
+            Error::ParseInt(ref e) => e.fmt(f),
+            Error::Regex(ref e) => e.fmt(f),
         }
     }
 }
@@ -170,6 +191,9 @@ impl From<io::Error> for Error {
 impl From<string::FromUtf8Error> for Error {
     fn from(e: string::FromUtf8Error) -> Error { Error::Utf8(e) }
 }
+impl From<num::ParseIntError> for Error {
+    fn from(e: num::ParseIntError) -> Error { Error::ParseInt(e) }
+}
 impl From<byteorder::Error> for Error {
     fn from(e: byteorder::Error) -> Error {
         match e {
@@ -179,4 +203,7 @@ impl From<byteorder::Error> for Error {
             byteorder::Error::Io(err) => Error::Io(err)
         }
     }
+}
+impl From<regex::Error> for Error {
+    fn from(e: regex::Error) -> Error { Error::Regex(e) }
 }

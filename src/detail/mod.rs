@@ -16,6 +16,7 @@ mod sum;
 mod states;
 mod commits;
 mod partition;
+mod discover;
 
 
 /// Holds an element's data in memory

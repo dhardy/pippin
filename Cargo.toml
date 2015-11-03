@@ -25,3 +25,10 @@ rustc-serialize = "*" # for docopt
 
 # Data structure used internally.
 hashindexed = "*"
+
+# Used to match paths in the 'discover' module.
+regex = "*"
+
+# Container seems like the best match for the job. There isn't any strong
+# reason to choose this over libstd containers however.
+vec_map = "*"
