@@ -1,14 +1,15 @@
 //! Pippin: partition
 
-use std::io::{Read, Write};
+use std::io::{Read, Write, ErrorKind};
 use std::collections::HashSet;
+use std::result;
 use hashindexed::HashIndexed;
 
 use super::{Sum, Commit, CommitQueue, LogReplay,
     PartitionState, PartitionStateSumComparator};
 use super::{FileHeader, FileType, read_head, write_head,
     read_snapshot, write_snapshot, read_log, start_log, write_commit};
-use error::{Result};
+use error::{Result, Error};
 
 /// An interface providing read and/or write access to a suitable location.
 pub trait PartitionIO {
@@ -64,7 +65,33 @@ pub trait PartitionIO {
     //TODO: verify atomicity of writes
     fn new_ss_cl(&mut self, ss_num: usize, cl_num: usize) -> Result<Box<Write>>;
     
-    // TODO: other operations (delete file, extend commit log, ...?)
+    // TODO: other operations (delete file, ...?)
+}
+
+/// Doesn't provide any IO.
+/// 
+/// Can be used for testing but big fat warning: this does not provide any
+/// method to save your data. Write operations fail with `ErrorKind::InvalidInput`.
+pub struct PartitionDummyIO;
+
+impl PartitionIO for PartitionDummyIO {
+    fn ss_len(&self) -> usize { 0 }
+    fn ss_cl_len(&self, _ss_num: usize) -> usize { 0 }
+    fn read_ss(&self, _ss_num: usize) -> Result<Option<Box<Read>>> {
+        Ok(None)
+    }
+    fn read_ss_cl(&self, _ss_num: usize, _cl_num: usize) -> Result<Option<Box<Read>>> {
+        Ok(None)
+    }
+    fn new_ss(&mut self, _ss_num: usize) -> Result<Box<Write>> {
+        Err(Error::io(ErrorKind::InvalidInput, "PartitionDummyIO does not support writing"))
+    }
+    fn append_ss_cl(&mut self, _ss_num: usize, _cl_num: usize) -> Result<Box<Write>> {
+        Err(Error::io(ErrorKind::InvalidInput, "PartitionDummyIO does not support writing"))
+    }
+    fn new_ss_cl(&mut self, _ss_num: usize, _cl_num: usize) -> Result<Box<Write>> {
+        Err(Error::io(ErrorKind::InvalidInput, "PartitionDummyIO does not support writing"))
+    }
 }
 
 /// A *partition* is a sub-set of the entire set such that (a) each element is
@@ -89,38 +116,94 @@ pub struct Partition {
     // making a new commit.
     // Special case: this is zero when there is no parent state (i.e. empty).
     parent: Sum,
-    /// Current state. This may be equivalent to the parent state but will be a
-    /// clone so that we can edit it directly without affecting the parent.
-    /// 
-    /// You can use this directly.
-    pub cur: PartitionState,
+    // Current state, to be modified. This is stored internally so that we do
+    // not have to trust the user, since if (a) the wrong state is committed, 
+    // it will replace everything in the partition (except history), and (b) if
+    // a state is held externally while the `Partition` is updated with new
+    // commits from another source, then that externally held state is used to
+    // make a new commit, the changes from the other commits will be reverted.
+    // It is only usable if tips.len() == 1
+    current: PartitionState,
 }
 
 // Methods creating a partition and loading its data
 impl Partition {
-    /// Create a new, empty partition. Note that repository partitioning is
-    /// automatic, so the only reason you would want to do this would be to
-    /// create a new single-partition "repository".
+    /// Create a partition, assigning an IO provider (this can only be done at
+    /// time of creation).
     /// 
-    /// `io` must be passed in order to support saving to disk.
-    pub fn new(io: Box<PartitionIO>) -> Partition {
-        let mut states = HashIndexed::new();
-        states.insert(PartitionState::new()); /* initial state */
-        let mut tips = HashSet::new();
-        tips.insert(Sum::zero() /* key of initial state */);
+    /// The partition will not be *ready* until either declared `new()` or data
+    /// is loaded with one of the load operations. Until it is *ready* most
+    /// operations will fail.
+    /// 
+    /// Example:
+    /// 
+    /// ```no_run
+    /// use std::path::Path;
+    /// use pippin::{Partition, DiscoverPartitionFiles};
+    /// 
+    /// let path = Path::new(".");
+    /// let io = DiscoverPartitionFiles::from_dir_basename(path, "my-partition").unwrap();
+    /// let partition = Partition::create(Box::new(io));
+    /// ```
+    pub fn create(io: Box<PartitionIO>) -> Partition {
         Partition {
             io: io,
-            states: states,
-            tips: tips,
+            states: HashIndexed::new(),
+            tips: HashSet::new(),
             unsaved: Vec::new(),
             parent: Sum::zero() /* key to initial state */,
-            cur: PartitionState::new() /* copy of initial state */,
+            current: PartitionState::new() /* copy of initial state */,
         }
+    }
+    
+    /// Declare that this is a new partition with no prior history and mark it
+    /// *ready*.
+    /// 
+    /// This inserts an initial, empty, state.
+    /// 
+    /// Note that if you do this on a `Partition` that is not freshly created
+    /// all data will be lost, hence why this method consumes and regurgitates
+    /// the `Partition`.
+    /// 
+    /// Example:
+    /// 
+    /// ```
+    /// use pippin::{Partition, PartitionDummyIO};
+    /// 
+    /// let partition = Partition::create(Box::new(PartitionDummyIO)).new();
+    /// ```
+    pub fn new(mut self) -> Partition {
+        let state = PartitionState::new();
+        self.current = state.clone();
+        self.parent = state.statesum();
+        self.tips.clear();
+        self.tips.insert(state.statesum());
+        self.states.clear();    // free memory if not empty
+        self.states.insert(state);
+        self.unsaved.clear();
+        self
     }
     
     /// Load the latest known state of a partition, using the latest available
     /// snapshot and all subsequent commit logs.
+    /// 
+    /// If the partition contains data before the load, any changes will be
+    /// committed (in-memory only) and newly loaded data will be seamlessly
+    /// merged with that already loaded. A merge may be required; it is also
+    /// possible that tips may be part of disconnected graphs and thus
+    /// unmergable as with `load_everything()`.
+    /// 
+    /// After the operation, the repository may be in one of three states: no
+    /// known states, one directed graph of one or more states with a single
+    /// tip (latest state), or a graph with multiple tips (requiring a merge
+    /// operation).
+    /// 
+    /// TODO: fail if no data is found? Require call to merge_required()?
+    /// 
+    /// Calls `self.commit()` internally to save any modifications as a new commit.
     pub fn load_latest(&mut self) -> Result<()> {
+        try!(self.commit());
+        
         let ss_len = self.io.ss_len();
         let mut num = ss_len - 1;
         
@@ -146,14 +229,36 @@ impl Partition {
             }
         }
         
-        let mut replayer = LogReplay::from_sets(&mut self.states, &mut self.tips);
-        try!(replayer.replay(queue));
+        {
+            let mut replayer = LogReplay::from_sets(&mut self.states, &mut self.tips);
+            try!(replayer.replay(queue));
+        }// end borrow of self.tips
         
-        Ok(())
+        if self.tips.is_empty() {
+            Err(Error::io(ErrorKind::NotFound, "load operation found no states"))
+        } else {
+            // success, but a merge may still be required
+            if self.tips.len() == 1 {
+                let tip = self.tips.iter().next().expect("len is 1 so next() should yield an element");
+                self.current = self.states.get(tip).expect("state for tip should be present").clone();
+            }
+            Ok(())
+        }
     }
     
-    /// Load all history available
+    /// Load all history available.
+    /// 
+    /// This operation is similar to `load_latest()`, with the following
+    /// differences:
+    /// 
+    /// 1.  All snapshots and commits found are loaded, not just the latest.
+    /// 2.  When multiple tips are present after the operation, it is possible
+    ///     for tips to be unconnected (i.e. there to be more than one directed
+    ///     graph). In this case it may not be possible to merge all tips into
+    ///     a single latest state.
     pub fn load_everything(&mut self) -> Result<()> {
+        try!(self.commit());
+        
         let ss_len = self.io.ss_len();
         
         for num in 0..ss_len {
@@ -175,7 +280,24 @@ impl Partition {
             try!(replayer.replay(queue));
         }
         
-        Ok(())
+        if self.tips.is_empty() {
+            Err(Error::io(ErrorKind::NotFound, "load operation found no states"))
+        } else {
+            // success, but a merge may still be required
+            if self.tips.len() == 1 {
+                let tip = self.tips.iter().next().expect("len is 1 so next() should yield an element");
+                self.current = self.states.get(tip).expect("state for tip should be present").clone();
+            }
+            Ok(())
+        }
+    }
+    
+    /// Returns true while a merge is required.
+    /// 
+    /// Returns false if not ready or no tip is found as well as when a single
+    /// tip is present and ready to use.
+    pub fn merge_required(&self) -> bool {
+        self.tips.len() > 1
     }
     
     /// Accept a header, and check that the file corresponds to this repository
@@ -189,49 +311,84 @@ impl Partition {
     }
 }
 
+pub enum TipError {
+    /// Partition has not yet been loaded or set "new".
+    NotReady,
+    /// Loaded data left multiple tips. A merge is required to create a single
+    /// tip.
+    MergeRequired,
+}
+
 // Methods saving a partition's data
 impl Partition {
+    /// Get a reference to the PartitionState of the current tip. You can read
+    /// this directly or make a clone in order to make your modifications.
+    /// 
+    /// This operation will fail if no data has been loaded yet or a merge is
+    /// required.
+    /// 
+    /// The operation requires some copying but uses copy-on-write elements
+    /// internally. This copy is needed to create a commit from the diff of the
+    /// last committed state and the new state.
+    pub fn tip(&mut self) -> result::Result<&PartitionState, TipError> {
+        if self.tips.len() == 1 {
+            let tip = self.tips.iter().next().expect("len is 1 so next() should yield an element");
+            Ok(self.states.get(tip).expect("state for tip should be present"))
+        } else if self.tips.is_empty() {
+            Err(TipError::NotReady)
+        } else {
+            Err(TipError::MergeRequired)
+        }
+    }
+    
+    // TODO: allow getting a reference to other states listing snapshots, commits, getting non-current states and
+    // getting diffs.
+    
+    /// This will create a new commit in memory (if there are any changes to
+    /// commit). Use `write()` if you want to save commits to an external
+    /// resource (file or whatever).
+    pub fn commit(&mut self) -> Result<()> {
+        // TODO: diff-based commit?
+        if self.parent == Sum::zero() {
+            if !self.current.is_empty() {
+                self.states.insert(self.current.clone());
+                self.unsaved.push(Commit::from_diff(&PartitionState::new(), &self.current));
+            }
+            Ok(())
+        } else {
+            let c = {
+                let state = self.states.get(&self.parent).expect("parent state not found");
+                if self.current == *state {
+                    None
+                } else {
+                    // We cannot modify self.states here due to borrow, hence
+                    // return value and next 'if' block.
+                    Some(Commit::from_diff(state, &self.current))
+                }
+            };
+            if let Some(commit) = c {
+                self.unsaved.push(commit);
+                self.states.insert(self.current.clone());
+            }
+            Ok(())
+        }
+    }
+    
+    //TODO: revise (remove "mode"?)
     /// Commit changes to the log in memory and optionally on the disk.
     /// 
-    /// In all modes, this will create a new commit in memory (if there are any
-    /// changes to commit).
+    /// This will create a new commit in memory (if there are any changes to
+    /// commit). It will then write all unsaved commits to a log on the disk.
     /// 
-    /// If mode is at least `CommitMode::FastWrite`, then any pending changes
-    /// will be written to the disk.
-    /// 
-    /// Finally, if mode is `CommitMode::Write`, any maintenance operations
-    /// required will be done (for example creating a new snapshot when the
-    /// current commit log is too long).
+    /// If `fast` is true, no further actions will happen, otherwise required
+    /// maintenance operations will be carried out (e.g. creating a new
+    /// snapshot when the current commit-log is long).
     /// 
     /// Note that writing to disk can fail. In this case it may be worth trying
     /// again
-    pub fn commit(&mut self, mode: CommitMode) -> Result<()> {
+    pub fn write(&mut self, fast: bool) -> Result<()> {
         // First step: make a new commit
-        // TODO: diff-based commit?
-        if self.parent == Sum::zero() {
-            if !self.cur.is_empty() {
-                self.states.insert(self.cur.clone());
-                self.unsaved.push(Commit::from_diff(&PartitionState::new(), &self.cur));
-            }
-        } else {
-            let new_commit = if let Some(state) = self.states.get(&self.parent) {
-                if self.cur != *state {
-                    Some(Commit::from_diff(state, &self.cur))
-                } else {
-                    None
-                }
-            } else {
-                //TODO: should we panic? In this case either there is in-memory
-                // corruption or there is a code error. It is doubtful we can recover.
-                panic!("Partition: state not found!");
-            };
-            // If we have a new commit, insert now that the borrow on self.states has expired.
-            if let Some(commit) = new_commit {
-                self.unsaved.push(commit);
-                self.states.insert(self.cur.clone());
-            }
-        }
-        if mode == CommitMode::InMem { return Ok(()); }
+        try!(self.commit());
         
         // Second step: write commits
         if !self.unsaved.is_empty() {
@@ -256,13 +413,12 @@ impl Partition {
                 self.unsaved.pop();
             }
         }
-        if mode == CommitMode::FastWrite { return Ok(()); }
+        if fast { return Ok(()); }
         
         // Third step: maintenance operations
         if false /*TODO new_snapshot_needed*/ {
             try!(self.write_snapshot());
         }
-        assert_eq!( mode, CommitMode::Write );
         Ok(())
     }
     
@@ -283,14 +439,4 @@ impl Partition {
             }
         }
     }
-}
-
-#[derive(Eq, PartialEq, Debug)]
-enum CommitMode {
-    // Create a commit but don't save it to the disk
-    InMem,
-    // Create and write, but don't do any long maintenance operations
-    FastWrite,
-    // Create, write and do any required maintenance operations
-    Write
 }

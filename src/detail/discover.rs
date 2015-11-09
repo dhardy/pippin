@@ -12,16 +12,16 @@ use super::partition::PartitionIO;
 use error::{Result, Error};
 
 
-struct PartitionFiles {
+pub struct DiscoverPartitionFiles {
     base_path: String,  // this is path + first part of file name
     len: usize, // largest index in snapshots + 1
     snapshots: VecMap<PathBuf>,
     logs: VecMap<VecMap<PathBuf>>,
 }
 
-impl PartitionFiles {
+impl DiscoverPartitionFiles {
     /// Create a new instance
-    pub fn from_dir_basename(path: &Path, basename: &str) -> Result<PartitionFiles> {
+    pub fn from_dir_basename(path: &Path, basename: &str) -> Result<DiscoverPartitionFiles> {
         if !path.is_dir() { return Err(Error::arg("path is not a directory")); }
         
         let ss_pat = try!(Regex::new("-ss([0-9]+).pip"));
@@ -63,7 +63,7 @@ impl PartitionFiles {
         
         let base_path = path.to_str().unwrap().to_string()+ basename;  // TODO: optimise
         let len = max(snapshots.keys().last().unwrap_or(0), logs.keys().last().unwrap_or(0));
-        Ok(PartitionFiles { base_path: base_path, len: len, snapshots: snapshots, logs: logs })
+        Ok(DiscoverPartitionFiles { base_path: base_path, len: len, snapshots: snapshots, logs: logs })
     }
     
     fn getp_ss_cl(&self, ss_num: usize, cl_num: usize) -> Option<&PathBuf> {
@@ -71,7 +71,7 @@ impl PartitionFiles {
     }
 }
 
-impl PartitionIO for PartitionFiles {
+impl PartitionIO for DiscoverPartitionFiles {
     fn ss_len(&self) -> usize { self.len }
     fn ss_cl_len(&self, ss_num: usize) -> usize {
         match self.logs.get(&ss_num) {
