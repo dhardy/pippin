@@ -5,3 +5,43 @@ Rethink which errors should panic, which should result in early return with an
 `Err` and which should be worked around with no more than a warning.
 
 Implement a system for reporting warnings.
+
+
+Tests
+-------
+
+Snapshots + commits (expected usage)
+
+Multiple snapshots for the same state
+
+Snapshots with missing commits
+
+Commits with missing snapshots/parent states: state of incomplete information,
+yet some information can be recovered (e.g. elements added in the commits).
+
+Commit loops (reverting to prior states) in two cases: no snapshot within the
+loop (rendering the last commit of the loop useless) and with a snapshot in the
+loop (so that from the perspective of no history before the snapshot it is not
+a loop).
+
+Element insertion, deletion and modification.
+
+Commit creation.
+
+Snapshot creation.
+
+Large partitions (lots of data).
+
+Long partitions (lots of commits).
+
+Large repositories with multiple partitions.
+
+Repartitioning
+
+Dealing with corruption of one or multiple files as best as possible
+
+Merges
+
+Compression
+
+Encryption

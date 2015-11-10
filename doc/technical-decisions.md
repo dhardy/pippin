@@ -33,18 +33,29 @@ History log (commits):
 Identifiers
 ------------------
 
-Commit identifiers: use the commit checksum as an identifier like git etc.,
-*but* this is only to identify the commit (as a patch between two states of the
-repository). Use state checksums to identify repository states.
+State sums: these are checksums which (1) identify a state reached by a snapshot
+or commit, and (2) validate data in a recreated state. They can be used to find
+snapshots and commits, but there may be multiple snapshots and commits for a
+single state-sum.
+
+Note that if a commit ever reverts to a previous state, this will create a loop
+in the history graph, rendering the reverting commit redundant and (unless
+there is a snapshot within the loop) useless. Code should deal with this.
+
+Commit identifiers: use the commit checksum as an identifier like git etc.
+This may not be required, since normally one would only request a state and not
+care how it is reproduced.
 
 Rationale: commit identification is important for merges. When however it comes
 to deleting old history, commits will either be forgotten entirely or merged
 into larger commits with new checksums. State checksums, however, will remain
 the same (for those states which survive).
 
-TODO: revisit commit identifiers (do we need them?) and state identifiers
-(should there be a commit number or something added to prevent a revert commit
-returning to a previous state sum?).
+Printing state sums and commit checksums: use base 36 (0-9, a-z; i.e.
+hexadecimal extended to the end of the alphabet). Always use lower-case letters
+to avoid confusion between zero (`0`) and upper-case `O`. A 256-bit number
+requires only 50 characters in base-36 (or 64 in base 16). Like git, accept
+abbreviated sums so long as these are unique within known history.
 
 Initial state: give it a special identifier, all zeros (i.e. the result of XOR
 combining zero element checksums).
