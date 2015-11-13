@@ -1,4 +1,5 @@
 //! Command-line UI for Pippin
+#![feature(path_ext)]
 
 extern crate pippin;
 extern crate rustc_serialize;
@@ -7,48 +8,77 @@ extern crate docopt;
 use std::process::exit;
 use std::path::PathBuf;
 use std::fs;
+use std::fs::PathExt;
+use std::io::ErrorKind;
 use docopt::Docopt;
-use pippin::{Repo, Element, Result};
+use pippin::{Repo, Element, Result, Error};
 
 const USAGE: &'static str = "
-Pippin command-line UI. This is a demo app and should not be relied upon for
-any deployment. It is not optimised for large repos and the UI may change.
+Pippin command-line UI. This program is designed to demonstrate Pippin's
+capabilities and to allow direct inspection of Pippin files. It is not intended
+for automated usage and the UI may be subject to changes.
 
 Usage:
-  pippincmd -f <file> stats
-  pippincmd -f <file> list
-  pippincmd -f <file> get  <id>
-  pippincmd -f <file> create <repo-name> [--force]
-  pippincmd -f <file> insert <id> <data> [--force]
-  pippincmd (-h | --help)
-  pippincmd version
+  pippincmd -n NAME FILE
+  pippincmd [-P] FILE...
+  pippincmd [-p PART] [-S | -C] FILE...
+  pippincmd [-p PART] [-c COMMIT] [-s] [-g ELT | -e ELT | -v ELT | -d ELT] FILE...
+  pippincmd --help | --version
 
 Options:
-  stats                 Show statistics for a repository loaded from <file>.
-  list                  List element identifiers.
-  get <id>              Get an element by its numeric identifier.
-  create <repo-name>    Create a new repository.
-  insert <id> <data>    Insert some element to the repo.
+  -n --new NAME         Create a new partition with name NAME. A default state
+                        (no elements) is created.
+  -s --snapshot         Force writing of a snapshot after loading and applying
+                        any changes, unless the state already has a snapshot.
   
-  -f --file <file>      File to load/save a repository from/to.
-  -F --force            Overwrite file instead of failing.
+  -P --partitions       List all partitions loaded
+  -p --partition PART   Select partition PART
+  -S --snapshots        List all snapshots loaded
+  -C --commits          List all commits loaded (from snapshots and logs)
+  -c --commit COMMIT    Select commit COMMIT. If not specified, most operations
+                        on commits will use the head (i.e. the latest state).
+  -g --get ELT          Read the contents of an element to standard output.
+  -e --edit ELT         Write an element to a temporary file and invoke the
+                        editor $EDITOR on that file, saving changes afterwards.
+                        If ELT does not exist, it will be created.
+  -v --visual ELT       Like --edit, but use $VISUAL.
+  -d --delete ELT       Remove an element.
+  
   -h --help             Show this message.
   --version             Show version.
 ";
 
 #[derive(Debug, RustcDecodable)]
 struct Args {
-    cmd_stats: bool,
-    cmd_list: bool,
-    cmd_get: bool,
-    cmd_create: bool,
-    cmd_insert: bool,
+    arg_FILE: Vec<String>,
+    flag_new: Option<String>,
+    flag_snapshot: bool,
+    flag_partitions: bool,
+    flag_partition: Option<String>,
+    flag_snapshots: bool,
+    flag_commits: bool,
+    flag_commit: Option<String>,
+    flag_get: Option<String>,
+    flag_edit: Option<String>,
+    flag_visual: Option<String>,
+    flag_delete: Option<String>,
+    flag_help: bool,
     flag_version: bool,
-    flag_force: bool,
-    flag_file: Option<String>,
-    arg_repo_name: Option<String>,
-    arg_id: Option<u64>,
-    arg_data: Option<String>,
+}
+
+#[derive(Debug)]
+enum Editor { Cmd, Visual }
+#[derive(Debug)]
+enum Operation {
+    NewPartition(String),
+    ListPartitions,
+    ListSnapshots,
+    ListCommits,
+    EltGet(String),
+    EltEdit(String, Editor),
+    EltDelete(String),
+    /// Default operation: print out a few statistics or something
+    Default,
 }
 
 fn main() {
@@ -56,14 +86,37 @@ fn main() {
                             .and_then(|d| d.decode())
                             .unwrap_or_else(|e| e.exit());
     
-    if args.flag_version {
+    if args.flag_help {
+        println!("{}", USAGE);
+    } else if args.flag_version {
         let pv = pippin::LIB_VERSION;
         println!("Pippin version: {}.{}.{}",
             (pv >> 32) & 0xFFFF,
             (pv >> 16) & 0xFFFF,
             pv & 0xFFFF);
+        println!("pippincmd version: 1.0.0");
     } else {
-        match main_inner(args) {
+        // Rely on docopt to spot invalid conflicting flags
+        let op = if let Some(name) = args.flag_new {
+                Operation::NewPartition(name)
+            } else if args.flag_partitions {
+                Operation::ListPartitions
+            } else if args.flag_snapshots {
+                Operation::ListSnapshots
+            } else if args.flag_commits {
+                Operation::ListCommits
+            } else if let Some(elt) = args.flag_get {
+                Operation::EltGet(elt)
+            } else if let Some(elt) = args.flag_edit {
+                Operation::EltEdit(elt, Editor::Cmd)
+            } else if let Some(elt) = args.flag_visual {
+                Operation::EltEdit(elt, Editor::Visual)
+            } else if let Some(elt) = args.flag_delete {
+                Operation::EltDelete(elt)
+            } else {
+                Operation::Default
+            };
+        match inner(args.arg_FILE, op, args.flag_partition, args.flag_commit) {
             Ok(()) => {},
             Err(e) => {
                 println!("Error: {}", e);
@@ -71,6 +124,90 @@ fn main() {
             }
         }
     }
+}
+
+fn inner(files: Vec<String>, op: Operation, part: Option<String>, commit: Option<String>) -> Result<()> {
+    match op {
+        Operation::NewPartition(name) => {
+            println!("Creating new partition: {}", name);
+            assert_eq!(files.len(), 1);
+            assert_eq!(part, None);
+            assert_eq!(commit, None);
+            //TODO: validate filename
+            let path = PathBuf::from(files.into_iter().next().unwrap());
+            println!("Initial snapshot: {}", path.display());
+            if path.exists() {
+                return Err(Error::io(ErrorKind::AlreadyExists, "snapshot file already exists"));
+            }
+            
+            let repo = try!(Repo::new(name));
+            repo.save_file(&path)
+        },
+        Operation::Default => {
+            println!("Reading files ...");
+            let mut paths = Vec::new();
+            for file in files.into_iter() {
+                paths.push(PathBuf::from(file));
+            }
+            
+            //TODO: this should not assume all files belong to the same
+            // partition, but discover this and use alternate behaviour in the
+            // case of multiple partitions. Not that there's much point to this
+            // default operation anyway.
+            let discover = try!(pippin::DiscoverPartitionFiles::from_paths(paths));
+            
+            println!("Found {} snapshot file(s) and {} log file(s)",
+                discover.num_snapshot_files(),
+                discover.num_log_files());
+            Ok(())
+        },
+        _ => {
+            println!("TODO: operation {:?}", op);
+            println!("Files: {:?}", files);
+            println!("Partition, commit: {:?}, {:?}", part, commit);
+            Ok(())
+        }
+    }
+//     if load {
+//         if !is_file {
+//             println!("This isn't a file or can't be opened: {}", path.display());
+//             exit(1);
+//         }
+//         let mut repo = try!(Repo::load_file(&path));
+//         
+//         if args.cmd_stats {
+//             println!("Repo name: {}", repo.name());
+//             println!("Number of elements: {}", repo.num_elts());
+//         } else if args.cmd_list {
+//             println!("Repo name: {}", repo.name());
+//             println!("Elements:");
+//             for id in repo.element_ids() {
+//                 println!("  {}", id);
+//             }
+//         } else if args.cmd_get {
+//             let id = extract(args.arg_id, "<id>");
+//             
+//             match repo.get_element(id) {
+//                 None => { println!("No element {}", id); },
+//                 Some(d) => {
+//                     println!("Element {}:", id);
+//                     println!("{}", String::from_utf8_lossy(d.data()));
+//                 }
+//             }
+//         } else if args.cmd_insert {
+//             let id = extract(args.arg_id, "<id>");
+//             let data = extract(args.arg_data, "<data>");
+//             
+//             match repo.insert_elt(id, Element::from_vec(data.into())) {
+//                 Ok(()) => { println!("Element {} inserted.", id); },
+//                 Err(e) => { println!("Element {} couldn't be inserted: {}", id, e); }
+//             };
+//             
+//             //TODO: only if changed
+//             try!(repo.save_file(&path));
+//         }
+//     } else if args.cmd_create {
+//     }
 }
 
 fn extract<T>(x: Option<T>, opt: &str) -> T {
@@ -81,64 +218,4 @@ fn extract<T>(x: Option<T>, opt: &str) -> T {
             exit(1);
         }
     }
-}
-
-fn main_inner(args: Args) -> Result<()> {
-    let load = args.cmd_stats || args.cmd_list || args.cmd_get || args.cmd_insert;
-    
-    let path = PathBuf::from(extract(args.flag_file, "-f <file>"));
-    //TODO: use path.is_file() when stable in libstd
-    let is_file = if let Ok(m) = fs::metadata(&path) {
-        m.is_file() } else { false };
-    
-    if load {
-        if !is_file {
-            println!("This isn't a file or can't be opened: {}", path.display());
-            exit(1);
-        }
-        let mut repo = try!(Repo::load_file(&path));
-        
-        if args.cmd_stats {
-            println!("Repo name: {}", repo.name());
-            println!("Number of elements: {}", repo.num_elts());
-        } else if args.cmd_list {
-            println!("Repo name: {}", repo.name());
-            println!("Elements:");
-            for id in repo.element_ids() {
-                println!("  {}", id);
-            }
-        } else if args.cmd_get {
-            let id = extract(args.arg_id, "<id>");
-            
-            match repo.get_element(id) {
-                None => { println!("No element {}", id); },
-                Some(d) => {
-                    println!("Element {}:", id);
-                    println!("{}", String::from_utf8_lossy(d.data()));
-                }
-            }
-        } else if args.cmd_insert {
-            let id = extract(args.arg_id, "<id>");
-            let data = extract(args.arg_data, "<data>");
-            
-            match repo.insert_elt(id, Element::from_vec(data.into())) {
-                Ok(()) => { println!("Element {} inserted.", id); },
-                Err(e) => { println!("Element {} couldn't be inserted: {}", id, e); }
-            };
-            
-            //TODO: only if changed
-            try!(repo.save_file(&path));
-        }
-    } else if args.cmd_create {
-        let repo_name = extract(args.arg_repo_name, "<repo-name>");
-        
-        let repo = try!(Repo::new(repo_name));
-        
-        if !args.flag_force && is_file {
-            println!("Already exists: {}", path.display());
-            exit(1);
-        }
-        try!(repo.save_file(&path));
-    }
-    Ok(())
 }
