@@ -80,8 +80,8 @@ impl DiscoverPartitionFiles {
     /// Directory and base-name for files are taken from the first path given.
     pub fn from_paths(paths: Vec<PathBuf>) -> Result<DiscoverPartitionFiles> {
         //TODO: allowable charaters in basename
-        let ss_pat = try!(Regex::new(r"([0-9a-zA-Z\-_]+)-ss([1-9][0-9]*).pip"));
-        let cl_pat = try!(Regex::new(r"([0-9a-zA-Z\-_]+)-ss([1-9][0-9]*)-cl([1-9][0-9]*).pipl"));
+        let ss_pat = try!(Regex::new(r"([0-9a-zA-Z-_]+)-ss(0|[1-9][0-9]*).pip"));
+        let cl_pat = try!(Regex::new(r"([0-9a-zA-Z-_]+)-ss(0|[1-9][0-9]*)-cl(0|[1-9][0-9]*).pipl"));
         
         let mut snapshots = VecMap::new();
         let mut logs = VecMap::new();
@@ -163,6 +163,20 @@ impl DiscoverPartitionFiles {
     
     fn getp_ss_cl(&self, ss_num: usize, cl_num: usize) -> Option<&PathBuf> {
         self.logs.get(&ss_num).map_or(None, |logs| logs.get(&cl_num))
+    }
+    
+    /// Output the number of snapshot files found.
+    pub fn num_snapshot_files(&self) -> usize {
+        self.snapshots.len()
+    }
+    
+    /// Output the number of log files found.
+    pub fn num_log_files(&self) -> usize {
+        let mut num = 0;
+        for ss_logs in self.logs.values() {
+            num += ss_logs.len();
+        }
+        num
     }
 }
 
