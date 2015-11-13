@@ -152,7 +152,10 @@ impl DiscoverPartitionFiles {
         if basename == None {
             return Err(Error::io(ErrorKind::NotFound, "no path"));
         }
-        let len = max(snapshots.keys().last().unwrap_or(0), logs.keys().last().unwrap_or(0));
+        // We can't use VecMap::len() because that's the number of elements. We
+        // want the key of the last element plus one.
+        let len = max(snapshots.keys().next_back().map(|x| x+1).unwrap_or(0),
+            logs.keys().next_back().map(|x| x+1).unwrap_or(0));
         Ok(DiscoverPartitionFiles {
             dir: dir_path.expect("dir_path should be set when basename is set"),
             basename: basename.unwrap(/*tested above*/),
@@ -166,17 +169,30 @@ impl DiscoverPartitionFiles {
     }
     
     /// Output the number of snapshot files found.
-    pub fn num_snapshot_files(&self) -> usize {
+    pub fn num_ss_files(&self) -> usize {
         self.snapshots.len()
     }
     
     /// Output the number of log files found.
-    pub fn num_log_files(&self) -> usize {
+    pub fn num_cl_files(&self) -> usize {
         let mut num = 0;
         for ss_logs in self.logs.values() {
             num += ss_logs.len();
         }
         num
+    }
+    
+    /// Returns a reference to the path of a snapshot file, if found.
+    pub fn get_ss_path(&self, ss: usize) -> Option<&Path> {
+        self.snapshots.get(&ss).map(|p| p.as_path())
+    }
+    
+    /// Returns a reference to the path of a log file, if found.
+    pub fn get_cl_path(&self, ss: usize, cl: usize) -> Option<&Path> {
+        match self.logs.get(&ss) {
+            Some(logs) => logs.get(&cl).map(|p| p.as_path()),
+            None => None,
+        }
     }
 }
 

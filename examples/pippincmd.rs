@@ -12,6 +12,7 @@ use std::fs::PathExt;
 use std::io::ErrorKind;
 use docopt::Docopt;
 use pippin::{Repo, Element, Result, Error};
+use pippin::{DiscoverPartitionFiles, PartitionIO};
 
 const USAGE: &'static str = "
 Pippin command-line UI. This program is designed to demonstrate Pippin's
@@ -21,7 +22,7 @@ for automated usage and the UI may be subject to changes.
 Usage:
   pippincmd -n NAME FILE
   pippincmd [-P] FILE...
-  pippincmd [-p PART] [-S | -C] FILE...
+  pippincmd [-p PART] [-S] [-C] FILE...
   pippincmd [-p PART] [-c COMMIT] [-s] [-g ELT | -e ELT | -v ELT | -d ELT] FILE...
   pippincmd --help | --version
 
@@ -67,16 +68,19 @@ struct Args {
 }
 
 #[derive(Debug)]
+enum PartitionOp {
+    List(bool /*list snapshot files?*/, bool /*list log files?*/),
+    EltGet(String),
+    EltEdit(String, Editor),
+    EltDelete(String),
+}
+#[derive(Debug)]
 enum Editor { Cmd, Visual }
 #[derive(Debug)]
 enum Operation {
     NewPartition(String),
     ListPartitions,
-    ListSnapshots,
-    ListCommits,
-    EltGet(String),
-    EltEdit(String, Editor),
-    EltDelete(String),
+    OnPartition(PartitionOp),
     /// Default operation: print out a few statistics or something
     Default,
 }
@@ -101,18 +105,16 @@ fn main() {
                 Operation::NewPartition(name)
             } else if args.flag_partitions {
                 Operation::ListPartitions
-            } else if args.flag_snapshots {
-                Operation::ListSnapshots
-            } else if args.flag_commits {
-                Operation::ListCommits
+            } else if args.flag_snapshots || args.flag_commits {
+                Operation::OnPartition(PartitionOp::List(args.flag_snapshots, args.flag_commits))
             } else if let Some(elt) = args.flag_get {
-                Operation::EltGet(elt)
+                Operation::OnPartition(PartitionOp::EltGet(elt))
             } else if let Some(elt) = args.flag_edit {
-                Operation::EltEdit(elt, Editor::Cmd)
+                Operation::OnPartition(PartitionOp::EltEdit(elt, Editor::Cmd))
             } else if let Some(elt) = args.flag_visual {
-                Operation::EltEdit(elt, Editor::Visual)
+                Operation::OnPartition(PartitionOp::EltEdit(elt, Editor::Visual))
             } else if let Some(elt) = args.flag_delete {
-                Operation::EltDelete(elt)
+                Operation::OnPartition(PartitionOp::EltDelete(elt))
             } else {
                 Operation::Default
             };
@@ -127,14 +129,16 @@ fn main() {
 }
 
 fn inner(files: Vec<String>, op: Operation, part: Option<String>, commit: Option<String>) -> Result<()> {
+    let paths: Vec<PathBuf> = files.into_iter().map(|f| PathBuf::from(f)).collect();
+    
     match op {
         Operation::NewPartition(name) => {
             println!("Creating new partition: {}", name);
-            assert_eq!(files.len(), 1);
+            assert_eq!(paths.len(), 1);
             assert_eq!(part, None);
             assert_eq!(commit, None);
             //TODO: validate filename
-            let path = PathBuf::from(files.into_iter().next().unwrap());
+            let path = paths.into_iter().next().unwrap();
             println!("Initial snapshot: {}", path.display());
             if path.exists() {
                 return Err(Error::io(ErrorKind::AlreadyExists, "snapshot file already exists"));
@@ -143,30 +147,53 @@ fn inner(files: Vec<String>, op: Operation, part: Option<String>, commit: Option
             let repo = try!(Repo::new(name));
             repo.save_file(&path)
         },
-        Operation::Default => {
-            println!("Reading files ...");
-            let mut paths = Vec::new();
-            for file in files.into_iter() {
-                paths.push(PathBuf::from(file));
+        Operation::ListPartitions => {
+            println!("Multi-partition functionality not yet available");
+            Ok(())
+        },
+        Operation::OnPartition(part_op) => {
+            println!("Scanning files ...");
+            //TODO: verify all files belong to the same partition `part`
+            let discover = try!(DiscoverPartitionFiles::from_paths(paths));
+            
+            match part_op {
+                PartitionOp::List(list_snapshots, list_logs) => {
+                    println!("ss_len: {}", discover.ss_len());
+                    for i in 0..discover.ss_len() {
+                        if list_snapshots {
+                            if let Some(p) = discover.get_ss_path(i) {
+                                println!("Snapshot {:4}: {}", i, p.display());
+                            }
+                        }
+                        for j in 0..discover.ss_cl_len(if list_logs {i} else {0}) {
+                            if let Some(p) = discover.get_cl_path(i, j) {
+                                println!("Snapshot {:4} log {:4}: {}", i, j, p.display());
+                            }
+                        }
+                    }
+                    Ok(())
+                },
+                _ => {
+                    println!("TODO: operation {:?}", part_op);
+                    println!("Partition, commit: {:?}, {:?}", part, commit);
+                    Ok(())
+                },
             }
+        },
+        Operation::Default => {
+            println!("Scanning files ...");
             
             //TODO: this should not assume all files belong to the same
             // partition, but discover this and use alternate behaviour in the
             // case of multiple partitions. Not that there's much point to this
             // default operation anyway.
-            let discover = try!(pippin::DiscoverPartitionFiles::from_paths(paths));
+            let discover = try!(DiscoverPartitionFiles::from_paths(paths));
             
             println!("Found {} snapshot file(s) and {} log file(s)",
-                discover.num_snapshot_files(),
-                discover.num_log_files());
+                discover.num_ss_files(),
+                discover.num_cl_files());
             Ok(())
         },
-        _ => {
-            println!("TODO: operation {:?}", op);
-            println!("Files: {:?}", files);
-            println!("Partition, commit: {:?}, {:?}", part, commit);
-            Ok(())
-        }
     }
 //     if load {
 //         if !is_file {
