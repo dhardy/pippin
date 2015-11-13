@@ -74,6 +74,93 @@ impl DiscoverPartitionFiles {
             logs: logs })
     }
     
+    /// Create a new instance, loading only those paths given. Each path must
+    /// be a Pippin file. 
+    /// 
+    /// Directory and base-name for files are taken from the first path given.
+    pub fn from_paths(paths: Vec<PathBuf>) -> Result<DiscoverPartitionFiles> {
+        //TODO: allowable charaters in basename
+        let ss_pat = try!(Regex::new(r"([0-9a-zA-Z\-_]+)-ss([1-9][0-9]*).pip"));
+        let cl_pat = try!(Regex::new(r"([0-9a-zA-Z\-_]+)-ss([1-9][0-9]*)-cl([1-9][0-9]*).pipl"));
+        
+        let mut snapshots = VecMap::new();
+        let mut logs = VecMap::new();
+        let mut dir_path = None;
+        let mut basename = None;
+        
+        for path in paths.into_iter() {
+            if !path.is_file() {
+                return Err(Error::path("not a file", path));
+            }
+            if dir_path == None {
+                dir_path = Some(path.parent().expect("all file paths should have a parent").to_path_buf());
+            }
+            enum FileIs {
+                SnapShot(usize),
+                CommitLog(usize, usize),
+                BadFileName(&'static str),
+            }
+            let file_is = {
+                // Within this block we borrow from `path`, so the borrow checker will not us
+                // move `path`. (A more precise checker might make allow this.)
+                if let Some(fname) = path.file_name().expect("file path must have a file name").to_str() {
+                    if let Some(caps) = ss_pat.captures(fname) {
+                        if basename == None {
+                            basename = Some(caps.at(1).expect("match should yield capture").to_string());
+                        }
+                        let ss: usize = try!(caps.at(2).expect("match should yield capture").parse());
+                        FileIs::SnapShot(ss)
+                    } else if let Some(caps) = cl_pat.captures(fname) {
+                        if basename == None {
+                            basename = Some(caps.at(1).expect("match should yield capture").to_string());
+                        }
+                        let ss: usize = try!(caps.at(2).expect("match should yield capture").parse());
+                        let cl: usize = try!(caps.at(3).expect("match should yield capture").parse());
+                        FileIs::CommitLog(ss, cl)
+                    } else {
+                        if fname.ends_with(".pip") {
+                            FileIs::BadFileName("Snapshot file names should have form BASENAME-ssNUM.pip")
+                        } else if fname.ends_with(".pipl") {
+                            FileIs::BadFileName("Commit log file names should have form BASENAME-ssNUM-clNUM.pipl")
+                        } else {
+                            FileIs::BadFileName("Not a Pippin file (name doesn't end .pip or .pipl")
+                        }
+                    }
+                } else {
+                    FileIs::BadFileName("could not convert file name to unicode")
+                }
+            };
+            match file_is {
+                // Decisions made. Now we can move path without worrying the borrow checker.
+                FileIs::SnapShot(ss) => {
+                    if let Some(_replaced) = snapshots.insert(ss, path) {
+                        panic!("multiple files map to same basname/number");
+                    }
+                },
+                FileIs::CommitLog(ss, cl) => {
+                    let s_vec = &mut logs.entry(ss).or_insert_with(|| VecMap::new());
+                    if let Some(_replaced) = s_vec.insert(cl, path) {
+                        panic!("multiple files map to same basname/number");
+                    }
+                },
+                FileIs::BadFileName(msg) => {
+                    return Err(Error::path(msg, path));
+                },
+            }
+        }
+        
+        if basename == None {
+            return Err(Error::io(ErrorKind::NotFound, "no path"));
+        }
+        let len = max(snapshots.keys().last().unwrap_or(0), logs.keys().last().unwrap_or(0));
+        Ok(DiscoverPartitionFiles {
+            dir: dir_path.expect("dir_path should be set when basename is set"),
+            basename: basename.unwrap(/*tested above*/),
+            len: len,
+            snapshots: snapshots,
+            logs: logs })
+    }
+    
     fn getp_ss_cl(&self, ss_num: usize, cl_num: usize) -> Option<&PathBuf> {
         self.logs.get(&ss_num).map_or(None, |logs| logs.get(&cl_num))
     }
