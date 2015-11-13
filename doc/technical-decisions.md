@@ -137,6 +137,12 @@ recently dated entries (where date is a classifier).
 On disk, partition names may also be arbitrary, but to aid users names may be
 suggested by the program using the library.
 
+For now, partition data files are restricted to names matching one of the 
+following regular expressions:
+
+    ([0-9a-zA-Z\-_]+)-ss([1-9][0-9]*).pip
+    ([0-9a-zA-Z\-_]+)-ss([1-9][0-9]*)-cl([1-9][0-9]*).pipl
+
 
 Checksums
 ----------------------

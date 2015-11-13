@@ -13,19 +13,25 @@ use error::{Result, Error};
 
 
 pub struct DiscoverPartitionFiles {
-    base_path: String,  // this is path + first part of file name
+    dir: PathBuf,
+    basename: String,  // first part of file name
     len: usize, // largest index in snapshots + 1
     snapshots: VecMap<PathBuf>,
     logs: VecMap<VecMap<PathBuf>>,
 }
 
 impl DiscoverPartitionFiles {
-    /// Create a new instance
+    /// Create a new instance.
+    /// 
+    /// `path` must be a directory containing (or in the case of a new repo, to
+    /// contain) data files for the existing partition. `basename` is the first
+    /// part of the file name, common to all files of this partition.
     pub fn from_dir_basename(path: &Path, basename: &str) -> Result<DiscoverPartitionFiles> {
-        if !path.is_dir() { return Err(Error::arg("path is not a directory")); }
+        if !path.is_dir() { return Err(Error::path("not a directory", path.to_path_buf())); }
+        //TODO: validate basename
         
-        let ss_pat = try!(Regex::new("-ss([0-9]+).pip"));
-        let cl_pat = try!(Regex::new("-ss([0-9]+)-cl([0-9]+).pipl"));
+        let ss_pat = try!(Regex::new("-ss([1-9][0-9]*).pip"));
+        let cl_pat = try!(Regex::new("-ss([1-9][0-9]*)-cl([1-9][0-9]*).pipl"));
         let blen = basename.len();
         
         let mut snapshots = VecMap::new();
@@ -46,24 +52,26 @@ impl DiscoverPartitionFiles {
             }
             if let Some(caps) = ss_pat.captures(&fname[blen..]) {
                 let ss: usize = try!(caps.at(1).expect("match should yield capture").parse());
-                if let Some(replaced) = snapshots.insert(ss, entry.path()) {
-                    return Err(Error::repo_files(format!(
-                        "partition files have same number:\n  {}\n  {}", replaced.display(), entry.path().display())));
+                if let Some(_replaced) = snapshots.insert(ss, entry.path()) {
+                    panic!("multiple files map to same basname/number");
                 }
             } else if let Some(caps) = cl_pat.captures(&fname[blen..]) {
                 let ss: usize = try!(caps.at(1).expect("match should yield capture").parse());
                 let cl: usize = try!(caps.at(2).expect("match should yield capture").parse());
                 let s_vec = &mut logs.entry(ss).or_insert_with(|| VecMap::new());
-                if let Some(replaced) = s_vec.insert(cl, entry.path()) {
-                    return Err(Error::repo_files(format!(
-                        "partition files have same number:\n  {}\n  {}", replaced.display(), entry.path().display())));
+                if let Some(_replaced) = s_vec.insert(cl, entry.path()) {
+                    panic!("multiple files map to same basname/number");
                 }
             } // else: no match; ignore
         }
         
-        let base_path = path.to_str().unwrap().to_string()+ basename;  // TODO: optimise
         let len = max(snapshots.keys().last().unwrap_or(0), logs.keys().last().unwrap_or(0));
-        Ok(DiscoverPartitionFiles { base_path: base_path, len: len, snapshots: snapshots, logs: logs })
+        Ok(DiscoverPartitionFiles {
+            dir: path.to_path_buf(),
+            basename: basename.to_string(),
+            len: len,
+            snapshots: snapshots,
+            logs: logs })
     }
     
     fn getp_ss_cl(&self, ss_num: usize, cl_num: usize) -> Option<&PathBuf> {
@@ -96,7 +104,7 @@ impl PartitionIO for DiscoverPartitionFiles {
     
     fn new_ss(&mut self, ss_num: usize) -> Result<Box<Write>> {
         if !self.snapshots.contains_key(&ss_num) {
-            let p = PathBuf::from(format!("{}-ss{}.pip", self.base_path, self.len));
+            let p = self.dir.join(PathBuf::from(format!("{}-ss{}.pip", self.basename, self.len)));
             if !p.exists() {
                 // TODO: atomic if-exists-don't-overwrite
                 let stream = try!(File::create(&p));
@@ -119,7 +127,7 @@ impl PartitionIO for DiscoverPartitionFiles {
     }
     fn new_ss_cl(&mut self, ss_num: usize, cl_num: usize) -> Result<Box<Write>> {
         if self.getp_ss_cl(ss_num, cl_num) == None {
-            let p = PathBuf::from(format!("{}-ss{}-cl{}.pip", self.base_path, ss_num, cl_num));
+            let p = self.dir.join(PathBuf::from(format!("{}-ss{}-cl{}.pipl", self.basename, ss_num, cl_num)));
             if !p.exists() {
                 let stream = try!(OpenOptions::new().create(true).write(true).append(true).open(p));
                 return Ok(box stream)

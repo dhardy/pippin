@@ -1,6 +1,7 @@
 //! Internal error structs used by Pippin
 
 use std::{io, error, fmt, result, string, num};
+use std::path::PathBuf;
 use std::cmp::{min, max};
 use byteorder;
 use regex;
@@ -16,6 +17,7 @@ pub enum Error {
     NoEltFound(&'static str),
     Replay(ReplayError),
     RepoFiles(String),
+    Path(&'static str, PathBuf),
     Io(io::Error),
     Utf8(string::FromUtf8Error),
     ParseInt(num::ParseIntError),
@@ -122,7 +124,13 @@ impl Error {
     pub fn repo_files(msg: String) -> Error {
         Error::RepoFiles(msg)
     }
+    /// Create a "path" error. Will be displayed as
+    /// `println!("Error: {}: {}", msg, path.display());`.
+    pub fn path(msg: &'static str, path: PathBuf) -> Error {
+        Error::Path(msg, path)
+    }
     /// Use io::error::new to make an IO error
+    //TODO: replace all usages with Pippin-specific error types?
     pub fn io(kind: io::ErrorKind, msg: &'static str) -> Error {
         Error::Io(io::Error::new(kind, msg))
     }
@@ -137,6 +145,7 @@ impl error::Error for Error {
             Error::NoEltFound(msg) => msg,
             Error::Replay(ref e) => e.msg,
             Error::RepoFiles(ref msg) => msg,
+            Error::Path(ref msg, _) => msg,
             Error::Io(ref e) => e.description(),
             Error::Utf8(ref e) => e.description(),
             Error::ParseInt(ref e) => e.description(),
@@ -152,6 +161,7 @@ impl fmt::Display for Error {
             Error::NoEltFound(ref msg) => write!(f, "{}", msg),
             Error::Replay(ref e) => write!(f, "Failed to recreate state from log: {}", e.msg),
             Error::RepoFiles(ref msg) => write!(f, "{}", msg),
+            Error::Path(ref msg, ref path) => write!(f, "{}: {}", msg, path.display()),
             Error::Io(ref e) => e.fmt(f),
             Error::Utf8(ref e) => e.fmt(f),
             Error::ParseInt(ref e) => e.fmt(f),
@@ -167,6 +177,7 @@ impl fmt::Debug for Error {
             Error::NoEltFound(ref msg) => write!(f, "{}", msg),
             Error::Replay(ref e) => write!(f, "Failed to recreate state from log: {}", e.msg),
             Error::RepoFiles(ref msg) => write!(f, "{}", msg),
+            Error::Path(ref msg, ref path) => write!(f, "{}: {}", msg, path.display()),
             Error::Io(ref e) => e.fmt(f),
             Error::Utf8(ref e) => e.fmt(f),
             Error::ParseInt(ref e) => e.fmt(f),
