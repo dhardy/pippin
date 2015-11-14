@@ -1,5 +1,4 @@
 //! Command-line UI for Pippin
-#![feature(path_ext)]
 #![feature(box_syntax)]
 
 extern crate pippin;
@@ -8,8 +7,6 @@ extern crate docopt;
 
 use std::process::exit;
 use std::path::PathBuf;
-use std::fs;
-use std::fs::PathExt;
 use std::io::ErrorKind;
 use docopt::Docopt;
 use pippin::{Repo, Element, Result, Error};

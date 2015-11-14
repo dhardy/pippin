@@ -3,17 +3,10 @@
 // because at this stage of development there's a lot of it:
 #![allow(dead_code)]
 
-// https://github.com/rust-lang/rust/issues/27790
-// could be replaced with a stub function if needing to use stable releases
-#![feature(vec_resize)]
-
 // Used for error display; not essential
 #![feature(step_by)]
 
 #![feature(box_syntax)]
-
-// Using this until PathExt is folded in...
-#![feature(path_ext)]
 
 extern crate crypto;
 extern crate chrono;

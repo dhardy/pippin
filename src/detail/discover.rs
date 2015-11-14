@@ -1,7 +1,6 @@
 //! Pippin: file discovery
 
 use std::path::{Path, PathBuf};
-use std::fs::PathExt;
 use std::io::{Read, Write, ErrorKind};
 use std::fs::{read_dir, File, OpenOptions};
 use std::cmp::max;
