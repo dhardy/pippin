@@ -14,6 +14,7 @@ use std::io::ErrorKind;
 use docopt::Docopt;
 use pippin::{Repo, Element, Result, Error};
 use pippin::{DiscoverPartitionFiles, Partition, PartitionIO};
+use pippin::PartitionState;
 
 const USAGE: &'static str = "
 Pippin command-line UI. This program is designed to demonstrate Pippin's
@@ -52,6 +53,7 @@ Options:
 ";
 
 #[derive(Debug, RustcDecodable)]
+#[allow(non_snake_case)]        // names are mandated by docopt
 struct Args {
     arg_FILE: Vec<String>,
     flag_new: Option<String>,
@@ -146,7 +148,7 @@ fn inner(files: Vec<String>, op: Operation, part: Option<String>,
             assert_eq!(part, None);
             assert_eq!(commit, None);
             //TODO: validate filename
-            let path = paths.into_iter().next().unwrap();
+            let path = &paths[0];
             println!("Initial snapshot: {}", path.display());
             if path.exists() {
                 return Err(Error::io(ErrorKind::AlreadyExists, "snapshot file already exists"));
@@ -241,9 +243,6 @@ fn inner(files: Vec<String>, op: Operation, part: Option<String>,
         },
     }
 //         } else if args.cmd_insert {
-//             let id = extract(args.arg_id, "<id>");
-//             let data = extract(args.arg_data, "<data>");
-//             
 //             match repo.insert_elt(id, Element::from_vec(data.into())) {
 //                 Ok(()) => { println!("Element {} inserted.", id); },
 //                 Err(e) => { println!("Element {} couldn't be inserted: {}", id, e); }
@@ -252,14 +251,4 @@ fn inner(files: Vec<String>, op: Operation, part: Option<String>,
 //             //TODO: only if changed
 //             try!(repo.save_file(&path));
 //         }
-}
-
-fn extract<T>(x: Option<T>, opt: &str) -> T {
-    match x {
-        Some(v) => v,
-        None => {
-            println!("Required option missing: '{}'", opt);
-            exit(1);
-        }
-    }
 }

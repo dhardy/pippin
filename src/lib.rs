@@ -29,9 +29,9 @@ use std::convert::AsRef;
 
 use detail::{FileHeader, FileType, read_head, write_head, validate_repo_name};
 use detail::{read_snapshot, write_snapshot};
-use detail::{PartitionState};
 
 pub use detail::{Element};
+pub use detail::{PartitionState};
 pub use detail::{Partition, PartitionIO, PartitionDummyIO, TipError};
 pub use detail::DiscoverPartitionFiles;
 pub use error::{Error, Result};
