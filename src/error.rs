@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use std::cmp::{min, max};
 use byteorder;
 use regex;
+use TipError;
 
 /// Our custom result type
 pub type Result<T> = result::Result<T, Error>;
@@ -18,6 +19,7 @@ pub enum Error {
     Replay(ReplayError),
     RepoFiles(String),
     Path(&'static str, PathBuf),
+    NotReady(&'static str),
     Io(io::Error),
     Utf8(string::FromUtf8Error),
     ParseInt(num::ParseIntError),
@@ -146,6 +148,7 @@ impl error::Error for Error {
             Error::Replay(ref e) => e.msg,
             Error::RepoFiles(ref msg) => msg,
             Error::Path(ref msg, _) => msg,
+            Error::NotReady(ref msg) => msg,
             Error::Io(ref e) => e.description(),
             Error::Utf8(ref e) => e.description(),
             Error::ParseInt(ref e) => e.description(),
@@ -162,6 +165,7 @@ impl fmt::Display for Error {
             Error::Replay(ref e) => write!(f, "Failed to recreate state from log: {}", e.msg),
             Error::RepoFiles(ref msg) => write!(f, "{}", msg),
             Error::Path(ref msg, ref path) => write!(f, "{}: {}", msg, path.display()),
+            Error::NotReady(ref msg) => write!(f, "{}", msg),
             Error::Io(ref e) => e.fmt(f),
             Error::Utf8(ref e) => e.fmt(f),
             Error::ParseInt(ref e) => e.fmt(f),
@@ -178,6 +182,7 @@ impl fmt::Debug for Error {
             Error::Replay(ref e) => write!(f, "Failed to recreate state from log: {}", e.msg),
             Error::RepoFiles(ref msg) => write!(f, "{}", msg),
             Error::Path(ref msg, ref path) => write!(f, "{}: {}", msg, path.display()),
+            Error::NotReady(ref msg) => write!(f, "{}", msg),
             Error::Io(ref e) => e.fmt(f),
             Error::Utf8(ref e) => e.fmt(f),
             Error::ParseInt(ref e) => e.fmt(f),
@@ -217,4 +222,11 @@ impl From<byteorder::Error> for Error {
 }
 impl From<regex::Error> for Error {
     fn from(e: regex::Error) -> Error { Error::Regex(e) }
+}
+impl From<TipError> for Error {
+    fn from(e: TipError) -> Error { Error::NotReady(match e {
+            TipError::NotReady => "partition not ready: no states found",
+            TipError::MergeRequired => "partition not ready: merge required",
+        })
+    }
 }

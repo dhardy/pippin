@@ -32,7 +32,7 @@ use detail::{read_snapshot, write_snapshot};
 use detail::{PartitionState};
 
 pub use detail::{Element};
-pub use detail::{Partition, PartitionIO, PartitionDummyIO};
+pub use detail::{Partition, PartitionIO, PartitionDummyIO, TipError};
 pub use detail::DiscoverPartitionFiles;
 pub use error::{Error, Result};
 

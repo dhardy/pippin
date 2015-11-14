@@ -330,10 +330,9 @@ impl Partition {
     /// The operation requires some copying but uses copy-on-write elements
     /// internally. This copy is needed to create a commit from the diff of the
     /// last committed state and the new state.
-    pub fn tip(&mut self) -> result::Result<&PartitionState, TipError> {
+    pub fn tip(&mut self) -> result::Result<&mut PartitionState, TipError> {
         if self.tips.len() == 1 {
-            let tip = self.tips.iter().next().expect("len is 1 so next() should yield an element");
-            Ok(self.states.get(tip).expect("state for tip should be present"))
+            Ok(&mut self.current)
         } else if self.tips.is_empty() {
             Err(TipError::NotReady)
         } else {
@@ -347,14 +346,18 @@ impl Partition {
     /// This will create a new commit in memory (if there are any changes to
     /// commit). Use `write()` if you want to save commits to an external
     /// resource (file or whatever).
-    pub fn commit(&mut self) -> Result<()> {
+    /// 
+    /// Returns true if a new commit was made, false if no changes were found.
+    pub fn commit(&mut self) -> Result<bool> {
         // TODO: diff-based commit?
         if self.parent == Sum::zero() {
-            if !self.current.is_empty() {
+            if self.current.is_empty() {
+                Ok(false)
+            } else {
                 self.states.insert(self.current.clone());
                 self.unsaved.push(Commit::from_diff(&PartitionState::new(), &self.current));
+                Ok(true)
             }
-            Ok(())
         } else {
             let c = {
                 let state = self.states.get(&self.parent).expect("parent state not found");
@@ -369,8 +372,10 @@ impl Partition {
             if let Some(commit) = c {
                 self.unsaved.push(commit);
                 self.states.insert(self.current.clone());
+                Ok(true)
+            } else {
+                Ok(false)
             }
-            Ok(())
         }
     }
     
@@ -384,14 +389,20 @@ impl Partition {
     /// maintenance operations will be carried out (e.g. creating a new
     /// snapshot when the current commit-log is long).
     /// 
+    /// Returns true if any new commits were made (i.e. changes were pending)
+    /// or if commits were pending writing. Returns false if nothing needed
+    /// doing.
+    /// 
     /// Note that writing to disk can fail. In this case it may be worth trying
     /// again
-    pub fn write(&mut self, fast: bool) -> Result<()> {
+    pub fn write(&mut self, fast: bool) -> Result<bool> {
         // First step: make a new commit
         try!(self.commit());
         
         // Second step: write commits
-        if !self.unsaved.is_empty() {
+        let result = if self.unsaved.is_empty() {
+            false
+        } else {
             // TODO: we need a proper commit policy!
             let ss_num = self.io.ss_len() - 1;  // assume commit number (TODO: this is wrong)
             let cl_num = self.io.ss_cl_len(ss_num);     // new commit (TODO don't always want this)
@@ -412,14 +423,15 @@ impl Partition {
                 try!(write_commit(&self.unsaved[self.unsaved.len()-1], &mut w));
                 self.unsaved.pop();
             }
-        }
-        if fast { return Ok(()); }
+            true
+        };
+        if fast { return Ok(result); }
         
         // Third step: maintenance operations
         if false /*TODO new_snapshot_needed*/ {
             try!(self.write_snapshot());
         }
-        Ok(())
+        Ok(result)
     }
     
     /// Write a new snapshot from the latest commit, unless the partition has

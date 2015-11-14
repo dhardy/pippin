@@ -1,5 +1,6 @@
 //! Command-line UI for Pippin
 #![feature(path_ext)]
+#![feature(box_syntax)]
 
 extern crate pippin;
 extern crate rustc_serialize;
@@ -12,7 +13,7 @@ use std::fs::PathExt;
 use std::io::ErrorKind;
 use docopt::Docopt;
 use pippin::{Repo, Element, Result, Error};
-use pippin::{DiscoverPartitionFiles, PartitionIO};
+use pippin::{DiscoverPartitionFiles, Partition, PartitionIO};
 
 const USAGE: &'static str = "
 Pippin command-line UI. This program is designed to demonstrate Pippin's
@@ -23,7 +24,7 @@ Usage:
   pippincmd -n NAME FILE
   pippincmd [-P] FILE...
   pippincmd [-p PART] [-S] [-C] FILE...
-  pippincmd [-p PART] [-c COMMIT] [-s] [-g ELT | -e ELT | -v ELT | -d ELT] FILE...
+  pippincmd [-p PART] [-c COMMIT] [-s] [-E | -g ELT | -e ELT | -v ELT | -d ELT] FILE...
   pippincmd --help | --version
 
 Options:
@@ -38,6 +39,7 @@ Options:
   -C --commits          List all commits loaded (from snapshots and logs)
   -c --commit COMMIT    Select commit COMMIT. If not specified, most operations
                         on commits will use the head (i.e. the latest state).
+  -E --elements         List all elements
   -g --get ELT          Read the contents of an element to standard output.
   -e --edit ELT         Write an element to a temporary file and invoke the
                         editor $EDITOR on that file, saving changes afterwards.
@@ -59,6 +61,7 @@ struct Args {
     flag_snapshots: bool,
     flag_commits: bool,
     flag_commit: Option<String>,
+    flag_elements: bool,
     flag_get: Option<String>,
     flag_edit: Option<String>,
     flag_visual: Option<String>,
@@ -70,6 +73,7 @@ struct Args {
 #[derive(Debug)]
 enum PartitionOp {
     List(bool /*list snapshot files?*/, bool /*list log files?*/),
+    ListElts,
     EltGet(String),
     EltEdit(String, Editor),
     EltDelete(String),
@@ -107,6 +111,8 @@ fn main() {
                 Operation::ListPartitions
             } else if args.flag_snapshots || args.flag_commits {
                 Operation::OnPartition(PartitionOp::List(args.flag_snapshots, args.flag_commits))
+            } else if args.flag_elements {
+                Operation::OnPartition(PartitionOp::ListElts)
             } else if let Some(elt) = args.flag_get {
                 Operation::OnPartition(PartitionOp::EltGet(elt))
             } else if let Some(elt) = args.flag_edit {
@@ -118,7 +124,7 @@ fn main() {
             } else {
                 Operation::Default
             };
-        match inner(args.arg_FILE, op, args.flag_partition, args.flag_commit) {
+        match inner(args.arg_FILE, op, args.flag_partition, args.flag_commit, args.flag_snapshot) {
             Ok(()) => {},
             Err(e) => {
                 println!("Error: {}", e);
@@ -128,7 +134,9 @@ fn main() {
     }
 }
 
-fn inner(files: Vec<String>, op: Operation, part: Option<String>, commit: Option<String>) -> Result<()> {
+fn inner(files: Vec<String>, op: Operation, part: Option<String>,
+    commit: Option<String>, snapshot: bool) -> Result<()>
+{
     let paths: Vec<PathBuf> = files.into_iter().map(|f| PathBuf::from(f)).collect();
     
     match op {
@@ -156,28 +164,65 @@ fn inner(files: Vec<String>, op: Operation, part: Option<String>, commit: Option
             //TODO: verify all files belong to the same partition `part`
             let discover = try!(DiscoverPartitionFiles::from_paths(paths));
             
-            match part_op {
-                PartitionOp::List(list_snapshots, list_logs) => {
-                    println!("ss_len: {}", discover.ss_len());
-                    for i in 0..discover.ss_len() {
-                        if list_snapshots {
-                            if let Some(p) = discover.get_ss_path(i) {
-                                println!("Snapshot {:4}: {}", i, p.display());
-                            }
-                        }
-                        for j in 0..discover.ss_cl_len(if list_logs {i} else {0}) {
-                            if let Some(p) = discover.get_cl_path(i, j) {
-                                println!("Snapshot {:4} log {:4}: {}", i, j, p.display());
-                            }
+            if let PartitionOp::List(list_snapshots, list_logs) = part_op {
+                println!("ss_len: {}", discover.ss_len());
+                for i in 0..discover.ss_len() {
+                    if list_snapshots {
+                        if let Some(p) = discover.get_ss_path(i) {
+                            println!("Snapshot {:4}: {}", i, p.display());
                         }
                     }
-                    Ok(())
-                },
-                _ => {
-                    println!("TODO: operation {:?}", part_op);
-                    println!("Partition, commit: {:?}, {:?}", part, commit);
-                    Ok(())
-                },
+                    for j in 0..discover.ss_cl_len(if list_logs {i} else {0}) {
+                        if let Some(p) = discover.get_cl_path(i, j) {
+                            println!("Snapshot {:4} log {:4}: {}", i, j, p.display());
+                        }
+                    }
+                }
+                Ok(())
+            } else {
+                let mut part = Partition::create(box discover);
+                if let Some(_) = commit {
+                    println!("TODO: no support yet for specified commits; using latest state instead");
+                }
+                try!(part.load_latest());
+                //TODO merge operation
+                
+                {
+                    let state = try!(part.tip());
+                    match part_op {
+                        PartitionOp::List(_,_) => { panic!("possibility already eliminated"); },
+                        PartitionOp::ListElts => {
+                            println!("Elements:");
+                            for id in state.elt_ids() {
+                                println!("  {}", id);
+                            }
+                        },
+                        PartitionOp::EltGet(elt) => {
+                            let id: u64 = try!(elt.parse());
+                            match state.get_elt(id) {
+                                None => { println!("No element {}", id); },
+                                Some(d) => {
+                                    println!("Element {}:", id);
+                                    println!("{}", String::from_utf8_lossy(d.data()));
+                                }
+                            }
+                        },
+                        PartitionOp::EltEdit(elt, editor) => {
+                            let id: u64 = try!(elt.parse());
+                            println!("TODO: operation not yet implemented");
+                        },
+                        PartitionOp::EltDelete(elt) => {
+                            let id: u64 = try!(elt.parse());
+                            try!(state.remove_elt(id));
+                        },
+                    }
+                }       // destroy reference `state`
+                
+                let has_changes = try!(part.write(true));
+                if has_changes && snapshot {
+                    try!(part.write_snapshot());
+                }
+                Ok(())
             }
         },
         Operation::Default => {
@@ -195,32 +240,6 @@ fn inner(files: Vec<String>, op: Operation, part: Option<String>, commit: Option
             Ok(())
         },
     }
-//     if load {
-//         if !is_file {
-//             println!("This isn't a file or can't be opened: {}", path.display());
-//             exit(1);
-//         }
-//         let mut repo = try!(Repo::load_file(&path));
-//         
-//         if args.cmd_stats {
-//             println!("Repo name: {}", repo.name());
-//             println!("Number of elements: {}", repo.num_elts());
-//         } else if args.cmd_list {
-//             println!("Repo name: {}", repo.name());
-//             println!("Elements:");
-//             for id in repo.element_ids() {
-//                 println!("  {}", id);
-//             }
-//         } else if args.cmd_get {
-//             let id = extract(args.arg_id, "<id>");
-//             
-//             match repo.get_element(id) {
-//                 None => { println!("No element {}", id); },
-//                 Some(d) => {
-//                     println!("Element {}:", id);
-//                     println!("{}", String::from_utf8_lossy(d.data()));
-//                 }
-//             }
 //         } else if args.cmd_insert {
 //             let id = extract(args.arg_id, "<id>");
 //             let data = extract(args.arg_data, "<data>");
@@ -233,8 +252,6 @@ fn inner(files: Vec<String>, op: Operation, part: Option<String>, commit: Option
 //             //TODO: only if changed
 //             try!(repo.save_file(&path));
 //         }
-//     } else if args.cmd_create {
-//     }
 }
 
 fn extract<T>(x: Option<T>, opt: &str) -> T {
