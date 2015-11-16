@@ -5,13 +5,16 @@ extern crate pippin;
 extern crate rustc_serialize;
 extern crate docopt;
 
-use std::process::exit;
+use std::{fs, env};
+use std::process::{exit, Command};
 use std::path::PathBuf;
-use std::io::ErrorKind;
+use std::io::{Write, ErrorKind};
+use std::ffi::OsStr;
+use std::os::unix::ffi::OsStrExt;
 use docopt::Docopt;
-use pippin::{Repo, Element, Result, Error};
+use pippin::{Repo, Result, Error};
 use pippin::{DiscoverPartitionFiles, Partition, PartitionIO};
-use pippin::PartitionState;
+use pippin::util::rtrim;
 
 const USAGE: &'static str = "
 Pippin command-line UI. This program is designed to demonstrate Pippin's
@@ -208,7 +211,35 @@ fn inner(files: Vec<String>, op: Operation, part: Option<String>,
                         },
                         PartitionOp::EltEdit(elt, editor) => {
                             let id: u64 = try!(elt.parse());
-                            println!("TODO: operation not yet implemented");
+                            let elt_data = if let Some(d) = state.get_elt(id) {
+                                d.data()
+                            } else {
+                                return Err(Error::NoEltFound("no element to edit"));
+                            };
+                            
+                            let output = try!(Command::new("mktemp")
+                                .arg("--tmpdir")
+                                .arg("pippin-element.XXXXXXXX").output());
+                            if !output.status.success() {
+                                return Err(Error::cmd_failed("mktemp", output.status.code()));
+                            }
+                            let tmp_path = PathBuf::from(OsStr::from_bytes(rtrim(&output.stdout, b'\n')));
+                            if !tmp_path.is_file() {
+                                return Err(Error::io(ErrorKind::NotFound, "temporary file not found"));
+                            }
+                            let mut file = try!(fs::OpenOptions::new().write(true).open(&tmp_path));
+                            try!(file.write(elt_data));
+                            println!("Written to temporary file: {}", tmp_path.display());
+                            
+                            let editor_cmd = try!(env::var(match editor {
+                                Editor::Cmd => "EDITOR",
+                                Editor::Visual => "VISUAL",
+                            }));
+                            let status = try!(Command::new(&editor_cmd).arg(&tmp_path).status());
+                            if !status.success() {
+                                return Err(Error::cmd_failed(editor_cmd, status.code()));
+                            }
+                            try!(fs::remove_file(tmp_path));
                         },
                         PartitionOp::EltDelete(elt) => {
                             let id: u64 = try!(elt.parse());
