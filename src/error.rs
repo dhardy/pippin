@@ -27,6 +27,7 @@ pub enum Error {
 }
 
 /// For read errors; adds a read position
+#[derive(PartialEq)]
 pub struct ReadError {
     msg: &'static str,
     pos: usize,
@@ -94,12 +95,14 @@ fn write_hex_line(line: &[u8], f: &mut fmt::Formatter) -> result::Result<(), fmt
 }
 
 /// Any error where an invalid argument was supplied
+#[derive(PartialEq)]
 pub struct ArgError {
     msg: &'static str
 }
 
 /// Errors in log replay (due either to corruption or providing incompatible
 /// states and commit logs)
+#[derive(PartialEq)]
 pub struct ReplayError {
     msg: &'static str
 }

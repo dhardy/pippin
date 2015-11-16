@@ -311,6 +311,7 @@ impl Partition {
     }
 }
 
+#[derive(PartialEq, Eq, Debug)]
 pub enum TipError {
     /// Partition has not yet been loaded or set "new".
     NotReady,
@@ -338,6 +339,11 @@ impl Partition {
         } else {
             Err(TipError::MergeRequired)
         }
+    }
+    
+    /// Get a read-only reference to a state by its statesum, if found.
+    pub fn get(&self, key: &Sum) -> Option<&PartitionState> {
+        self.states.get(key)
     }
     
     // TODO: allow getting a reference to other states listing snapshots, commits, getting non-current states and
@@ -452,3 +458,41 @@ impl Partition {
         }
     }
 }
+
+
+#[test]
+fn on_new_partition() {
+    use super::Element;
+    
+    let io = box PartitionDummyIO;
+    let mut part = Partition::create(io).new();
+    assert_eq!(part.tips.len(), 1);
+    
+    assert_eq!(part.commit().expect("is okay"), false);
+    
+    let key = {
+        let state = part.tip().expect("tip is ready");
+        assert!(state.is_empty());
+        assert_eq!(state.statesum(), Sum::zero());
+        
+        let elt1 = Element::from_str("This is element one.");
+        let elt2 = Element::from_str("Element two data.");
+        let mut key = elt1.sum().clone();
+        key.permute(elt2.sum());
+        assert!(state.insert_elt(1, elt1).is_ok());
+        assert!(state.insert_elt(2, elt2).is_ok());
+        assert_eq!(state.statesum(), key);
+        key
+    };   // `state` goes out of scope
+    
+    assert_eq!(part.commit().expect("is okay"), true);
+    assert_eq!(part.unsaved.len(), 1);
+    assert_eq!(part.tips.len(), 1);
+    assert_eq!(part.states.len(), 2);
+    let state = part.get(&key).expect("state should exist");
+    assert!(state.has_elt(1));
+    assert_eq!(state.get_elt(2), Some(&Element::from_str("Element two data.")));
+}
+
+//TODO: test IO, loading of an existing partition, reading of historical states
+//TODO: and merge operations.
