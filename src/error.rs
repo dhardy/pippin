@@ -1,6 +1,6 @@
 //! Internal error structs used by Pippin
 
-use std::{io, error, fmt, result, string, num};
+use std::{io, error, fmt, result, string, num, env};
 use std::path::PathBuf;
 use std::cmp::{min, max};
 use byteorder;
@@ -20,9 +20,11 @@ pub enum Error {
     RepoFiles(String),
     Path(&'static str, PathBuf),
     NotReady(&'static str),
+    CmdFailed(String),
     Io(io::Error),
     Utf8(string::FromUtf8Error),
     ParseInt(num::ParseIntError),
+    VarError(env::VarError),
     Regex(regex::Error),
 }
 
@@ -134,6 +136,13 @@ impl Error {
     pub fn path(msg: &'static str, path: PathBuf) -> Error {
         Error::Path(msg, path)
     }
+    /// Create an "external command" error.
+    pub fn cmd_failed<T: fmt::Display>(cmd: T, status: Option<i32>) -> Error {
+        Error::CmdFailed(match status {
+            Some(code) => format!("Command failed with status {}: {}", code, cmd),
+            None => format!("Command failed (interrupted): {}", cmd),
+        })
+    }
     /// Use io::error::new to make an IO error
     //TODO: replace all usages with Pippin-specific error types?
     pub fn io(kind: io::ErrorKind, msg: &'static str) -> Error {
@@ -152,9 +161,11 @@ impl error::Error for Error {
             Error::RepoFiles(ref msg) => msg,
             Error::Path(ref msg, _) => msg,
             Error::NotReady(ref msg) => msg,
+            Error::CmdFailed(ref msg) => &msg,
             Error::Io(ref e) => e.description(),
             Error::Utf8(ref e) => e.description(),
             Error::ParseInt(ref e) => e.description(),
+            Error::VarError(ref e) => e.description(),
             Error::Regex(ref e) => e.description(),
         }
     }
@@ -169,9 +180,11 @@ impl fmt::Display for Error {
             Error::RepoFiles(ref msg) => write!(f, "{}", msg),
             Error::Path(ref msg, ref path) => write!(f, "{}: {}", msg, path.display()),
             Error::NotReady(ref msg) => write!(f, "{}", msg),
+            Error::CmdFailed(ref msg) => write!(f, "{}", msg),
             Error::Io(ref e) => e.fmt(f),
             Error::Utf8(ref e) => e.fmt(f),
             Error::ParseInt(ref e) => e.fmt(f),
+            Error::VarError(ref e) => e.fmt(f),
             Error::Regex(ref e) => e.fmt(f),
         }
     }
@@ -186,9 +199,11 @@ impl fmt::Debug for Error {
             Error::RepoFiles(ref msg) => write!(f, "{}", msg),
             Error::Path(ref msg, ref path) => write!(f, "{}: {}", msg, path.display()),
             Error::NotReady(ref msg) => write!(f, "{}", msg),
+            Error::CmdFailed(ref msg) => write!(f, "{}", msg),
             Error::Io(ref e) => e.fmt(f),
             Error::Utf8(ref e) => e.fmt(f),
             Error::ParseInt(ref e) => e.fmt(f),
+            Error::VarError(ref e) => e.fmt(f),
             Error::Regex(ref e) => e.fmt(f),
         }
     }
@@ -212,6 +227,9 @@ impl From<string::FromUtf8Error> for Error {
 }
 impl From<num::ParseIntError> for Error {
     fn from(e: num::ParseIntError) -> Error { Error::ParseInt(e) }
+}
+impl From<env::VarError> for Error {
+    fn from(e: env::VarError) -> Error { Error::VarError(e) }
 }
 impl From<byteorder::Error> for Error {
     fn from(e: byteorder::Error) -> Error {

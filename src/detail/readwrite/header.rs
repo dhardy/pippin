@@ -1,8 +1,9 @@
 //! Read and write support for Pippin file headers.
 
-use std::{io, cmp};
+use std::{io};
 use std::cmp::min;
 use ::error::{Result, Error};
+use ::util::rtrim;
 use super::{sum, fill};
 
 const HEAD_SNAPSHOT : [u8; 16] = *b"PIPPINSS20150929";
@@ -200,21 +201,6 @@ pub fn write_head(header: &FileHeader, w: &mut io::Write) -> Result<()> {
     }
     
     Ok(())
-}
-
-// "trim" applied to generic arrays: while the last char is v, remove it
-fn rtrim<T: cmp::PartialEq>(s: &[T], v: T) -> &[T] {
-    let mut p = s.len();
-    while p > 0 && s[p - 1] == v { p -= 1; }
-    &s[0..p]
-}
-
-#[test]
-fn test_rtrim() {
-    assert_eq!(rtrim(&[0, 15, 8], 15), &[0, 15, 8]);
-    assert_eq!(rtrim(&[0, 15, 8, 8], 8), &[0, 15]);
-    assert_eq!(rtrim(&[2.5], 2.5), &[]);
-    assert_eq!(rtrim(&[], 'a'), &[] as &'static [char]);
 }
 
 #[test]

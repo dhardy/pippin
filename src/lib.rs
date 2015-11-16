@@ -30,6 +30,7 @@ pub use detail::DiscoverPartitionFiles;
 pub use error::{Error, Result};
 
 pub mod error;
+pub mod util;
 mod detail;
 
 /// Version. The low 16 bits are patch number, next 16 are the minor version
