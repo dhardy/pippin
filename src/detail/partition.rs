@@ -356,32 +356,31 @@ impl Partition {
     /// Returns true if a new commit was made, false if no changes were found.
     pub fn commit(&mut self) -> Result<bool> {
         // TODO: diff-based commit?
-        if self.parent == Sum::zero() {
+        let c = if self.parent == Sum::zero() {
             if self.current.is_empty() {
-                Ok(false)
+                None
             } else {
-                self.states.insert(self.current.clone());
-                self.unsaved.push(Commit::from_diff(&PartitionState::new(), &self.current));
-                Ok(true)
+                Some(Commit::from_diff(&PartitionState::new(), &self.current))
             }
         } else {
-            let c = {
-                let state = self.states.get(&self.parent).expect("parent state not found");
-                if self.current == *state {
-                    None
-                } else {
-                    // We cannot modify self.states here due to borrow, hence
-                    // return value and next 'if' block.
-                    Some(Commit::from_diff(state, &self.current))
-                }
-            };
-            if let Some(commit) = c {
-                self.unsaved.push(commit);
-                self.states.insert(self.current.clone());
-                Ok(true)
+            let state = self.states.get(&self.parent).expect("parent state not found");
+            if self.current == *state {
+                None
             } else {
-                Ok(false)
+                // We cannot modify self.states here due to borrow, hence
+                // return value and next 'if' block.
+                Some(Commit::from_diff(state, &self.current))
             }
+        };
+        if let Some(commit) = c {
+            self.unsaved.push(commit);
+            self.states.insert(self.current.clone());
+            self.tips.remove(&self.parent);
+            self.parent = self.current.statesum();
+            self.tips.insert(self.parent);
+            Ok(true)
+        } else {
+            Ok(false)
         }
     }
     
@@ -467,6 +466,7 @@ fn on_new_partition() {
     let io = box PartitionDummyIO;
     let mut part = Partition::create(io).new();
     assert_eq!(part.tips.len(), 1);
+    assert_eq!(part.parent, Sum::zero());
     
     assert_eq!(part.commit().expect("is okay"), false);
     
@@ -487,11 +487,16 @@ fn on_new_partition() {
     
     assert_eq!(part.commit().expect("is okay"), true);
     assert_eq!(part.unsaved.len(), 1);
-    assert_eq!(part.tips.len(), 1);
     assert_eq!(part.states.len(), 2);
-    let state = part.get(&key).expect("state should exist");
-    assert!(state.has_elt(1));
-    assert_eq!(state.get_elt(2), Some(&Element::from_str("Element two data.")));
+    {
+        let state = part.get(&key).expect("state should exist");
+        assert!(state.has_elt(1));
+        assert_eq!(state.get_elt(2), Some(&Element::from_str("Element two data.")));
+    }   // `state` goes out of scope
+    assert_eq!(part.parent, key);
+    assert_eq!(part.tips.len(), 1);
+    
+    assert_eq!(part.commit().expect("is okay"), false);
 }
 
 //TODO: test IO, loading of an existing partition, reading of historical states
