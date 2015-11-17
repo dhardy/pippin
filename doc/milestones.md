@@ -38,6 +38,8 @@ Tests:
 2.  appending new items to history and verification of resulting file
 3.  creation of an empty repository
 
+Done apart from (1) tests and (2) log files should be extended.
+
 
 Basic checksum and history operations
 ---------------------------------------------------
