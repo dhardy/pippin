@@ -64,7 +64,8 @@ impl DiscoverPartitionFiles {
             } // else: no match; ignore
         }
         
-        let len = max(snapshots.keys().last().unwrap_or(0), logs.keys().last().unwrap_or(0));
+        let len = max(snapshots.keys().next_back().unwrap_or(0),
+                      logs.keys().next_back().unwrap_or(0));
         Ok(DiscoverPartitionFiles {
             dir: path.to_path_buf(),
             basename: basename.to_string(),
@@ -154,7 +155,7 @@ impl DiscoverPartitionFiles {
         // We can't use VecMap::len() because that's the number of elements. We
         // want the key of the last element plus one.
         let len = max(snapshots.keys().next_back().map(|x| x+1).unwrap_or(0),
-            logs.keys().next_back().map(|x| x+1).unwrap_or(0));
+                      logs.keys().next_back().map(|x| x+1).unwrap_or(0));
         Ok(DiscoverPartitionFiles {
             dir: dir_path.expect("dir_path should be set when basename is set"),
             basename: basename.unwrap(/*tested above*/),
@@ -199,7 +200,7 @@ impl PartitionIO for DiscoverPartitionFiles {
     fn ss_len(&self) -> usize { self.len }
     fn ss_cl_len(&self, ss_num: usize) -> usize {
         match self.logs.get(&ss_num) {
-            Some(logs) => logs.keys().last().unwrap_or(0),
+            Some(logs) => logs.keys().next_back().map(|x| x+1).unwrap_or(0),
             None => 0,
         }
     }
