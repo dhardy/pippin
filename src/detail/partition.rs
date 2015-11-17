@@ -241,6 +241,7 @@ impl Partition {
             if self.tips.len() == 1 {
                 let tip = self.tips.iter().next().expect("len is 1 so next() should yield an element");
                 self.current = self.states.get(tip).expect("state for tip should be present").clone();
+                self.parent = *tip;
             }
             Ok(())
         }
@@ -287,6 +288,7 @@ impl Partition {
             if self.tips.len() == 1 {
                 let tip = self.tips.iter().next().expect("len is 1 so next() should yield an element");
                 self.current = self.states.get(tip).expect("state for tip should be present").clone();
+                self.parent = *tip;
             }
             Ok(())
         }
@@ -360,7 +362,7 @@ impl Partition {
             if self.current.is_empty() {
                 None
             } else {
-                Some(Commit::from_diff(&PartitionState::new(), &self.current))
+                Commit::from_diff(&PartitionState::new(), &self.current)
             }
         } else {
             let state = self.states.get(&self.parent).expect("parent state not found");
@@ -369,7 +371,7 @@ impl Partition {
             } else {
                 // We cannot modify self.states here due to borrow, hence
                 // return value and next 'if' block.
-                Some(Commit::from_diff(state, &self.current))
+                Commit::from_diff(state, &self.current)
             }
         };
         if let Some(commit) = c {

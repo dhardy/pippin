@@ -8,12 +8,12 @@ extern crate docopt;
 use std::{fs, env};
 use std::process::{exit, Command};
 use std::path::PathBuf;
-use std::io::{Write, ErrorKind};
+use std::io::{Read, Write, ErrorKind};
 use std::ffi::OsStr;
 use std::os::unix::ffi::OsStrExt;
 use docopt::Docopt;
 use pippin::{Repo, Result, Error};
-use pippin::{DiscoverPartitionFiles, Partition, PartitionIO};
+use pippin::{DiscoverPartitionFiles, Partition, PartitionIO, Element};
 use pippin::util::rtrim;
 
 const USAGE: &'static str = "
@@ -210,13 +210,6 @@ fn inner(files: Vec<String>, op: Operation, part: Option<String>,
                             }
                         },
                         PartitionOp::EltEdit(elt, editor) => {
-                            let id: u64 = try!(elt.parse());
-                            let elt_data = if let Some(d) = state.get_elt(id) {
-                                d.data()
-                            } else {
-                                return Err(Error::NoEltFound("no element to edit"));
-                            };
-                            
                             let output = try!(Command::new("mktemp")
                                 .arg("--tmpdir")
                                 .arg("pippin-element.XXXXXXXX").output());
@@ -227,8 +220,17 @@ fn inner(files: Vec<String>, op: Operation, part: Option<String>,
                             if !tmp_path.is_file() {
                                 return Err(Error::io(ErrorKind::NotFound, "temporary file not found"));
                             }
-                            let mut file = try!(fs::OpenOptions::new().write(true).open(&tmp_path));
-                            try!(file.write(elt_data));
+                            
+                            let id: u64 = try!(elt.parse());
+                            {
+                                let elt_data = if let Some(d) = state.get_elt(id) {
+                                    d.data()
+                                } else {
+                                    return Err(Error::NoEltFound("no element to edit"));
+                                };
+                                let mut file = try!(fs::OpenOptions::new().write(true).open(&tmp_path));
+                                try!(file.write(elt_data));
+                            }
                             println!("Written to temporary file: {}", tmp_path.display());
                             
                             let editor_cmd = try!(env::var(match editor {
@@ -239,6 +241,11 @@ fn inner(files: Vec<String>, op: Operation, part: Option<String>,
                             if !status.success() {
                                 return Err(Error::cmd_failed(editor_cmd, status.code()));
                             }
+                            let mut file = try!(fs::File::open(&tmp_path));
+                            let mut buf = Vec::new();
+                            try!(file.read_to_end(&mut buf));
+                            let new_elt = Element::from_vec(buf);
+                            try!(state.replace_elt(id, new_elt));
                             try!(fs::remove_file(tmp_path));
                         },
                         PartitionOp::EltDelete(elt) => {

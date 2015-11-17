@@ -106,12 +106,13 @@ impl Commit {
         Commit { statesum: statesum, parent: parent, changes: changes }
     }
     
-    /// Create a commit from an old state and a new state.
+    /// Create a commit from an old state and a new state. Return the commit if
+    /// there are any differences or None if the states are identical.
     /// 
     /// This is one of two ways to create a commit; the other would be to track
     /// changes to a state (possibly the latter is the more sensible approach
     /// for most applications).
-    pub fn from_diff(old_state: &PartitionState, new_state: &PartitionState) -> Commit {
+    pub fn from_diff(old_state: &PartitionState, new_state: &PartitionState) -> Option<Commit> {
         let mut state = new_state.clone();
         let mut changes = HashMap::new();
         for (id, old_elt) in old_state.map() {
@@ -133,10 +134,14 @@ impl Commit {
             changes.insert(*id, EltChange::insertion(new_elt.clone() /*TODO move not clone*/));
         }
         
-        Commit {
-            statesum: new_state.statesum(),
-            parent: old_state.statesum(),
-            changes: changes
+        if changes.is_empty() {
+            None
+        } else {
+            Some(Commit {
+                statesum: new_state.statesum(),
+                parent: old_state.statesum(),
+                changes: changes
+            })
         }
     }
 
@@ -274,19 +279,19 @@ fn commit_creation_and_replay(){
     state.insert_elt(4, Element::from_str("four")).unwrap();
     state.insert_elt(5, Element::from_str("five")).unwrap();
     let state_b = state.clone();
-    commits.push(Commit::from_diff(&state_a, &state_b));
+    commits.push(Commit::from_diff(&state_a, &state_b).unwrap());
     
     state.insert_elt(6, Element::from_str("six")).unwrap();
     state.insert_elt(7, Element::from_str("seven")).unwrap();
     state.remove_elt(4).unwrap();
     state.replace_elt(3, Element::from_str("half six")).unwrap();
     let state_c = state.clone();
-    commits.push(Commit::from_diff(&state_b, &state_c));
+    commits.push(Commit::from_diff(&state_b, &state_c).unwrap());
     
     state.insert_elt(8, Element::from_str("eight")).unwrap();
     state.insert_elt(4, Element::from_str("half eight")).unwrap();
     let state_d = state.clone();
-    commits.push(Commit::from_diff(&state_c, &state_d));
+    commits.push(Commit::from_diff(&state_c, &state_d).unwrap());
     
     let (mut states, mut tips) = (HashIndexed::new(), HashSet::new());
     let mut replayer = LogReplay::from_sets(&mut states, &mut tips);
