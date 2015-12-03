@@ -19,10 +19,6 @@ chrono = "*"
 # For reading and writing binary numbers with fixed endianness.
 byteorder = "*"
 
-# Command-line option handling for the examples:
-docopt = "*"
-rustc-serialize = "*" # for docopt
-
 # Data structure used internally.
 hashindexed = "*"
 
@@ -32,3 +28,10 @@ regex = "*"
 # Container seems like the best match for the job. There isn't any strong
 # reason to choose this over libstd containers however.
 vec_map = "*"
+
+# Dependencies for examples below
+[dev-dependencies]
+
+# Command-line option handling for the examples:
+docopt = "*"
+rustc-serialize = "*" # for docopt

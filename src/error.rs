@@ -12,19 +12,29 @@ pub type Result<T> = result::Result<T, Error>;
 
 /// Our custom compound error type
 pub enum Error {
+    /// Error while reading from a stream (syntactical or semantic)
     Read(ReadError),
+    /// Invalid argument
     Arg(ArgError),
     /// No element found for replacement/removal/retrieval
     NoEltFound(&'static str),
+    /// Regeneration of state from change sets failed
     Replay(ReplayError),
-    RepoFiles(String),
+    /// Error messages about some path on the file system
     Path(&'static str, PathBuf),
+    /// Loaded data is not ready for use
     NotReady(&'static str),
+    /// An external command failed to run
     CmdFailed(String),
+    /// Encapsulation of a standard library error
     Io(io::Error),
+    /// Encapsulation of a standard library error
     Utf8(string::FromUtf8Error),
+    /// Encapsulation of a standard library error
     ParseInt(num::ParseIntError),
+    /// Encapsulation of a standard library error
     VarError(env::VarError),
+    /// Encapsulation of a regex library error
     Regex(regex::Error),
 }
 
@@ -127,10 +137,6 @@ impl Error {
     pub fn replay(msg: &'static str) -> Error {
         Error::Replay(ReplayError { msg: msg })
     }
-    /// Create a "repo files" error
-    pub fn repo_files(msg: String) -> Error {
-        Error::RepoFiles(msg)
-    }
     /// Create a "path" error. Will be displayed as
     /// `println!("Error: {}: {}", msg, path.display());`.
     pub fn path(msg: &'static str, path: PathBuf) -> Error {
@@ -158,7 +164,6 @@ impl error::Error for Error {
             Error::Arg(ref e) => e.msg,
             Error::NoEltFound(msg) => msg,
             Error::Replay(ref e) => e.msg,
-            Error::RepoFiles(ref msg) => msg,
             Error::Path(ref msg, _) => msg,
             Error::NotReady(ref msg) => msg,
             Error::CmdFailed(ref msg) => &msg,
@@ -177,7 +182,6 @@ impl fmt::Display for Error {
             Error::Arg(ref e) => write!(f, "Invalid argument: {}", e.msg),
             Error::NoEltFound(ref msg) => write!(f, "{}", msg),
             Error::Replay(ref e) => write!(f, "Failed to recreate state from log: {}", e.msg),
-            Error::RepoFiles(ref msg) => write!(f, "{}", msg),
             Error::Path(ref msg, ref path) => write!(f, "{}: {}", msg, path.display()),
             Error::NotReady(ref msg) => write!(f, "{}", msg),
             Error::CmdFailed(ref msg) => write!(f, "{}", msg),
@@ -196,7 +200,6 @@ impl fmt::Debug for Error {
             Error::Arg(ref e) => write!(f, "Invalid argument: {}", e.msg),
             Error::NoEltFound(ref msg) => write!(f, "{}", msg),
             Error::Replay(ref e) => write!(f, "Failed to recreate state from log: {}", e.msg),
-            Error::RepoFiles(ref msg) => write!(f, "{}", msg),
             Error::Path(ref msg, ref path) => write!(f, "{}: {}", msg, path.display()),
             Error::NotReady(ref msg) => write!(f, "{}", msg),
             Error::CmdFailed(ref msg) => write!(f, "{}", msg),

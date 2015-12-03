@@ -2,9 +2,9 @@
 
 use std::cmp;
 
-// "trim" applied to generic arrays: while the last byte is pat, remove it.
-//  
-// Performance is `O(l)` where `l = s.len()`.
+/// "trim" applied to generic arrays: while the last byte is pat, remove it.
+///  
+/// Performance is `O(l)` where `l = s.len()`.
 pub fn rtrim<T: cmp::PartialEq>(s: &[T], pat: T) -> &[T] {
     let mut p = s.len();
     while p > 0 && s[p - 1] == pat { p -= 1; }

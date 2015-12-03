@@ -8,6 +8,8 @@
 
 #![feature(box_syntax)]
 
+#![warn(missing_docs)]
+
 extern crate crypto;
 extern crate chrono;
 extern crate byteorder;
@@ -139,9 +141,9 @@ impl Repo {
     // TODO: list all partitions
     // TODO: check whether a particular partition is loaded
     
-    // Unload all partitions, saving changes to disk
+    /// Unload all partitions, saving changes to disk
     pub fn unload_all(&mut self) {}
     
-    // Commit all changes to disk
+    /// Commit all changes to disk
     pub fn commit_all(&mut self) {}
 }

@@ -313,6 +313,7 @@ impl Partition {
     }
 }
 
+/// Error type returned by `Partition::tip()`.
 #[derive(PartialEq, Eq, Debug)]
 pub enum TipError {
     /// Partition has not yet been loaded or set "new".
@@ -386,7 +387,6 @@ impl Partition {
         }
     }
     
-    //TODO: revise (remove "mode"?)
     /// Commit changes to the log in memory and optionally on the disk.
     /// 
     /// This will create a new commit in memory (if there are any changes to

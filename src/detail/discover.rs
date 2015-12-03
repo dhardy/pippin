@@ -11,6 +11,11 @@ use super::partition::PartitionIO;
 use error::{Result, Error};
 
 
+/// A helper to find files belonging to a partition (assuming a standard
+/// layout on a local or mapped filesystem) and provide access.
+/// 
+/// As an alternative, users could provide their own implementations of
+/// PartitionIO.
 pub struct DiscoverPartitionFiles {
     dir: PathBuf,
     basename: String,  // first part of file name
