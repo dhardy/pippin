@@ -22,10 +22,10 @@ capabilities and to allow direct inspection of Pippin files. It is not intended
 for automated usage and the UI may be subject to changes.
 
 Usage:
-  pippincmd -n NAME FILE
-  pippincmd [-P] FILE...
-  pippincmd [-p PART] [-S] [-C] FILE...
-  pippincmd [-p PART] [-c COMMIT] [-s] [-E | -g ELT | -e ELT | -v ELT | -d ELT] FILE...
+  pippincmd [-h] -n NAME FILE
+  pippincmd [-h] [-P] FILE...
+  pippincmd [-h] [-p PART] [-S] [-C] FILE...
+  pippincmd [-h] [-p PART] [-c COMMIT] [-s] [-E | -g ELT | -e ELT | -v ELT | -d ELT] FILE...
   pippincmd --help | --version
 
 Options:
@@ -93,7 +93,7 @@ enum Operation {
 
 fn main() {
     let args: Args = Docopt::new(USAGE)
-                            .and_then(|d| d.decode())
+                            .and_then(|dopt| dopt.decode())
                             .unwrap_or_else(|e| e.exit());
     
     if args.flag_help {
@@ -174,7 +174,7 @@ fn inner(files: Vec<String>, op: Operation, part: Option<String>,
                             println!("Snapshot {:4}: {}", i, p.display());
                         }
                     }
-                    for j in 0..discover.ss_cl_len(if list_logs {i} else {0}) {
+                    for j in 0..(if list_logs{ discover.ss_cl_len(i) }else{0}) {
                         if let Some(p) = discover.get_cl_path(i, j) {
                             println!("Snapshot {:4} log {:4}: {}", i, j, p.display());
                         }
