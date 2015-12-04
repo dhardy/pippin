@@ -7,22 +7,36 @@ Rethink which errors should panic, which should result in early return with an
 Implement a system for reporting warnings.
 
 
+Log extension
+--------------------
+
+Log files should be extended much of the time instead of writing new.
+
+
 Tests
 -------
 
-Snapshots + commits (expected usage)
+### Reading from a fixed repo
 
-Multiple snapshots for the same state
+*   lists of elements
+*   contents of some elements
+*   reading elements from snapshots and from commit logs
+*   reading from historical (not latest) states
+*   (TBD) partitions
+*   Discovery of partition files
 
-Snapshots with missing commits
+### New repositories
 
-Commits with missing snapshots/parent states: state of incomplete information,
-yet some information can be recovered (e.g. elements added in the commits).
+*   creating an empty repo
 
-Commit loops (reverting to prior states) in two cases: no snapshot within the
-loop (rendering the last commit of the loop useless) and with a snapshot in the
-loop (so that from the perspective of no history before the snapshot it is not
-a loop).
+### Modifying in memory
+
+*   inserting, deleting and modifying elements
+*   forming new commits
+*   getting element data
+*   recovering element data from a previous version
+
+### Modifying repos (on disk)
 
 Element insertion, deletion and modification.
 
@@ -30,17 +44,46 @@ Commit creation.
 
 Snapshot creation.
 
+Repartitioning
+
+Merges
+
+"Discovery" system for updating logs, creating new logs and creating snapshots
+
+### Special cases
+
+Commit loops (reverting to prior states) in two cases: no snapshot within the
+loop (rendering the last commit of the loop useless) and with a snapshot in the
+loop (so that from the perspective of no history before the snapshot it is not
+a loop):
+
+*   creation via reverting
+*   creation via "accidental" modification
+*   reconstructing from log where no snapshots are involved
+*   reconstructing from log where the last state of the loop is a snapshot
+*   reconstructing from log where there is a snapshot in the middle of the loop
+*   reading elements (for the above cases)
+*   appending commits where the second state is a snapshot
+*   appending commits where the second state is not a snapshot
+
+### Reading damaged repos
+
+Snapshots with missing commits
+
+Commits with missing snapshots/parent states: state of incomplete information,
+yet some information can be recovered (e.g. elements added in the commits).
+
+### Performance testing
+
 Large partitions (lots of data).
 
 Long partitions (lots of commits).
 
 Large repositories with multiple partitions.
 
-Repartitioning
-
 Dealing with corruption of one or multiple files as best as possible
 
-Merges
+### Other features
 
 Compression
 
