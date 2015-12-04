@@ -170,7 +170,7 @@ impl DiscoverPartitionFiles {
     }
     
     fn getp_ss_cl(&self, ss_num: usize, cl_num: usize) -> Option<&PathBuf> {
-        self.logs.get(&ss_num).map_or(None, |logs| logs.get(&cl_num))
+        self.logs.get(&ss_num).and_then(|logs| logs.get(&cl_num))
     }
     
     /// Output the number of snapshot files found.
@@ -210,35 +210,37 @@ impl PartitionIO for DiscoverPartitionFiles {
         }
     }
     
-    fn read_ss(&self, ss_num: usize) -> Result<Option<Box<Read>>> {
+    fn read_ss<'a>(&self, ss_num: usize) -> Result<Option<Box<Read+'a>>> {
         Ok(match self.snapshots.get(&ss_num) {
             Some(p) => Some(box try!(File::open(p))),
             None => None,
         })
     }
     
-    fn read_ss_cl(&self, ss_num: usize, cl_num: usize) -> Result<Option<Box<Read>>> {
+    fn read_ss_cl<'a>(&self, ss_num: usize, cl_num: usize) -> Result<Option<Box<Read+'a>>> {
         Ok(match self.getp_ss_cl(ss_num, cl_num) {
             Some(p) => Some(box try!(File::open(p))),
             None => None,
         })
     }
     
-    fn new_ss(&mut self, ss_num: usize) -> Result<Box<Write>> {
+    fn new_ss<'a>(&mut self, ss_num: usize) -> Result<Box<Write+'a>> {
         if !self.snapshots.contains_key(&ss_num) {
             let p = self.dir.join(PathBuf::from(format!("{}-ss{}.pip", self.basename, self.len)));
-            if !p.exists() {
-                // TODO: atomic if-exists-don't-overwrite
-                let stream = try!(File::create(&p));
+            let stream = if !p.exists() {
                 self.len = ss_num + 1;
-                self.snapshots.insert(ss_num, p);
-                return Ok(box stream)
+                // TODO: atomic if-exists-don't-overwrite
+                Some(try!(File::create(&p)))
+            } else { None };
+            self.snapshots.insert(ss_num, p);
+            if let Some(s) = stream {
+                return Ok(box s);
             }
         }
         Err(Error::io(ErrorKind::AlreadyExists, "snapshot file already exists"))
     }
     
-    fn append_ss_cl(&mut self, ss_num: usize, cl_num: usize) -> Result<Box<Write>> {
+    fn append_ss_cl<'a>(&mut self, ss_num: usize, cl_num: usize) -> Result<Box<Write+'a>> {
         match self.getp_ss_cl(ss_num, cl_num) {
             Some(p) => {
                 let stream = try!(OpenOptions::new().write(true).append(true).open(p));
@@ -247,16 +249,15 @@ impl PartitionIO for DiscoverPartitionFiles {
             None => Err(Error::io(ErrorKind::NotFound, "commit log file not found"))
         }
     }
-    fn new_ss_cl(&mut self, ss_num: usize, cl_num: usize) -> Result<Box<Write>> {
+    fn new_ss_cl<'a>(&mut self, ss_num: usize, cl_num: usize) -> Result<Box<Write+'a>> {
         if self.getp_ss_cl(ss_num, cl_num) == None {
             let p = self.dir.join(PathBuf::from(format!("{}-ss{}-cl{}.pipl", self.basename, ss_num, cl_num)));
-            if !p.exists() {
-                let stream = try!(OpenOptions::new().create(true).write(true).append(true).open(p));
-                return Ok(box stream)
-            } else {
-                // p exists but is not in our path cache; add (but still fail with the err below)
-                self.logs.entry(ss_num).or_insert_with(|| VecMap::new()).insert(cl_num, p);
-                //TODO: update with new data??
+            let stream = if !p.exists() {
+                Some(try!(OpenOptions::new().create(true).write(true).append(true).open(&p)))
+            } else { None };
+            self.logs.entry(ss_num).or_insert_with(|| VecMap::new()).insert(cl_num, p);
+            if let Some(s) = stream {
+                return Ok(box s);
             }
         }
         Err(Error::io(ErrorKind::AlreadyExists, "commit log file already exists"))

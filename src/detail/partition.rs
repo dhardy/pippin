@@ -12,6 +12,10 @@ use super::{FileHeader, FileType, read_head, write_head,
 use error::{Result, Error};
 
 /// An interface providing read and/or write access to a suitable location.
+/// 
+/// Note: lifetimes on some functions are more restrictive than might seem
+/// necessary; this is to allow an implementation which reads and writes to
+/// internal streams.
 pub trait PartitionIO {
     /// Return one greater than the snapshot number of the latest snapshot file
     /// or log file found.
@@ -38,22 +42,22 @@ pub trait PartitionIO {
     /// ss_num is too large, None will be returned.
     /// 
     /// This can fail due to IO operations failing.
-    fn read_ss(&self, ss_num: usize) -> Result<Option<Box<Read>>>;
+    fn read_ss<'a>(&'a self, ss_num: usize) -> Result<Option<Box<Read+'a>>>;
     
     /// Get a commit log (numbered `cl_num`) file for a snapshot (numbered
     /// `ss_num`). If none is found, return Ok(None).
-    fn read_ss_cl(&self, ss_num: usize, cl_num: usize) -> Result<Option<Box<Read>>>;
+    fn read_ss_cl<'a>(&'a self, ss_num: usize, cl_num: usize) -> Result<Option<Box<Read+'a>>>;
     
     /// Open a write stream on a new snapshot file, numbered ss_num.
     /// This will increase the number returned by ss_len().
     /// 
     /// Fails if a snapshot with number ss_num already exists.
-    fn new_ss(&mut self, ss_num: usize) -> Result<Box<Write>>;
+    fn new_ss<'a>(&'a mut self, ss_num: usize) -> Result<Box<Write+'a>>;
     
     /// Open an append-write stream on an existing commit file. Writes may be
     /// atomic. Each commit should be written via a single write operation.
     //TODO: verify atomicity of writes
-    fn append_ss_cl(&mut self, ss_num: usize, cl_num: usize) -> Result<Box<Write>>;
+    fn append_ss_cl<'a>(&'a mut self, ss_num: usize, cl_num: usize) -> Result<Box<Write+'a>>;
     
     /// Open a write-stream on a new commit file. As with the append version,
     /// the file will be opened in append mode, thus writes may be atomic.
@@ -63,7 +67,7 @@ pub trait PartitionIO {
     /// Fails if a commit log with number `cl_num` for snapshot `ss_num`
     /// already exists.
     //TODO: verify atomicity of writes
-    fn new_ss_cl(&mut self, ss_num: usize, cl_num: usize) -> Result<Box<Write>>;
+    fn new_ss_cl<'a>(&'a mut self, ss_num: usize, cl_num: usize) -> Result<Box<Write+'a>>;
     
     // TODO: other operations (delete file, ...?)
 }
@@ -77,19 +81,19 @@ pub struct PartitionDummyIO;
 impl PartitionIO for PartitionDummyIO {
     fn ss_len(&self) -> usize { 0 }
     fn ss_cl_len(&self, _ss_num: usize) -> usize { 0 }
-    fn read_ss(&self, _ss_num: usize) -> Result<Option<Box<Read>>> {
+    fn read_ss(&self, _ss_num: usize) -> Result<Option<Box<Read+'static>>> {
         Ok(None)
     }
-    fn read_ss_cl(&self, _ss_num: usize, _cl_num: usize) -> Result<Option<Box<Read>>> {
+    fn read_ss_cl(&self, _ss_num: usize, _cl_num: usize) -> Result<Option<Box<Read+'static>>> {
         Ok(None)
     }
-    fn new_ss(&mut self, _ss_num: usize) -> Result<Box<Write>> {
+    fn new_ss(&mut self, _ss_num: usize) -> Result<Box<Write+'static>> {
         Err(Error::io(ErrorKind::InvalidInput, "PartitionDummyIO does not support writing"))
     }
-    fn append_ss_cl(&mut self, _ss_num: usize, _cl_num: usize) -> Result<Box<Write>> {
+    fn append_ss_cl(&mut self, _ss_num: usize, _cl_num: usize) -> Result<Box<Write+'static>> {
         Err(Error::io(ErrorKind::InvalidInput, "PartitionDummyIO does not support writing"))
     }
-    fn new_ss_cl(&mut self, _ss_num: usize, _cl_num: usize) -> Result<Box<Write>> {
+    fn new_ss_cl(&mut self, _ss_num: usize, _cl_num: usize) -> Result<Box<Write+'static>> {
         Err(Error::io(ErrorKind::InvalidInput, "PartitionDummyIO does not support writing"))
     }
 }
@@ -208,9 +212,13 @@ impl Partition {
         let mut num = ss_len - 1;
         
         loop {
-            if let Some(mut r) = try!(self.io.read_ss(num)) {
-                try!(self.validate_header(try!(read_head(&mut r))));
-                let state = try!(read_snapshot(&mut r));
+            let result = if let Some(mut r) = try!(self.io.read_ss(num)) {
+                let head = try!(read_head(&mut r));
+                let snapshot = try!(read_snapshot(&mut r));
+                Some((head, snapshot))
+            } else { None };
+            if let Some((head, state)) = result {
+                try!(self.validate_header(head));
                 self.tips.insert(state.statesum());
                 self.states.insert(state);
                 break;  // we stop at the most recent snapshot we find
@@ -222,9 +230,15 @@ impl Partition {
         let mut queue = CommitQueue::new();
         for ss in num..ss_len {
             for c in 0..self.io.ss_cl_len(ss) {
-                if let Some(mut r) = try!(self.io.read_ss_cl(ss, c)) {
-                    try!(self.validate_header(try!(read_head(&mut r))));
+                let result = if let Some(mut r) = try!(self.io.read_ss_cl(ss, c)) {
+                    let head = try!(read_head(&mut r));
                     try!(read_log(&mut r, &mut queue));
+                    Some(head)
+                } else { None };
+                if let Some(head) = result {
+                    // Note: if this error becomes recoverable within load_latest(),
+                    // the header should be validated before updating `queue`.
+                    try!(self.validate_header(head));
                 }
             }
         }
@@ -263,18 +277,28 @@ impl Partition {
         let ss_len = self.io.ss_len();
         
         for num in 0..ss_len {
-            if let Some(mut r) = try!(self.io.read_ss(num)) {
-                try!(self.validate_header(try!(read_head(&mut r))));
-                let state = try!(read_snapshot(&mut r));
+            let result = if let Some(mut r) = try!(self.io.read_ss(num)) {
+                let head = try!(read_head(&mut r));
+                let snapshot = try!(read_snapshot(&mut r));
+                Some((head, snapshot))
+            } else { None };
+            if let Some((head, state)) = result {
+                try!(self.validate_header(head));
                 self.tips.insert(state.statesum());
                 self.states.insert(state);
             }
             
             let mut queue = CommitQueue::new();
             for c in 0..self.io.ss_cl_len(num) {
-                if let Some(mut r) = try!(self.io.read_ss_cl(num, c)) {
-                    try!(self.validate_header(try!(read_head(&mut r))));
+                let result = if let Some(mut r) = try!(self.io.read_ss_cl(num, c)) {
+                    let head = try!(read_head(&mut r));
                     try!(read_log(&mut r, &mut queue));
+                    Some(head)
+                } else { None };
+                if let Some(head) = result {
+                    // Note: if this error becomes recoverable within load_latest(),
+                    // the header should be validated before updating `queue`.
+                    try!(self.validate_header(head));
                 }
             }
             let mut replayer = LogReplay::from_sets(&mut self.states, &mut self.tips);
