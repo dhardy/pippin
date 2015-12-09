@@ -3,6 +3,7 @@
 use std::io::{Read, Write, ErrorKind};
 use std::collections::HashSet;
 use std::result;
+use std::any::Any;
 use hashindexed::HashIndexed;
 
 use super::{Sum, Commit, CommitQueue, LogReplay,
@@ -16,7 +17,7 @@ use error::{Result, Error};
 /// Note: lifetimes on some functions are more restrictive than might seem
 /// necessary; this is to allow an implementation which reads and writes to
 /// internal streams.
-pub trait PartitionIO {
+pub trait PartitionIO : Any {
     /// Return one greater than the snapshot number of the latest snapshot file
     /// or log file found.
     /// 
@@ -334,6 +335,15 @@ impl Partition {
         // TODO: I guess we need to assign repository and partition UUIDs or
         // something, and consider how to handle history across repartitioning.
         Ok(())
+    }
+    
+    /// Consume the `Partition` and return the held `PartitionIO`.
+    /// 
+    /// This destroys all states held internally, but states may be cloned
+    /// before unwrapping. Since `Element`s are copy-on-write, cloning
+    /// shouldn't be too expensive.
+    pub fn unwrap_io(self) -> Box<PartitionIO> {
+        self.io
     }
 }
 
