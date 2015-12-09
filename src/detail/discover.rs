@@ -3,7 +3,6 @@
 use std::path::{Path, PathBuf};
 use std::io::{Read, Write, ErrorKind};
 use std::fs::{read_dir, File, OpenOptions};
-use std::cmp::max;
 use regex::Regex;
 use vec_map::VecMap;
 
@@ -19,9 +18,9 @@ use error::{Result, Error};
 pub struct DiscoverPartitionFiles {
     dir: PathBuf,
     basename: String,  // first part of file name
-    len: usize, // largest index in snapshots + 1
-    snapshots: VecMap<PathBuf>,
-    logs: VecMap<VecMap<PathBuf>>,
+    // Map of snapshot-number to pair (snapshot, map of log number to log)
+    // The snapshot path may be empty (if not found).
+    ss: VecMap<(PathBuf, VecMap<PathBuf>)>,
 }
 
 impl DiscoverPartitionFiles {
@@ -39,7 +38,6 @@ impl DiscoverPartitionFiles {
         let blen = basename.len();
         
         let mut snapshots = VecMap::new();
-        let mut logs = VecMap::new();
         
         for entry in try!(read_dir(path)) {
             let entry = try!(entry);
@@ -56,27 +54,23 @@ impl DiscoverPartitionFiles {
             }
             if let Some(caps) = ss_pat.captures(&fname[blen..]) {
                 let ss: usize = try!(caps.at(1).expect("match should yield capture").parse());
-                if let Some(_replaced) = snapshots.insert(ss, entry.path()) {
+                if let Some(_replaced) = snapshots.insert(ss, (entry.path(), VecMap::new())) {
                     panic!("multiple files map to same basname/number");
                 }
             } else if let Some(caps) = cl_pat.captures(&fname[blen..]) {
                 let ss: usize = try!(caps.at(1).expect("match should yield capture").parse());
                 let cl: usize = try!(caps.at(2).expect("match should yield capture").parse());
-                let s_vec = &mut logs.entry(ss).or_insert_with(|| VecMap::new());
-                if let Some(_replaced) = s_vec.insert(cl, entry.path()) {
+                let s_vec = &mut snapshots.entry(ss).or_insert_with(|| (PathBuf::new(), VecMap::new()));
+                if let Some(_replaced) = s_vec.1.insert(cl, entry.path()) {
                     panic!("multiple files map to same basname/number");
                 }
             } // else: no match; ignore
         }
         
-        let len = max(snapshots.keys().next_back().unwrap_or(0),
-                      logs.keys().next_back().unwrap_or(0));
         Ok(DiscoverPartitionFiles {
             dir: path.to_path_buf(),
             basename: basename.to_string(),
-            len: len,
-            snapshots: snapshots,
-            logs: logs })
+            ss: snapshots })
     }
     
     /// Create a new instance, loading only those paths given. Each path must
@@ -89,7 +83,6 @@ impl DiscoverPartitionFiles {
         let cl_pat = try!(Regex::new(r"([0-9a-zA-Z-_]+)-ss(0|[1-9][0-9]*)-cl(0|[1-9][0-9]*).pipl"));
         
         let mut snapshots = VecMap::new();
-        let mut logs = VecMap::new();
         let mut dir_path = None;
         let mut basename = None;
         
@@ -138,14 +131,14 @@ impl DiscoverPartitionFiles {
             match file_is {
                 // Decisions made. Now we can move path without worrying the borrow checker.
                 FileIs::SnapShot(ss) => {
-                    if let Some(_replaced) = snapshots.insert(ss, path) {
-                        panic!("multiple files map to same basname/number");
+                    if let Some(_replaced) = snapshots.insert(ss, (path, VecMap::new())) {
+                        panic!("multiple files map to same basename/number");
                     }
                 },
                 FileIs::CommitLog(ss, cl) => {
-                    let s_vec = &mut logs.entry(ss).or_insert_with(|| VecMap::new());
-                    if let Some(_replaced) = s_vec.insert(cl, path) {
-                        panic!("multiple files map to same basname/number");
+                    let s_vec = &mut snapshots.entry(ss).or_insert_with(|| (PathBuf::new(), VecMap::new()));
+                    if let Some(_replaced) = s_vec.1.insert(cl, path) {
+                        panic!("multiple files map to same basename/number");
                     }
                 },
                 FileIs::BadFileName(msg) => {
@@ -157,91 +150,85 @@ impl DiscoverPartitionFiles {
         if basename == None {
             return Err(Error::io(ErrorKind::NotFound, "no path"));
         }
-        // We can't use VecMap::len() because that's the number of elements. We
-        // want the key of the last element plus one.
-        let len = max(snapshots.keys().next_back().map(|x| x+1).unwrap_or(0),
-                      logs.keys().next_back().map(|x| x+1).unwrap_or(0));
         Ok(DiscoverPartitionFiles {
             dir: dir_path.expect("dir_path should be set when basename is set"),
             basename: basename.unwrap(/*tested above*/),
-            len: len,
-            snapshots: snapshots,
-            logs: logs })
-    }
-    
-    fn getp_ss_cl(&self, ss_num: usize, cl_num: usize) -> Option<&PathBuf> {
-        self.logs.get(&ss_num).and_then(|logs| logs.get(&cl_num))
+            ss: snapshots })
     }
     
     /// Output the number of snapshot files found.
+    /// 
+    /// Actually, this includes snapshot numbers with logs but no snapshot.
+    /// API not fixed.
     pub fn num_ss_files(&self) -> usize {
-        self.snapshots.len()
+        self.ss.len()
     }
     
     /// Output the number of log files found.
+    /// 
+    /// API not fixed.
     pub fn num_cl_files(&self) -> usize {
         let mut num = 0;
-        for ss_logs in self.logs.values() {
-            num += ss_logs.len();
+        for &(_, ref logs) in self.ss.values() {
+            num += logs.len();
         }
         num
     }
     
     /// Returns a reference to the path of a snapshot file, if found.
     pub fn get_ss_path(&self, ss: usize) -> Option<&Path> {
-        self.snapshots.get(&ss).map(|p| p.as_path())
+        self.ss.get(&ss).and_then(|&(ref p, _)| if *p == PathBuf::new() { None } else { Some(p.as_path()) })
     }
     
     /// Returns a reference to the path of a log file, if found.
     pub fn get_cl_path(&self, ss: usize, cl: usize) -> Option<&Path> {
-        match self.logs.get(&ss) {
-            Some(logs) => logs.get(&cl).map(|p| p.as_path()),
-            None => None,
-        }
+        self.ss.get(&ss)
+            .and_then(|&(_, ref logs)| logs.get(&cl))
+            .map(|p| p.as_path())
     }
 }
 
 impl PartitionIO for DiscoverPartitionFiles {
-    fn ss_len(&self) -> usize { self.len }
+    fn ss_len(&self) -> usize {
+        self.ss.keys().next_back().map(|x| x+1).unwrap_or(0)
+    }
     fn ss_cl_len(&self, ss_num: usize) -> usize {
-        match self.logs.get(&ss_num) {
-            Some(logs) => logs.keys().next_back().map(|x| x+1).unwrap_or(0),
-            None => 0,
-        }
+        self.ss.get(&ss_num)
+            .and_then(|&(_, ref logs)| logs.keys().next_back())
+            .map(|x| x+1).unwrap_or(0)
     }
     
     fn read_ss<'a>(&self, ss_num: usize) -> Result<Option<Box<Read+'a>>> {
-        Ok(match self.snapshots.get(&ss_num) {
-            Some(p) => Some(box try!(File::open(p))),
-            None => None,
+        // Cannot replace `match` with `map` since `try!()` cannot be used in a closure
+        Ok(match self.ss.get(&ss_num) {
+            Some(&(ref p, _)) => Some(box try!(File::open(p))),
+            None => None
         })
     }
     
     fn read_ss_cl<'a>(&self, ss_num: usize, cl_num: usize) -> Result<Option<Box<Read+'a>>> {
-        Ok(match self.getp_ss_cl(ss_num, cl_num) {
+        Ok(match self.ss.get(&ss_num).and_then(|&(_, ref logs)| logs.get(&cl_num)) {
             Some(p) => Some(box try!(File::open(p))),
             None => None,
         })
     }
     
     fn new_ss<'a>(&mut self, ss_num: usize) -> Result<Box<Write+'a>> {
-        if !self.snapshots.contains_key(&ss_num) {
-            let p = self.dir.join(PathBuf::from(format!("{}-ss{}.pip", self.basename, self.len)));
-            let stream = if !p.exists() {
-                self.len = ss_num + 1;
-                // TODO: atomic if-exists-don't-overwrite
-                Some(try!(File::create(&p)))
-            } else { None };
-            self.snapshots.insert(ss_num, p);
-            if let Some(s) = stream {
-                return Ok(box s);
-            }
+        let p = self.dir.join(PathBuf::from(format!("{}-ss{}.pip", self.basename, ss_num)));
+        if self.ss.get(&ss_num).map_or(false, |&(ref p, _)| *p != PathBuf::new()) || p.exists() {
+            return Err(Error::io(ErrorKind::AlreadyExists, "snapshot already exists"));
         }
-        Err(Error::io(ErrorKind::AlreadyExists, "snapshot file already exists"))
+        let stream = try!(File::create(&p));
+        if self.ss.contains_key(&ss_num) {
+            self.ss.get_mut(&ss_num).unwrap().0 = p;
+        } else {
+            self.ss.insert(ss_num, (p, VecMap::new()));
+        }
+        Ok(box stream)
     }
     
     fn append_ss_cl<'a>(&mut self, ss_num: usize, cl_num: usize) -> Result<Box<Write+'a>> {
-        match self.getp_ss_cl(ss_num, cl_num) {
+        match self.ss.get(&ss_num).and_then(|&(_, ref logs)| logs.get(&cl_num)) {
             Some(p) => {
                 let stream = try!(OpenOptions::new().write(true).append(true).open(p));
                 Ok(box stream)
@@ -250,16 +237,13 @@ impl PartitionIO for DiscoverPartitionFiles {
         }
     }
     fn new_ss_cl<'a>(&mut self, ss_num: usize, cl_num: usize) -> Result<Box<Write+'a>> {
-        if self.getp_ss_cl(ss_num, cl_num) == None {
-            let p = self.dir.join(PathBuf::from(format!("{}-ss{}-cl{}.pipl", self.basename, ss_num, cl_num)));
-            let stream = if !p.exists() {
-                Some(try!(OpenOptions::new().create(true).write(true).append(true).open(&p)))
-            } else { None };
-            self.logs.entry(ss_num).or_insert_with(|| VecMap::new()).insert(cl_num, p);
-            if let Some(s) = stream {
-                return Ok(box s);
-            }
+        let mut logs = &mut self.ss.entry(ss_num).or_insert_with(|| (PathBuf::new(), VecMap::new())).1;
+        if logs.contains_key(&cl_num) {
+            return Err(Error::io(ErrorKind::AlreadyExists, "commit log file already exists"));
         }
-        Err(Error::io(ErrorKind::AlreadyExists, "commit log file already exists"))
+        let p = self.dir.join(PathBuf::from(format!("{}-ss{}-cl{}.pipl", self.basename, ss_num, cl_num)));
+        let stream = try!(OpenOptions::new().create(true).write(true).append(true).open(&p));
+        logs.insert(cl_num, p);
+        Ok(box stream)
     }
 }
