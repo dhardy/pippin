@@ -158,7 +158,7 @@ impl Partition {
     /// Create a partition, assigning an IO provider (this can only be done at
     /// time of creation).
     /// 
-    /// The partition will not be *ready* until either declared `new()` or data
+    /// The partition will not be *ready* until data
     /// is loaded with one of the load operations. Until it is *ready* most
     /// operations will fail.
     /// 
@@ -170,7 +170,6 @@ impl Partition {
     /// 
     /// let path = Path::new(".");
     /// let io = DiscoverPartitionFiles::from_dir_basename(path, "my-partition").unwrap();
-    /// let partition = Partition::create(Box::new(io));
     /// ```
     pub fn create(io: Box<PartitionIO>) -> Partition {
         Partition {
@@ -185,39 +184,39 @@ impl Partition {
         }
     }
     
-    /// Declare that this is a new partition with no prior history, write an
+    /// Create a partition, assigning an IO provider (this can only be done at
+    /// time of creation). Create a blank state in the partition, write an
     /// empty snapshot to the provided `PartitionIO`, and mark self as *ready*
     /// to receive changes.
-    /// 
-    /// Note that if you do this on a `Partition` that is not freshly created
-    /// all data will be lost, hence why this method consumes and regurgitates
-    /// the `Partition`.
     /// 
     /// Example:
     /// 
     /// ```
     /// use pippin::{Partition, PartitionDummyIO};
     /// 
-    /// let partition = Partition::create(Box::new(PartitionDummyIO::new())).new();
+    /// let partition = Partition::new(Box::new(PartitionDummyIO::new()));
     /// ```
-    pub fn new(mut self) -> Result<Partition> {
+    pub fn new(mut io: Box<PartitionIO>) -> Result<Partition> {
         let state = PartitionState::new();
         {
-            let mut writer = try!(self.io.new_ss(0));
+            let mut writer = try!(io.new_ss(0));
             try!(write_snapshot(&state, &mut writer));
         }
         
-        self.ss_num = 0;
-        self.need_snapshot = false;
-        self.current = state.clone();
-        self.parent = state.statesum();
-        self.tips.clear();
-        self.tips.insert(state.statesum());
-        self.states.clear();    // free memory if not empty
-        self.states.insert(state);
-        self.unsaved.clear();
+        let mut part = Partition {
+            io: io,
+            ss_num: 0,
+            need_snapshot: false,
+            states: HashIndexed::new(),
+            tips: HashSet::new(),
+            unsaved: Vec::new(),
+            parent: state.statesum(),
+            current: state.clone(),
+        };
+        part.tips.insert(state.statesum());
+        part.states.insert(state);
         
-        Ok(self)
+        Ok(part)
     }
     
     /// Load the latest known state of a partition, using the latest available
@@ -543,7 +542,7 @@ fn on_new_partition() {
     use super::Element;
     
     let io = box PartitionDummyIO::new();
-    let mut part = Partition::create(io).new().expect("partition creation");
+    let mut part = Partition::new(io).expect("partition creation");
     assert_eq!(part.tips.len(), 1);
     assert_eq!(part.parent, Sum::zero());
     
