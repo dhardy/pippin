@@ -198,7 +198,7 @@ Should have some base name, some version number and some extension.
 `NUMBER` is a non-negative decimal number which is incremented by one every
 time a new snapshot is made, starting from 0 for an empty snapshot or 1 for a
 non-empty initial snapshot.
-`EXT` should be `pip` for snapshot files and `pipl` for commit logs.
+`EXT` should be `pip` for snapshot files and `piplog` for commit logs.
 
 ### Partitioning
 Different base names should be used for each partition; additionally folders
