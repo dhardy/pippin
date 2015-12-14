@@ -17,7 +17,10 @@ use error::{Result, Error};
 /// Note: lifetimes on some functions are more restrictive than might seem
 /// necessary; this is to allow an implementation which reads and writes to
 /// internal streams.
-pub trait PartitionIO : Any {
+pub trait PartitionIO {
+    /// Convert self to a `&Any`
+    fn as_any(&self) -> &Any;
+    
     /// Return one greater than the snapshot number of the latest snapshot file
     /// or log file found.
     /// 
@@ -77,9 +80,20 @@ pub trait PartitionIO : Any {
 /// 
 /// Can be used for testing but big fat warning: this does not provide any
 /// method to save your data. Write operations fail with `ErrorKind::InvalidInput`.
-pub struct PartitionDummyIO;
+pub struct PartitionDummyIO {
+    // The internal buffer allows us to accept write operations. Data gets
+    // written over on the next write.
+    buf: Vec<u8>
+}
+impl PartitionDummyIO {
+    /// Create a new instance
+    pub fn new() -> PartitionDummyIO {
+        PartitionDummyIO { buf: Vec::new() }
+    }
+}
 
 impl PartitionIO for PartitionDummyIO {
+    fn as_any(&self) -> &Any { self }
     fn ss_len(&self) -> usize { 0 }
     fn ss_cl_len(&self, _ss_num: usize) -> usize { 0 }
     fn read_ss(&self, _ss_num: usize) -> Result<Option<Box<Read+'static>>> {
@@ -88,14 +102,17 @@ impl PartitionIO for PartitionDummyIO {
     fn read_ss_cl(&self, _ss_num: usize, _cl_num: usize) -> Result<Option<Box<Read+'static>>> {
         Ok(None)
     }
-    fn new_ss(&mut self, _ss_num: usize) -> Result<Box<Write+'static>> {
-        Err(Error::io(ErrorKind::InvalidInput, "PartitionDummyIO does not support writing"))
+    fn new_ss<'a>(&'a mut self, _ss_num: usize) -> Result<Box<Write+'a>> {
+        self.buf.clear();
+        Ok(Box::new(&mut self.buf))
     }
-    fn append_ss_cl(&mut self, _ss_num: usize, _cl_num: usize) -> Result<Box<Write+'static>> {
-        Err(Error::io(ErrorKind::InvalidInput, "PartitionDummyIO does not support writing"))
+    fn append_ss_cl<'a>(&'a mut self, _ss_num: usize, _cl_num: usize) -> Result<Box<Write+'a>> {
+        self.buf.clear();
+        Ok(Box::new(&mut self.buf))
     }
-    fn new_ss_cl(&mut self, _ss_num: usize, _cl_num: usize) -> Result<Box<Write+'static>> {
-        Err(Error::io(ErrorKind::InvalidInput, "PartitionDummyIO does not support writing"))
+    fn new_ss_cl<'a>(&'a mut self, _ss_num: usize, _cl_num: usize) -> Result<Box<Write+'a>> {
+        self.buf.clear();
+        Ok(Box::new(&mut self.buf))
     }
 }
 
@@ -111,6 +128,11 @@ impl PartitionIO for PartitionDummyIO {
 pub struct Partition {
     // IO provider
     io: Box<PartitionIO>,
+    // Number of the current snapshot file
+    ss_num: usize,
+    // Set to true if a new snapshot is required before further commit logs are
+    // written (e.g. file corruption, missing snapshot, blank state).
+    need_snapshot: bool,
     // Known committed states indexed by statesum 
     states: HashIndexed<PartitionState, Sum, PartitionStateSumComparator>,
     // All states without a known successor
@@ -153,6 +175,8 @@ impl Partition {
     pub fn create(io: Box<PartitionIO>) -> Partition {
         Partition {
             io: io,
+            ss_num: 0,
+            need_snapshot: false,
             states: HashIndexed::new(),
             tips: HashSet::new(),
             unsaved: Vec::new(),
@@ -161,10 +185,9 @@ impl Partition {
         }
     }
     
-    /// Declare that this is a new partition with no prior history and mark it
-    /// *ready*.
-    /// 
-    /// This inserts an initial, empty, state.
+    /// Declare that this is a new partition with no prior history, write an
+    /// empty snapshot to the provided `PartitionIO`, and mark self as *ready*
+    /// to receive changes.
     /// 
     /// Note that if you do this on a `Partition` that is not freshly created
     /// all data will be lost, hence why this method consumes and regurgitates
@@ -175,10 +198,17 @@ impl Partition {
     /// ```
     /// use pippin::{Partition, PartitionDummyIO};
     /// 
-    /// let partition = Partition::create(Box::new(PartitionDummyIO)).new();
+    /// let partition = Partition::create(Box::new(PartitionDummyIO::new())).new();
     /// ```
-    pub fn new(mut self) -> Partition {
+    pub fn new(mut self) -> Result<Partition> {
         let state = PartitionState::new();
+        {
+            let mut writer = try!(self.io.new_ss(0));
+            try!(write_snapshot(&state, &mut writer));
+        }
+        
+        self.ss_num = 0;
+        self.need_snapshot = false;
         self.current = state.clone();
         self.parent = state.statesum();
         self.tips.clear();
@@ -186,7 +216,8 @@ impl Partition {
         self.states.clear();    // free memory if not empty
         self.states.insert(state);
         self.unsaved.clear();
-        self
+        
+        Ok(self)
     }
     
     /// Load the latest known state of a partition, using the latest available
@@ -244,6 +275,11 @@ impl Partition {
             }
         }
         
+        self.ss_num = ss_len - 1;
+        // We should make a new snapshot if the last one is missing or we have
+        // many commits (in total). TODO: proper new-snapshot policy.
+        self.need_snapshot = num < ss_len - 1 || queue.len() > 100;
+        
         {
             let mut replayer = LogReplay::from_sets(&mut self.states, &mut self.tips);
             try!(replayer.replay(queue));
@@ -276,6 +312,7 @@ impl Partition {
         try!(self.commit());
         
         let ss_len = self.io.ss_len();
+        let mut num_commits = 0;
         
         for num in 0..ss_len {
             let result = if let Some(mut r) = try!(self.io.read_ss(num)) {
@@ -302,9 +339,14 @@ impl Partition {
                     try!(self.validate_header(head));
                 }
             }
+            num_commits = queue.len();  // final value is number of commits after last snapshot
             let mut replayer = LogReplay::from_sets(&mut self.states, &mut self.tips);
             try!(replayer.replay(queue));
         }
+        
+        self.ss_num = ss_len - 1;
+        // We should make a new snapshot if we have many commits (in total).
+        self.need_snapshot = num_commits > 100;
         
         if self.tips.is_empty() {
             Err(Error::io(ErrorKind::NotFound, "load operation found no states"))
@@ -444,10 +486,10 @@ impl Partition {
         let result = if self.unsaved.is_empty() {
             false
         } else {
-            // TODO: we need a proper commit policy!
-            let ss_num = self.io.ss_len() - 1;  // assume commit number (TODO: this is wrong)
-            let cl_num = self.io.ss_cl_len(ss_num);     // new commit (TODO don't always want this)
-            let (mut w,is_new) = (try!(self.io.new_ss_cl(ss_num, cl_num)), true);
+            // TODO: extend existing logs instead of always writing a new log file.
+            
+            let cl_num = self.io.ss_cl_len(self.ss_num);     // new commit (TODO don't always want this)
+            let (mut w,is_new) = (try!(self.io.new_ss_cl(self.ss_num, cl_num)), true);
             if is_new {
                 let header = FileHeader {
                     ftype: FileType::CommitLog,
@@ -469,8 +511,9 @@ impl Partition {
         if fast { return Ok(result); }
         
         // Third step: maintenance operations
-        if false /*TODO new_snapshot_needed*/ {
+        if self.need_snapshot {
             try!(self.write_snapshot());
+            self.need_snapshot = false;
         }
         Ok(result)
     }
@@ -482,15 +525,15 @@ impl Partition {
     // (only the latest snapshot is read normally).
     // Make partition read-only until latest state is read?
     pub fn write_snapshot(&mut self) -> Result<()> {
-        match self.states.get(&self.parent) {
-            None => { Ok(()) },
-            Some(state) => {
-                //TODO: we should try a new snapshot number if this fails with AlreadyExists
-                let ss_num = self.io.ss_len();
-                let mut writer = try!(self.io.new_ss(ss_num));
-                write_snapshot(state, &mut writer)
-            }
+        if let Some(state) = self.states.get(&self.parent) {
+            //TODO: we should try a new snapshot number if this fails with AlreadyExists
+            let ss_num = self.ss_num + 1;
+            let mut writer = try!(self.io.new_ss(ss_num));
+            try!(write_snapshot(state, &mut writer));
+            self.ss_num = ss_num;
+            self.need_snapshot = false;
         }
+        Ok(())
     }
 }
 
@@ -499,15 +542,15 @@ impl Partition {
 fn on_new_partition() {
     use super::Element;
     
-    let io = box PartitionDummyIO;
-    let mut part = Partition::create(io).new();
+    let io = box PartitionDummyIO::new();
+    let mut part = Partition::create(io).new().expect("partition creation");
     assert_eq!(part.tips.len(), 1);
     assert_eq!(part.parent, Sum::zero());
     
-    assert_eq!(part.commit().expect("is okay"), false);
+    assert_eq!(part.commit().expect("committing"), false);
     
     let key = {
-        let state = part.tip().expect("tip is ready");
+        let state = part.tip().expect("getting tip");
         assert!(state.is_empty());
         assert_eq!(state.statesum(), Sum::zero());
         
@@ -521,18 +564,18 @@ fn on_new_partition() {
         key
     };   // `state` goes out of scope
     
-    assert_eq!(part.commit().expect("is okay"), true);
+    assert_eq!(part.commit().expect("comitting"), true);
     assert_eq!(part.unsaved.len(), 1);
     assert_eq!(part.states.len(), 2);
     {
-        let state = part.get(&key).expect("state should exist");
+        let state = part.get(&key).expect("getting state by key");
         assert!(state.has_elt(1));
         assert_eq!(state.get_elt(2), Some(&Element::from_str("Element two data.")));
     }   // `state` goes out of scope
     assert_eq!(part.parent, key);
     assert_eq!(part.tips.len(), 1);
     
-    assert_eq!(part.commit().expect("is okay"), false);
+    assert_eq!(part.commit().expect("committing"), false);
 }
 
 //TODO: test IO, loading of an existing partition, reading of historical states

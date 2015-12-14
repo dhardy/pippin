@@ -26,6 +26,10 @@ impl CommitQueue {
     pub fn push(&mut self, commit: Commit) {
         self.commits.push(commit);
     }
+    /// Get the number of items in the queue
+    pub fn len(&self) -> usize {
+        self.commits.len()
+    }
 }
 
 impl CommitReceiver for CommitQueue {
