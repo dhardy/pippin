@@ -83,6 +83,7 @@ fn create_small() {
             .expect("getting elt 5698131");
     }
     part.commit().expect("committing");
+    let state1 = part.tip().expect("has tip").clone();
     {
         let state = part.tip().expect("getting tip");
         state.insert_elt(68168, Element::from_str("sixty eight thousand, one hundred and sixty eight"))
@@ -95,63 +96,48 @@ fn create_small() {
         state.insert_elt(1063, Element::from_str("one thousand and sixty three")).expect("getting elt 1063");
     }
     part.commit().expect("committing");
+    let state3 = part.tip().expect("has tip").clone();
     
     // 3 Write to streams in memory
     part.write(true).expect("writing");
-    
     let boxed_io = part.unwrap_io();
-    let io = boxed_io.as_any().downcast_ref::<PartitionStreams>().expect("downcasting io");
     
-    // 4 Compare streams to expected values
-    assert_eq!(io.ss.len(), 1);
-    assert!(io.ss.contains_key(&0));
-    let &(ref ss_data, ref logs) = io.ss.get(&0).expect("io.ss.get(&0)");
-    assert_eq!(logs.len(), 1);
-    assert!(logs.contains_key(&0));
-    let log = logs.get(&0).expect("logs.get(&0)");
-    
-    // This is a black-box test. We generate data and compare it to previous
-    // versions; so long as it's the same we don't worry.
-    // When formats change, we update the files, but keep the old version for
-    // use in `read_small()` if backwards compatibility is to be maintained.
-    
-    let base_path = Path::new("tests/partition-ops");
-    // We compare generated data to that found here:
-    let path_read = base_path.join("v0.0.0");
-    // When output differs, we write the result here (for further analysis):
-    let path_write = base_path.join("output");
-    let fname_ss0 = Path::new("partition-small-ss0.pip");
-    let fname_ss0_cl0 = Path::new("partition-small-ss0-cl0.piplog");
-    
-    // Return Ok(true) if text is equal to that found in file
-    let compare = |text: &[u8], fname: &Path| -> Result<bool> {
-        println!("Reading: {}", path_read.join(fname).display());
-        let mut f = try!(File::open(path_read.join(fname)));
-        let mut buf = Vec::new();
-        try!(f.read_to_end(&mut buf));
-        let equal = *text == *buf;
-        if !equal {
-            let opath = path_write.join(fname);
-            try!(writeln!(stderr(), "Files unequal; writing to {}", opath.display()));
-            create_dir_all(&path_write).expect("create_dir_all");
+    // 4 Check the generated streams
+    {
+        let io = boxed_io.as_any().downcast_ref::<PartitionStreams>().expect("downcasting io");
+        assert_eq!(io.ss.len(), 1);
+        assert!(io.ss.contains_key(&0));
+        let &(ref ss_data, ref logs) = io.ss.get(&0).expect("io.ss.get(&0)");
+        assert_eq!(logs.len(), 1);
+        assert!(logs.contains_key(&0));
+        let log = logs.get(&0).expect("logs.get(&0)");
+        
+        // It is sometimes useful to be able to see these streams. This can be done here:
+        let out_path = Path::new("output/partition-ops");
+        let fname_ss0 = Path::new("partition-small-ss0.pip");
+        let fname_ss0_cl0 = Path::new("partition-small-ss0-cl0.piplog");
+        let write_out = |text: &[u8], fname: &Path| -> Result<()> {
+            let opath = out_path.join(fname);
+            try!(writeln!(stderr(), "Writing create_small() test output to {}", opath.display()));
+            create_dir_all(&out_path).expect("create_dir_all");
             let mut of = try!(File::create(opath));
             try!(of.write(text));
-        }
-        Ok(*text == *buf)
-    };
+            Ok(())
+        };
+        write_out(&ss_data, &fname_ss0).expect("writing snapshot file");
+        write_out(&log, &fname_ss0_cl0).expect("writing commit log");
+        
+        // We cannot do a binary comparison on the output files since the order
+        // in which elements occur can and does vary (thanks to Rust's hash
+        // function randomisation). Instead we compare file length here and
+        // read the files back below.
+        assert_eq!(ss_data.len(), 192);
+        assert_eq!(log.len(), 1120);
+    }
     
-    // Read existing files and compare (or write when format changes)
-    assert_eq!(compare(&ss_data, &fname_ss0).expect("comparing snapshot"), true);
-    assert_eq!(compare(&log, &fname_ss0_cl0).expect("comparing commit log"), true);
+    // 5 Read streams back again and compare
+    let mut part2 = Partition::create(boxed_io);
+    part2.load(true).expect("part2.load");
+    assert_eq!(state1, *part2.get(state1.statesum_ref()).expect("get state1 by sum"));
+    assert_eq!(state3, *part2.tip().expect("part2 tip"));
 }
-
-// #[test]
-// fn read_small() {
-//     // TODO: Repeat this for each file version (to test backwards compatibility)
-//     // 1 Read from file/fixed stream
-//     // 2 Get latest state
-//     // 3 Check list of all elements
-//     // 4 Check a few individual elements
-//     // 5 Repeat for some historical state
-//     assert!(false);
-// }

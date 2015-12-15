@@ -111,7 +111,7 @@ Data is written as follows:
 *   `ELEMENTS` (section identifier)
 *   number of elements as a u64 (binary, TBD endianness)
 
-Per-element data:
+Per-element data (in any order):
 
 *   `ELEMENT` to mark section (pad to 8 bytes with zero)
 *   element identifier (u64)
@@ -166,7 +166,8 @@ Each commit should start:
 ### Per element data
 
 Where "PER ELEMENT DATA" is written above, a sequence of element-specific
-sections appears. The syntax for each element is:
+sections appears. Elements may appear in any order. The syntax for each
+element is:
 
 *   section identifier: `ELT ` followed by one of `DEL` (delete), `INS` (insert
     with new element id), `REPL` (replace an existing element with new data) or

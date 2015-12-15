@@ -394,6 +394,8 @@ impl Partition {
     }
     
     /// Get a read-only reference to a state by its statesum, if found.
+    /// 
+    /// If you want to keep a copy, clone it.
     pub fn get(&self, key: &Sum) -> Option<&PartitionState> {
         self.states.get(key)
     }
