@@ -1,7 +1,7 @@
 //! Pippin: partition
 
 use std::io::{Read, Write, ErrorKind};
-use std::collections::HashSet;
+use std::collections::{HashSet, VecDeque};
 use std::result;
 use std::any::Any;
 use hashindexed::HashIndexed;
@@ -137,8 +137,8 @@ pub struct Partition {
     states: HashIndexed<PartitionState, Sum, PartitionStateSumComparator>,
     // All states without a known successor
     tips: HashSet<Sum>,
-    // Commits created but not yet saved to disk
-    unsaved: Vec<Commit>,
+    // Commits created but not yet saved to disk. First in at front; use as queue.
+    unsaved: VecDeque<Commit>,
     // Index of parent state (i.e. the most recent commit). This is used when
     // making a new commit.
     // Special case: this is zero when there is no parent state (i.e. empty).
@@ -171,6 +171,13 @@ impl Partition {
         let state = PartitionState::new();
         {
             let mut writer = try!(io.new_ss(0));
+            let header = FileHeader {
+                ftype: FileType::Snapshot,
+                name: "".to_string() /*TODO: repo name?*/,
+                remarks: Vec::new(),
+                user_fields: Vec::new(),
+            };
+            try!(write_head(&header, &mut writer));
             try!(write_snapshot(&state, &mut writer));
         }
         
@@ -180,7 +187,7 @@ impl Partition {
             need_snapshot: false,
             states: HashIndexed::new(),
             tips: HashSet::new(),
-            unsaved: Vec::new(),
+            unsaved: VecDeque::new(),
             parent: state.statesum(),
             current: state.clone(),
         };
@@ -213,7 +220,7 @@ impl Partition {
             need_snapshot: false,
             states: HashIndexed::new(),
             tips: HashSet::new(),
-            unsaved: Vec::new(),
+            unsaved: VecDeque::new(),
             parent: Sum::zero() /* key to initial state */,
             current: PartitionState::new() /* copy of initial state */,
         }
@@ -427,7 +434,7 @@ impl Partition {
             }
         };
         if let Some(commit) = c {
-            self.unsaved.push(commit);
+            self.unsaved.push_back(commit);
             self.states.insert(self.current.clone());
             self.tips.remove(&self.parent);
             self.parent = self.current.statesum();
@@ -478,8 +485,8 @@ impl Partition {
             while !self.unsaved.is_empty() {
                 // We try to write the commit, then when successful remove it
                 // from the list of 'unsaved' commits.
-                try!(write_commit(&self.unsaved[self.unsaved.len()-1], &mut w));
-                self.unsaved.pop();
+                try!(write_commit(&self.unsaved.front().unwrap(), &mut w));
+                self.unsaved.pop_front().expect("pop_front");
             }
             true
         };
@@ -504,6 +511,13 @@ impl Partition {
             //TODO: we should try a new snapshot number if this fails with AlreadyExists
             let ss_num = self.ss_num + 1;
             let mut writer = try!(self.io.new_ss(ss_num));
+            let header = FileHeader {
+                ftype: FileType::Snapshot,
+                name: "".to_string() /*TODO: repo name?*/,
+                remarks: Vec::new(),
+                user_fields: Vec::new(),
+            };
+            try!(write_head(&header, &mut writer));
             try!(write_snapshot(state, &mut writer));
             self.ss_num = ss_num;
             self.need_snapshot = false;

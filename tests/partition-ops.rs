@@ -4,10 +4,12 @@
 extern crate pippin;
 extern crate vec_map;
 
-use std::io::{Read, Write, ErrorKind, stderr};
-use std::path::Path;
-use std::fs::{File, create_dir_all};
+use std::io::{Read, Write, ErrorKind};
 use std::any::Any;
+// Used to write results out:
+// use std::io::stderr;
+// use std::path::Path;
+// use std::fs::{File, create_dir_all};
 use pippin::{Partition, PartitionIO, Element, Error, Result};
 use vec_map::VecMap;
 
@@ -112,20 +114,21 @@ fn create_small() {
         assert!(logs.contains_key(&0));
         let log = logs.get(&0).expect("logs.get(&0)");
         
-        // It is sometimes useful to be able to see these streams. This can be done here:
-        let out_path = Path::new("output/partition-ops");
-        let fname_ss0 = Path::new("partition-small-ss0.pip");
-        let fname_ss0_cl0 = Path::new("partition-small-ss0-cl0.piplog");
-        let write_out = |text: &[u8], fname: &Path| -> Result<()> {
-            let opath = out_path.join(fname);
-            try!(writeln!(stderr(), "Writing create_small() test output to {}", opath.display()));
-            create_dir_all(&out_path).expect("create_dir_all");
-            let mut of = try!(File::create(opath));
-            try!(of.write(text));
-            Ok(())
-        };
-        write_out(&ss_data, &fname_ss0).expect("writing snapshot file");
-        write_out(&log, &fname_ss0_cl0).expect("writing commit log");
+        // It is sometimes useful to be able to see these streams. This can be
+        // done here (you also need to uncomment "use" statements above):
+//         let out_path = Path::new("output/partition-ops");
+//         let fname_ss0 = Path::new("partition-small-ss0.pip");
+//         let fname_ss0_cl0 = Path::new("partition-small-ss0-cl0.piplog");
+//         let write_out = |text: &[u8], fname: &Path| -> Result<()> {
+//             let opath = out_path.join(fname);
+//             try!(writeln!(stderr(), "Writing create_small() test output to {}", opath.display()));
+//             create_dir_all(&out_path).expect("create_dir_all");
+//             let mut of = try!(File::create(opath));
+//             try!(of.write(text));
+//             Ok(())
+//         };
+//         write_out(&ss_data, &fname_ss0).expect("writing snapshot file");
+//         write_out(&log, &fname_ss0_cl0).expect("writing commit log");
         
         // We cannot do a binary comparison on the output files since the order
         // in which elements occur can and does vary (thanks to Rust's hash
