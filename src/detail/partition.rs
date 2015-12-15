@@ -156,35 +156,6 @@ pub struct Partition {
 // Methods creating a partition and loading its data
 impl Partition {
     /// Create a partition, assigning an IO provider (this can only be done at
-    /// time of creation).
-    /// 
-    /// The partition will not be *ready* until data
-    /// is loaded with one of the load operations. Until it is *ready* most
-    /// operations will fail.
-    /// 
-    /// Example:
-    /// 
-    /// ```no_run
-    /// use std::path::Path;
-    /// use pippin::{Partition, DiscoverPartitionFiles};
-    /// 
-    /// let path = Path::new(".");
-    /// let io = DiscoverPartitionFiles::from_dir_basename(path, "my-partition").unwrap();
-    /// ```
-    pub fn create(io: Box<PartitionIO>) -> Partition {
-        Partition {
-            io: io,
-            ss_num: 0,
-            need_snapshot: false,
-            states: HashIndexed::new(),
-            tips: HashSet::new(),
-            unsaved: Vec::new(),
-            parent: Sum::zero() /* key to initial state */,
-            current: PartitionState::new() /* copy of initial state */,
-        }
-    }
-    
-    /// Create a partition, assigning an IO provider (this can only be done at
     /// time of creation). Create a blank state in the partition, write an
     /// empty snapshot to the provided `PartitionIO`, and mark self as *ready*
     /// to receive changes.
@@ -219,8 +190,43 @@ impl Partition {
         Ok(part)
     }
     
-    /// Load the latest known state of a partition, using the latest available
-    /// snapshot and all subsequent commit logs.
+    /// Create a partition, assigning an IO provider (this can only be done at
+    /// time of creation).
+    /// 
+    /// The partition will not be *ready* until data
+    /// is loaded with one of the load operations. Until it is *ready* most
+    /// operations will fail.
+    /// 
+    /// Example:
+    /// 
+    /// ```no_run
+    /// use std::path::Path;
+    /// use pippin::{Partition, DiscoverPartitionFiles};
+    /// 
+    /// let path = Path::new(".");
+    /// let io = DiscoverPartitionFiles::from_dir_basename(path, "my-partition").unwrap();
+    /// ```
+    pub fn create(io: Box<PartitionIO>) -> Partition {
+        Partition {
+            io: io,
+            ss_num: 0,
+            need_snapshot: false,
+            states: HashIndexed::new(),
+            tips: HashSet::new(),
+            unsaved: Vec::new(),
+            parent: Sum::zero() /* key to initial state */,
+            current: PartitionState::new() /* copy of initial state */,
+        }
+    }
+    
+    /// Load either all history available or only that required to find the
+    /// latest state of the partition. Uses snapshot and log files provided by
+    /// the provided `PartitionIO`.
+    /// 
+    /// If `everything == true`, all snapshots and commits found are loaded.
+    /// In this case it is possible that the history graph is not connected
+    /// (i.e. it has multiple unconnected sub-graphs). If this is the case,
+    /// the usual merge strategy will fail.
     /// 
     /// If the partition contains data before the load, any changes will be
     /// committed (in-memory only) and newly loaded data will be seamlessly
@@ -236,116 +242,84 @@ impl Partition {
     /// TODO: fail if no data is found? Require call to merge_required()?
     /// 
     /// Calls `self.commit()` internally to save any modifications as a new commit.
-    pub fn load_latest(&mut self) -> Result<()> {
+    pub fn load(&mut self, everything: bool) -> Result<()> {
         try!(self.commit());
         
         let ss_len = self.io.ss_len();
         let mut num = ss_len - 1;
+        let mut num_commits = 0;
         
-        loop {
-            let result = if let Some(mut r) = try!(self.io.read_ss(num)) {
-                let head = try!(read_head(&mut r));
-                let snapshot = try!(read_snapshot(&mut r));
-                Some((head, snapshot))
-            } else { None };
-            if let Some((head, state)) = result {
-                try!(self.validate_header(head));
-                self.tips.insert(state.statesum());
-                self.states.insert(state);
-                break;  // we stop at the most recent snapshot we find
-            }
-            if num == 0 { break;        /* no more to try; assume zero is empty state */ }
-            num -= 1;
-        }
-        
-        let mut queue = CommitQueue::new();
-        for ss in num..ss_len {
-            for c in 0..self.io.ss_cl_len(ss) {
-                let result = if let Some(mut r) = try!(self.io.read_ss_cl(ss, c)) {
+        if everything {
+            for ss in 0..ss_len {
+                let result = if let Some(mut r) = try!(self.io.read_ss(ss)) {
                     let head = try!(read_head(&mut r));
-                    try!(read_log(&mut r, &mut queue));
-                    Some(head)
+                    let snapshot = try!(read_snapshot(&mut r));
+                    Some((head, snapshot))
                 } else { None };
-                if let Some(head) = result {
-                    // Note: if this error becomes recoverable within load_latest(),
-                    // the header should be validated before updating `queue`.
+                if let Some((head, state)) = result {
                     try!(self.validate_header(head));
+                    self.tips.insert(state.statesum());
+                    self.states.insert(state);
+                }
+                
+                let mut queue = CommitQueue::new();
+                for c in 0..self.io.ss_cl_len(ss) {
+                    let result = if let Some(mut r) = try!(self.io.read_ss_cl(ss, c)) {
+                        let head = try!(read_head(&mut r));
+                        try!(read_log(&mut r, &mut queue));
+                        Some(head)
+                    } else { None };
+                    if let Some(head) = result {
+                        // Note: if this error becomes recoverable within load_latest(),
+                        // the header should be validated before updating `queue`.
+                        try!(self.validate_header(head));
+                    }
+                }
+                num_commits = queue.len();  // final value is number of commits after last snapshot
+                let mut replayer = LogReplay::from_sets(&mut self.states, &mut self.tips);
+                try!(replayer.replay(queue));
+            }
+        } else {
+            loop {
+                let result = if let Some(mut r) = try!(self.io.read_ss(num)) {
+                    let head = try!(read_head(&mut r));
+                    let snapshot = try!(read_snapshot(&mut r));
+                    Some((head, snapshot))
+                } else { None };
+                if let Some((head, state)) = result {
+                    try!(self.validate_header(head));
+                    self.tips.insert(state.statesum());
+                    self.states.insert(state);
+                    break;  // we stop at the most recent snapshot we find
+                }
+                if num == 0 { break;        /* no more to try; assume zero is empty state */ }
+                num -= 1;
+            }
+            
+            let mut queue = CommitQueue::new();
+            for ss in num..ss_len {
+                for c in 0..self.io.ss_cl_len(ss) {
+                    let result = if let Some(mut r) = try!(self.io.read_ss_cl(ss, c)) {
+                        let head = try!(read_head(&mut r));
+                        try!(read_log(&mut r, &mut queue));
+                        Some(head)
+                    } else { None };
+                    if let Some(head) = result {
+                        // Note: if this error becomes recoverable within load_latest(),
+                        // the header should be validated before updating `queue`.
+                        try!(self.validate_header(head));
+                    }
                 }
             }
+            num_commits = queue.len();
+            let mut replayer = LogReplay::from_sets(&mut self.states, &mut self.tips);
+            try!(replayer.replay(queue));
         }
         
         self.ss_num = ss_len - 1;
         // We should make a new snapshot if the last one is missing or we have
         // many commits (in total). TODO: proper new-snapshot policy.
-        self.need_snapshot = num < ss_len - 1 || queue.len() > 100;
-        
-        {
-            let mut replayer = LogReplay::from_sets(&mut self.states, &mut self.tips);
-            try!(replayer.replay(queue));
-        }// end borrow of self.tips
-        
-        if self.tips.is_empty() {
-            Err(Error::io(ErrorKind::NotFound, "load operation found no states"))
-        } else {
-            // success, but a merge may still be required
-            if self.tips.len() == 1 {
-                let tip = self.tips.iter().next().expect("len is 1 so next() should yield an element");
-                self.current = self.states.get(tip).expect("state for tip should be present").clone();
-                self.parent = *tip;
-            }
-            Ok(())
-        }
-    }
-    
-    /// Load all history available.
-    /// 
-    /// This operation is similar to `load_latest()`, with the following
-    /// differences:
-    /// 
-    /// 1.  All snapshots and commits found are loaded, not just the latest.
-    /// 2.  When multiple tips are present after the operation, it is possible
-    ///     for tips to be unconnected (i.e. there to be more than one directed
-    ///     graph). In this case it may not be possible to merge all tips into
-    ///     a single latest state.
-    pub fn load_everything(&mut self) -> Result<()> {
-        try!(self.commit());
-        
-        let ss_len = self.io.ss_len();
-        let mut num_commits = 0;
-        
-        for num in 0..ss_len {
-            let result = if let Some(mut r) = try!(self.io.read_ss(num)) {
-                let head = try!(read_head(&mut r));
-                let snapshot = try!(read_snapshot(&mut r));
-                Some((head, snapshot))
-            } else { None };
-            if let Some((head, state)) = result {
-                try!(self.validate_header(head));
-                self.tips.insert(state.statesum());
-                self.states.insert(state);
-            }
-            
-            let mut queue = CommitQueue::new();
-            for c in 0..self.io.ss_cl_len(num) {
-                let result = if let Some(mut r) = try!(self.io.read_ss_cl(num, c)) {
-                    let head = try!(read_head(&mut r));
-                    try!(read_log(&mut r, &mut queue));
-                    Some(head)
-                } else { None };
-                if let Some(head) = result {
-                    // Note: if this error becomes recoverable within load_latest(),
-                    // the header should be validated before updating `queue`.
-                    try!(self.validate_header(head));
-                }
-            }
-            num_commits = queue.len();  // final value is number of commits after last snapshot
-            let mut replayer = LogReplay::from_sets(&mut self.states, &mut self.tips);
-            try!(replayer.replay(queue));
-        }
-        
-        self.ss_num = ss_len - 1;
-        // We should make a new snapshot if we have many commits (in total).
-        self.need_snapshot = num_commits > 100;
+        self.need_snapshot = num < ss_len - 1 || num_commits > 100;
         
         if self.tips.is_empty() {
             Err(Error::io(ErrorKind::NotFound, "load operation found no states"))

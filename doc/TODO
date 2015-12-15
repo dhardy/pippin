@@ -23,6 +23,10 @@ Log files should be extended much of the time instead of writing new.
 Tests
 -------
 
+### Partitions
+
+*   loading all history
+
 ### Reading from a fixed repo
 
 *   lists of elements

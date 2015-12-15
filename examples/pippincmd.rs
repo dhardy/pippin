@@ -186,7 +186,7 @@ fn inner(files: Vec<String>, op: Operation, part: Option<String>,
                 if let Some(_) = commit {
                     println!("TODO: no support yet for specified commits; using latest state instead");
                 }
-                try!(part.load_latest());
+                try!(part.load(false));
                 //TODO merge operation
                 
                 {
