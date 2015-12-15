@@ -1,8 +1,15 @@
+Partition API
+----------------
+
+Integrate `create` into `new` and `load...` functions. Combine both `load` functions?
+
 Error handling
 -----------
 
 Rethink which errors should panic, which should result in early return with an
 `Err` and which should be worked around with no more than a warning.
+
+Implement a system for classifying errors or start fine-grained handling.
 
 Implement a system for reporting warnings.
 
@@ -15,6 +22,10 @@ Log files should be extended much of the time instead of writing new.
 
 Tests
 -------
+
+### Partitions
+
+*   loading all history
 
 ### Reading from a fixed repo
 

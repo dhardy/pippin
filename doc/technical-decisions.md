@@ -69,6 +69,10 @@ high 32-bit number. (Example: a partition might use 123 as the high part. A new
 element can be assigned any 32-bit number unique within the partition, e.g. 5.
 The element identifier would then be 123 × (2^32) + 5.)
 
+### Snapshot and commit log file names
+
+See *identifiers* section under *partitions*, below.
+
 
 Element data
 ------------
@@ -128,20 +132,31 @@ continue to represent the old partition.
 
 ### Identifiers
 
-In memory, partition identifiers will have no particular meaning and may not
-have the same value the next time the repository is loaded. Users may simply
-request to list or search entries under some restriction of classifier values,
-or may enquire about partitions to e.g. only read from the partition of most
-recently dated entries (where date is a classifier).
+TBD: how to identify a partition in memory.
 
-On disk, partition names may also be arbitrary, but to aid users names may be
-suggested by the program using the library.
+Given some `BASEPATH` (first part of the file name, potentially prefixed by a
+path), snapshot files are named `BASEPATH-ssN.pip` where `N` is the number of a
+snapshot. The first non-empty snapshot is usually numbered `1`; subsequent
+snapshots should be numbered one more than the largest number in use (not a
+hard requirement). The convention for new partitions is that an empty snapshot
+with number `0` be created.
+
+Commit log files correspond to a snapshot. A commit log file should be named
+`BASEPATH-ssN-clM.piplog` where `M` is the commit log file number. The first
+log file should have number `1` and subsequent files should be numbered one
+greater than the largest number previously in use.
+
+This `BASEPATH` is an arbitrary Unicode string except that (a) it may contain
+path separators (`/` on all operating systems), and (b) the part after the last
+separator must be a valid file name stem and the rest must either be empty or
+a valid (relative or absolute) path. To aid users, names may be suggested by
+the program using the library.
 
 For now, partition data files are restricted to names matching one of the 
 following regular expressions:
 
     ([0-9a-zA-Z\-_]+)-ss([1-9][0-9]*).pip
-    ([0-9a-zA-Z\-_]+)-ss([1-9][0-9]*)-cl([1-9][0-9]*).pipl
+    ([0-9a-zA-Z\-_]+)-ss([1-9][0-9]*)-cl([1-9][0-9]*).piplog
 
 
 Checksums
@@ -214,4 +229,5 @@ deletion of history.
 File extension
 -----------------
 
-`.pip`. Short, peppy, self-contained. Or `.pi`? Shorter, possibly less used.
+`.pip` for snapshot files: short, peppy, self-contained. `.piplog` for commit
+log files (which must correspond to a snapshot file).

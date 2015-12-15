@@ -3,6 +3,7 @@
 use std::path::{Path, PathBuf};
 use std::io::{Read, Write, ErrorKind};
 use std::fs::{read_dir, File, OpenOptions};
+use std::any::Any;
 use regex::Regex;
 use vec_map::VecMap;
 
@@ -189,6 +190,8 @@ impl DiscoverPartitionFiles {
 }
 
 impl PartitionIO for DiscoverPartitionFiles {
+    fn as_any(&self) -> &Any { self }
+    
     fn ss_len(&self) -> usize {
         self.ss.keys().next_back().map(|x| x+1).unwrap_or(0)
     }
