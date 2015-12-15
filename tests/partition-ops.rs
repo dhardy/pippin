@@ -4,8 +4,9 @@
 extern crate pippin;
 extern crate vec_map;
 
-use std::io::{Read, Write, ErrorKind};
-use std::fs::File;
+use std::io::{Read, Write, ErrorKind, stderr};
+use std::path::Path;
+use std::fs::{File, create_dir_all};
 use std::any::Any;
 use pippin::{Partition, PartitionIO, Element, Error, Result};
 use vec_map::VecMap;
@@ -109,15 +110,39 @@ fn create_small() {
     assert!(logs.contains_key(&0));
     let log = logs.get(&0).expect("logs.get(&0)");
     
-    //TODO: instead of writing, read files and compare data
-    assert!(write(&ss_data, "partition-small-ss0.pip").is_ok());
-    assert!(write(log, "partition-small-ss0-cl0.piplog").is_ok());
+    // This is a black-box test. We generate data and compare it to previous
+    // versions; so long as it's the same we don't worry.
+    // When formats change, we update the files, but keep the old version for
+    // use in `read_small()` if backwards compatibility is to be maintained.
     
-    fn write(text: &[u8], filename: &str) -> Result<()> {
-        let mut f = try!(File::create(filename));
-        try!(f.write(text));
-        Ok(())
-    }
+    let base_path = Path::new("tests/partition-ops");
+    // We compare generated data to that found here:
+    let path_read = base_path.join("v0.0.0");
+    // When output differs, we write the result here (for further analysis):
+    let path_write = base_path.join("output");
+    let fname_ss0 = Path::new("partition-small-ss0.pip");
+    let fname_ss0_cl0 = Path::new("partition-small-ss0-cl0.piplog");
+    
+    // Return Ok(true) if text is equal to that found in file
+    let compare = |text: &[u8], fname: &Path| -> Result<bool> {
+        println!("Reading: {}", path_read.join(fname).display());
+        let mut f = try!(File::open(path_read.join(fname)));
+        let mut buf = Vec::new();
+        try!(f.read_to_end(&mut buf));
+        let equal = *text == *buf;
+        if !equal {
+            let opath = path_write.join(fname);
+            try!(writeln!(stderr(), "Files unequal; writing to {}", opath.display()));
+            create_dir_all(&path_write).expect("create_dir_all");
+            let mut of = try!(File::create(opath));
+            try!(of.write(text));
+        }
+        Ok(*text == *buf)
+    };
+    
+    // Read existing files and compare (or write when format changes)
+    assert_eq!(compare(&ss_data, &fname_ss0).expect("comparing snapshot"), true);
+    assert_eq!(compare(&log, &fname_ss0_cl0).expect("comparing commit log"), true);
 }
 
 // #[test]
