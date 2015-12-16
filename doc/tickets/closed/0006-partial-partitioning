@@ -8,3 +8,8 @@ Support snapshots and multiple files. Create new partitions given some criteria
 *   partition creation criteria
 *   snapshots
 
+----
+
+I think the definition of a *partition* has changed significantly since this
+milestone was created. We have multiple files and snapshots already. Closing.
+
