@@ -1,0 +1,9 @@
+Merge support
+-------------------
+
+Develop "patch" support for items and automatic merging under some situations.
+Possibly the merging should work via a domain-specific plug-in.
+
+*   details for data items
+*   (possibly) a plug-in system for item validation, patches and merging
+

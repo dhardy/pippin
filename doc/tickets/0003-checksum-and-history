@@ -1,0 +1,11 @@
+Basic checksum and history operations
+---------------------------------------------------
+
+*   corruption detection
+*   cloning repositories
+*   reverting to older time points
+
+Checksums are integrated.
+
+TODO: reverting, cloning (with history).
+

@@ -1,0 +1,10 @@
+Time-based partitioning support
+-------------------------------------------
+
+Support snapshots and multiple files. Create new partitions given some criteria
+(file size, age).
+
+*   multiple file support
+*   partition creation criteria
+*   snapshots
+

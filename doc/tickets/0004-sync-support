@@ -1,0 +1,8 @@
+Sync support
+-----------------
+
+Be able to connect to some remote repository via some mechanism and synchronise,
+where there are no conflicting changes to individual items.
+
+*   communication with external repositories (direct or via protocol)
+

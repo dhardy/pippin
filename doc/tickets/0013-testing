@@ -1,31 +1,9 @@
-Partition API
-----------------
-
-Integrate `create` into `new` and `load...` functions. Combine both `load` functions?
-
-Error handling
------------
-
-Rethink which errors should panic, which should result in early return with an
-`Err` and which should be worked around with no more than a warning.
-
-Implement a system for classifying errors or start fine-grained handling.
-
-Implement a system for reporting warnings.
-
-
-Log extension
---------------------
-
-Log files should be extended much of the time instead of writing new.
-
-
 Tests
--------
+------
 
-### Partitions
+This is a long list of possible tests. Possibly it should be reorganised into multiple tickets;
+for now implemented tests will simply be removed from the list.
 
-*   loading all history
 
 ### Reading from a fixed repo
 
@@ -99,3 +77,4 @@ Dealing with corruption of one or multiple files as best as possible
 Compression
 
 Encryption
+
