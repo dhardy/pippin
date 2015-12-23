@@ -71,6 +71,7 @@ impl PartitionState {
     /// Insert an element and return (), unless the id is already used in
     /// which case the function stops with an error.
     pub fn insert_elt(&mut self, id: u64, elt: Element) -> Result<()> {
+//        TODO: elt.cache_classifiers(classifiers);
         if self.elts.contains_key(&id) { return Err(Error::arg("insertion conflicts with an existing element")); }
         self.statesum.permute(elt.sum());
         self.elts.insert(id, elt);
@@ -79,6 +80,7 @@ impl PartitionState {
     /// Replace an existing element and return the replaced element, unless the
     /// id is not already used in which case the function stops with an error.
     pub fn replace_elt(&mut self, id: u64, elt: Element) -> Result<Element> {
+//        TODO: elt.cache_classifiers(classifiers);
         self.statesum.permute(elt.sum());
         match self.elts.insert(id, elt) {
             None => Err(Error::no_elt("replacement failed: no existing element")),
