@@ -58,7 +58,7 @@ pub fn read_log(reader_: &mut Read, receiver: &mut CommitReceiver) -> Result<()>
         if buf[0..8] != *b"ELEMENTS" {
             return Err(Error::read("unexpected contents (expected ELEMENTS)", pos, (0, 8)));
         }
-        let num_elts = try!((&buf[8..16]).read_u64::<BigEndian>()) as usize;   //TODO is cast safe?
+        let num_elts = try!((&buf[8..16]).read_u64::<BigEndian>()) as usize;   // #0015
         pos += 16;
         
         let mut changes = HashMap::new();
@@ -87,7 +87,7 @@ pub fn read_log(reader_: &mut Read, receiver: &mut CommitReceiver) -> Result<()>
                     if buf[0..8] != *b"ELT DATA" {
                         return Err(Error::read("unexpected contents (expected ELT DATA)", pos, (0, 8)));
                     }
-                    let data_len = try!((&buf[8..16]).read_u64::<BigEndian>()) as usize;   //TODO is cast safe?
+                    let data_len = try!((&buf[8..16]).read_u64::<BigEndian>()) as usize;   // #0015
                     pos += 16;
                     
                     let mut data = vec![0; data_len];
@@ -162,7 +162,7 @@ pub fn write_commit(commit: &Commit, writer: &mut Write) -> Result<()> {
     try!(commit.parent().write(&mut w));
     
     try!(w.write(b"ELEMENTS"));
-    try!(w.write_u64::<BigEndian>(commit.num_changes() as u64));       // TODO: is cast safe?
+    try!(w.write_u64::<BigEndian>(commit.num_changes() as u64));       // #0015
     
     for (elt_id,change) in commit.changes_iter() {
         let marker = match change {
@@ -174,7 +174,7 @@ pub fn write_commit(commit: &Commit, writer: &mut Write) -> Result<()> {
         try!(w.write_u64::<BigEndian>(*elt_id));
         if let Some(elt) = change.element() {
             try!(w.write(b"ELT DATA"));
-            try!(w.write_u64::<BigEndian>(elt.data_len() as u64));      // TODO: is cast safe?
+            try!(w.write_u64::<BigEndian>(elt.data_len() as u64));      // #0015
             
             try!(w.write(&elt.data()));
             let pad_len = 16 * ((elt.data_len() + 15) / 16) - elt.data_len();

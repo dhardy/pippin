@@ -32,7 +32,7 @@ pub fn read_snapshot(reader: &mut Read) -> Result<PartitionState> {
     if buf[16..24] != *b"ELEMENTS" {
         return Err(Error::read("unexpected contents (expected ELEMENTS)", pos, (16, 24)));
     }
-    let num_elts = try!((&buf[24..32]).read_u64::<BigEndian>()) as usize;    // TODO: is cast safe?
+    let num_elts = try!((&buf[24..32]).read_u64::<BigEndian>()) as usize;    // #0015
     pos += 16;
     
     let mut state = PartitionState::new();
@@ -48,7 +48,7 @@ pub fn read_snapshot(reader: &mut Read) -> Result<PartitionState> {
         if buf[16..24] != *b"BYTES\x00\x00\x00" {
             return Err(Error::read("unexpected contents (expected BYTES\\x00\\x00\\x00)", pos, (16, 24)));
         }
-        let data_len = try!((&buf[24..32]).read_u64::<BigEndian>()) as usize;   //TODO is cast safe?
+        let data_len = try!((&buf[24..32]).read_u64::<BigEndian>()) as usize;   // #0015
         pos += 16;
         
         let mut data = vec![0; data_len];
@@ -113,7 +113,7 @@ pub fn write_snapshot(state: &PartitionState, writer: &mut Write) -> Result<()>{
     // TODO: state/commit identifier stuff
     
     try!(w.write(b"ELEMENTS"));
-    let num_elts = elts.len() as u64;  // TODO: can we assume cast is safe?
+    let num_elts = elts.len() as u64;  // #0015
     try!(w.write_u64::<BigEndian>(num_elts));
     
     for (ident, elt) in elts {
@@ -121,7 +121,7 @@ pub fn write_snapshot(state: &PartitionState, writer: &mut Write) -> Result<()>{
         try!(w.write_u64::<BigEndian>(*ident));
         
         try!(w.write(b"BYTES\x00\x00\x00"));
-        try!(w.write_u64::<BigEndian>(elt.data_len() as u64 /*TODO is cast safe?*/));
+        try!(w.write_u64::<BigEndian>(elt.data_len() as u64 /* #0015 */));
         
         try!(w.write(&elt.data()));
         let pad_len = 16 * ((elt.data_len() + 15) / 16) - elt.data_len();

@@ -1,0 +1,8 @@
+#0015 Casts between usize and u64
+==========
+
+When converting between an index or length in-memory and a value saved in a
+file, is the cast safe?
+
+Should we enforce usize == u64 or usize >= u64? Would the program work in 32-bit
+mode?
