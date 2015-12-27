@@ -47,7 +47,7 @@ pub fn read_log(reader_: &mut Read, receiver: &mut CommitReceiver) -> Result<()>
         if buf[0..8] != *b"COMMIT\x00\x00" {
             return Err(Error::read("unexpected contents (expected COMMIT\\x00\\x00)", pos, (0, 8)));
         }
-        // TODO: timestamp
+        // #0016: timestamp
         pos += 16;
         
         try!(fill(&mut r, &mut buf[0..32], pos));
@@ -131,7 +131,6 @@ pub fn read_log(reader_: &mut Read, receiver: &mut CommitReceiver) -> Result<()>
             return Err(Error::read("checksum mismatch", pos, (0, 32)));
         }
         
-        // TODO: now we've read a commit...
         let cont = receiver.receive(Commit::new(commit_sum, parent_sum, changes));
         if !cont { break; }
     }
@@ -144,7 +143,7 @@ pub fn read_log(reader_: &mut Read, receiver: &mut CommitReceiver) -> Result<()>
 }
 
 /// Write the section identifier at the start of a commit log
-//TODO: do we actually need this?
+// #0016: do we actually need this?
 pub fn start_log(writer: &mut Write) -> Result<()> {
     try!(writer.write(b"COMMIT LOG\x00\x00\x00\x00\x00\x00"));
     Ok(())
@@ -155,7 +154,7 @@ pub fn write_commit(commit: &Commit, writer: &mut Write) -> Result<()> {
     // A writer which calculates the checksum of what was written:
     let mut w = sum::HashWriter::new256(writer);
     
-    //TODO: replace dots with timestamp or whatever...
+    // #0016: replace dots with timestamp or whatever...
     try!(w.write(b"COMMIT\x00\x00........"));
     
     // Parent statesum:

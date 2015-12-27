@@ -16,7 +16,7 @@ pub use self::commitlog::{CommitReceiver, read_log, start_log, write_commit};
 
 
 // Utilities for reading from streams:
-//TODO: replace this with Read::read_exact() when it's in stable.
+// #0018: replace this with Read::read_exact() when it's in stable.
 fn fill<R: io::Read>(r: &mut R, mut buf: &mut [u8], pos: usize) -> Result<()> {
     let mut p = pos;
     while buf.len() > 0 {

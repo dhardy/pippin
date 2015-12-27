@@ -96,7 +96,7 @@ pub fn read_head(r: &mut io::Read) -> Result<FileHeader> {
         } else if block[0] >= b'A' && block[0] <= b'Z' {
             // Match important extensions here; we currently have none
             // No match:
-            //TODO: proper output of warnings
+            // #0017: proper output of warnings
             println!("Warning: unrecognised file extension:");
             println!("{:?}", block);
         } else {

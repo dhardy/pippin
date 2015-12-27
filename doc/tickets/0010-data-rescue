@@ -1,2 +1,11 @@
-Given corrupt data (detected via checksums), recover data where possible
+#0010 Corruption detection and handling
+========
 
+Aim: given corrupt data (detected via checksums), recover data where possible.
+
+Question: should we be pedantic about looking for corruption?
+
+Question: if corruption is spotted, should we immediately drop to a *read-only*
+or *pedantic* mode and not allow many operations until data is repaired?
+
+Should we warn about things we can repair immediately?

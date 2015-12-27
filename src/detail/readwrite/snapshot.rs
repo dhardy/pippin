@@ -107,10 +107,8 @@ pub fn write_snapshot(state: &PartitionState, writer: &mut Write) -> Result<()>{
     
     let elts = state.map();
     
-    //TODO: date shouldn't really be today but the time the snapshot was created
+    // #0016: date shouldn't really be today but the time the snapshot was created
     try!(write!(&mut w, "SNAPSHOT{}", UTC::today().format("%Y%m%d")));
-    
-    // TODO: state/commit identifier stuff
     
     try!(w.write(b"ELEMENTS"));
     let num_elts = elts.len() as u64;  // #0015
@@ -130,8 +128,8 @@ pub fn write_snapshot(state: &PartitionState, writer: &mut Write) -> Result<()>{
             try!(w.write(&padding[0..pad_len]));
         }
         
-        //TODO: now we store the sum, should we use it here? Should we rely on
-        //it or crash if it's wrong??
+        // #0010: Now we store the checksum, should we use it here? Should we
+        // #0010: rely on it or check and stop if it's wrong?
         let elt_sum = Sum::calculate(&elt.data());
         try!(elt_sum.write(&mut w));
     }

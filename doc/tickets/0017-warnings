@@ -1,0 +1,9 @@
+#0017 Warnings: reporting and usage
+===========
+
+We need a warning system: certain issues are recoverable but should probably be
+reported.
+
+This ticket covers how warnings should be reported, not what should be
+reported. Never-the-less, the tag #0017 may be used to indicate things that
+should be reported once a reporting system is in place.
