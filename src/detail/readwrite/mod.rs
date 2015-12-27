@@ -27,3 +27,5 @@ fn fill<R: io::Read>(r: &mut R, mut buf: &mut [u8], pos: usize) -> Result<()> {
     }
     Ok(())
 }
+
+//TODO: rename module to `io` and stop binding all symbols into super module?

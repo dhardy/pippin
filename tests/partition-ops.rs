@@ -72,7 +72,7 @@ impl PartitionIO for PartitionStreams {
 #[test]
 fn create_small() {
     let part_streams = PartitionStreams { ss: VecMap::new() };
-    let mut part = Partition::new(box part_streams).expect("creating partition");
+    let mut part = Partition::new(box part_streams, "create_small").expect("creating partition");
     
     // 2 Add a few elements over multiple commits
     {

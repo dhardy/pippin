@@ -125,6 +125,9 @@ impl PartitionIO for PartitionDummyIO {
 /// Partitions are the *only* method by which the entire set may grow beyond
 /// available memory, thus smart allocation of elements to partitions will be
 /// essential for some use-cases.
+/// 
+/// A partition is in one of three possible states: (1) unloaded, (2) loaded
+/// but requiring a merge (multiple tips), (3) ready for use.
 pub struct Partition {
     // IO provider
     io: Box<PartitionIO>,
@@ -150,6 +153,7 @@ pub struct Partition {
     // commits from another source, then that externally held state is used to
     // make a new commit, the changes from the other commits will be reverted.
     // It is only usable if tips.len() == 1
+    //TODO: neither of these limitations hold if we merge changes. Remove.
     current: PartitionState,
 }
 
@@ -157,23 +161,23 @@ pub struct Partition {
 impl Partition {
     /// Create a partition, assigning an IO provider (this can only be done at
     /// time of creation). Create a blank state in the partition, write an
-    /// empty snapshot to the provided `PartitionIO`, and mark self as *ready*
-    /// to receive changes.
+    /// empty snapshot to the provided `PartitionIO`, and mark self as *ready
+    /// for use*.
     /// 
     /// Example:
     /// 
     /// ```
     /// use pippin::{Partition, PartitionDummyIO};
     /// 
-    /// let partition = Partition::new(Box::new(PartitionDummyIO::new()));
+    /// let partition = Partition::new(Box::new(PartitionDummyIO::new()), "example repo");
     /// ```
-    pub fn new(mut io: Box<PartitionIO>) -> Result<Partition> {
+    pub fn new(mut io: Box<PartitionIO>, name: &str) -> Result<Partition> {
         let state = PartitionState::new();
         {
             let mut writer = try!(io.new_ss(0));
             let header = FileHeader {
                 ftype: FileType::Snapshot,
-                name: "".to_string() /*TODO: repo name?*/,
+                name: name.to_string(),
                 remarks: Vec::new(),
                 user_fields: Vec::new(),
             };
@@ -200,9 +204,8 @@ impl Partition {
     /// Create a partition, assigning an IO provider (this can only be done at
     /// time of creation).
     /// 
-    /// The partition will not be *ready* until data
-    /// is loaded with one of the load operations. Until it is *ready* most
-    /// operations will fail.
+    /// The partition will not be *ready to use* until data is loaded with one
+    /// of the load operations. Until then most operations will fail.
     /// 
     /// Example:
     /// 
@@ -212,6 +215,7 @@ impl Partition {
     /// 
     /// let path = Path::new(".");
     /// let io = DiscoverPartitionFiles::from_dir_basename(path, "my-partition").unwrap();
+    /// let partition = Partition::create(Box::new(io));
     /// ```
     pub fn create(io: Box<PartitionIO>) -> Partition {
         Partition {
@@ -230,7 +234,7 @@ impl Partition {
     /// latest state of the partition. Uses snapshot and log files provided by
     /// the provided `PartitionIO`.
     /// 
-    /// If `everything == true`, all snapshots and commits found are loaded.
+    /// If `all_history == true`, all snapshots and commits found are loaded.
     /// In this case it is possible that the history graph is not connected
     /// (i.e. it has multiple unconnected sub-graphs). If this is the case,
     /// the usual merge strategy will fail.
@@ -247,16 +251,17 @@ impl Partition {
     /// operation).
     /// 
     /// TODO: fail if no data is found? Require call to merge_required()?
+    /// TODO: don't fail, just report warnings?
     /// 
     /// Calls `self.commit()` internally to save any modifications as a new commit.
-    pub fn load(&mut self, everything: bool) -> Result<()> {
+    pub fn load(&mut self, all_history: bool) -> Result<()> {
         try!(self.commit());
         
         let ss_len = self.io.ss_len();
         let mut num = ss_len - 1;
         let mut num_commits = 0;
         
-        if everything {
+        if all_history {
             for ss in 0..ss_len {
                 let result = if let Some(mut r) = try!(self.io.read_ss(ss)) {
                     let head = try!(read_head(&mut r));
@@ -341,6 +346,18 @@ impl Partition {
         }
     }
     
+    /// Returns true when elements have been loaded (though also see
+    /// `merge_required`).
+    pub fn is_loaded(&self) -> bool {
+        self.tips.len() > 0
+    }
+    
+    /// Returns true when ready for use (this is equivalent to
+    /// `part.is_loaded() && !part.merge_required()`).
+    pub fn is_ready(&self) -> bool {
+        self.tips.len() == 1
+    }
+    
     /// Returns true while a merge is required.
     /// 
     /// Returns false if not ready or no tip is found as well as when a single
@@ -357,6 +374,21 @@ impl Partition {
         // TODO: I guess we need to assign repository and partition UUIDs or
         // something, and consider how to handle history across repartitioning.
         Ok(())
+    }
+    
+    /// Unload data from memory. Note that unless `force == true` the operation
+    /// will fail if any changes have not yet been saved to disk.
+    /// 
+    /// Returns true if data was unloaded, false if not (implies `!force` and 
+    /// that unsaved changes exist).
+    pub fn unload(&mut self, force: bool) -> bool {
+        if force || self.unsaved.is_empty() {
+            self.states.clear();
+            self.tips.clear();
+            true
+        } else {
+            false
+        }
     }
     
     /// Consume the `Partition` and return the held `PartitionIO`.
@@ -390,6 +422,7 @@ impl Partition {
     /// The operation requires some copying but uses copy-on-write elements
     /// internally. This copy is needed to create a commit from the diff of the
     /// last committed state and the new state.
+    //TODO: instead of returning a &mut reference to self.current, we should make the user clone.
     pub fn tip(&mut self) -> result::Result<&mut PartitionState, TipError> {
         if self.tips.len() == 1 {
             Ok(&mut self.current)
@@ -532,7 +565,7 @@ fn on_new_partition() {
     use super::Element;
     
     let io = box PartitionDummyIO::new();
-    let mut part = Partition::new(io).expect("partition creation");
+    let mut part = Partition::new(io, "on_new_partition").expect("partition creation");
     assert_eq!(part.tips.len(), 1);
     assert_eq!(part.parent, Sum::zero());
     

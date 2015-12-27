@@ -12,7 +12,7 @@ use std::io::{Read, Write, ErrorKind};
 use std::ffi::OsStr;
 use std::os::unix::ffi::OsStrExt;
 use docopt::Docopt;
-use pippin::{Repo, Result, Error};
+use pippin::{Result, Error};
 use pippin::{DiscoverPartitionFiles, Partition, PartitionIO, Element};
 use pippin::util::rtrim;
 
@@ -143,19 +143,21 @@ fn inner(files: Vec<String>, op: Operation, part: Option<String>,
     
     match op {
         Operation::NewPartition(name) => {
-            println!("Creating new partition: {}", name);
-            assert_eq!(paths.len(), 1);
-            assert_eq!(part, None);
-            assert_eq!(commit, None);
-            //TODO: validate filename
-            let path = &paths[0];
-            println!("Initial snapshot: {}", path.display());
-            if path.exists() {
-                return Err(Error::io(ErrorKind::AlreadyExists, "snapshot file already exists"));
-            }
-            
-            let repo = try!(Repo::new(name));
-            repo.save_file(&path)
+            println!("New-partition functionality not yet available");
+//             println!("Creating new partition: {}", name);
+//             assert_eq!(paths.len(), 1);
+//             assert_eq!(part, None);
+//             assert_eq!(commit, None);
+//             //TODO: validate filename
+//             let path = &paths[0];
+//             println!("Initial snapshot: {}", path.display());
+//             if path.exists() {
+//                 return Err(Error::io(ErrorKind::AlreadyExists, "snapshot file already exists"));
+//             }
+//             
+//             let repo = try!(Partition::new(io, name));
+//             repo.save_file(&path)
+            Ok(())
         },
         Operation::ListPartitions => {
             println!("Multi-partition functionality not yet available");

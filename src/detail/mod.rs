@@ -9,6 +9,7 @@ pub use self::partition::{Partition, PartitionIO, PartitionDummyIO, TipError};
 pub use self::discover::DiscoverPartitionFiles;
 pub use self::commits::{Commit, CommitQueue, LogReplay};
 pub use self::sum::Sum;
+pub use self::repo::Repo;
 
 mod readwrite;
 mod sum;
@@ -17,3 +18,4 @@ mod commits;
 mod partition;
 mod discover;
 mod element;
+mod repo;
