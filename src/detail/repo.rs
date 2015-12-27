@@ -4,7 +4,7 @@ use std::slice::{Iter, IterMut};
 use std::any::Any;
 
 use super::{Partition, PartitionIO};
-use super::validate_repo_name;
+use super::readwrite::validate_repo_name;
 use ::Result;
 
 pub trait RepoIO {

@@ -8,7 +8,7 @@ use hashindexed::HashIndexed;
 
 use super::{Sum, Commit, CommitQueue, LogReplay,
     PartitionState, PartitionStateSumComparator};
-use super::{FileHeader, FileType, read_head, write_head,
+use super::readwrite::{FileHeader, FileType, read_head, write_head,
     read_snapshot, write_snapshot, read_log, start_log, write_commit};
 use error::{Result, Error};
 
