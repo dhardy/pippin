@@ -1,0 +1,19 @@
+Consider replacing the current `Element` structure (exposing a data section) with a user-defined one.
+
+Current one is:
+
+*   fast to load
+*   simple
+
+A templated implemenation for a user-defined type would:
+
+*   allow more convenient access to user-defined details
+*   allow classifiers and classifier caches to be integrated better
+*   require 'repo', 'partition', 'commit' and 'state' types to be templated
+*   could support the use of polymorphic elements via an enum or user-defined wrapper around a trait
+
+A polymorphic approach using a trait would:
+
+*   require a run-time-checked downcast or unsafe cast to access members
+*   still allow better access to user-defined details than the current approach
+*   allow direct support for polymorphic elements via a trait

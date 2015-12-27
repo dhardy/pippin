@@ -1,6 +1,29 @@
 API requirements
 ===========
 
+Simultaneous access
+---------------------------
+
+Pippin is roughly a database. Like databases, it should support simultaneous
+access from multiple parties or parts of a program.
+
+It already does in a way: it is designed such that multiple instances accessing
+the same files should not clash (though they may not synchronise until the next
+load). But it should support in-memory parallel usage.
+
+One option would be to put each access through a queing system, but this makes
+each request slower.
+
+Another would be to allow read access to multiple parties and copy-on-write
+with some synchronisation system. This makes each element insertion/deletion
+slow and requires frequent synchronisation.
+
+Another would be to allow each user to make a copy of the current state and
+only allow modifications through a copy. Committing modifications may require
+a merge. The user should be able to check for external modifications while
+holding a copy.
+
+
 Partitions
 -----------
 
