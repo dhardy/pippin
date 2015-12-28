@@ -32,7 +32,11 @@ impl DiscoverPartitionFiles {
     /// part of the file name, common to all files of this partition.
     pub fn from_dir_basename(path: &Path, basename: &str) -> Result<DiscoverPartitionFiles> {
         if !path.is_dir() { return PathError::err("not a directory", path.to_path_buf()); }
-        //TODO: validate basename
+        // Do basic validation of basename. As of now I am not sure exactly
+        // which constraints it should conform to.
+        if basename.contains('/') || basename.contains('\\') {
+            return ArgError::err("basename must not contain any path separators");
+        }
         
         let ss_pat = try!(Regex::new("-ss([1-9][0-9]*).pip"));
         let cl_pat = try!(Regex::new("-ss([1-9][0-9]*)-cl([1-9][0-9]*).pipl"));
@@ -46,7 +50,7 @@ impl DiscoverPartitionFiles {
             let fname = match os_fname.to_str() {
                 Some(s) => s,
                 None => {
-                    // TODO: warn that name was unmappable
+                    // #0017: warn that name was unmappable
                     continue;
                 }
             };
@@ -79,9 +83,10 @@ impl DiscoverPartitionFiles {
     /// 
     /// Directory and base-name for files are taken from the first path given.
     pub fn from_paths(paths: Vec<PathBuf>) -> Result<DiscoverPartitionFiles> {
-        //TODO: allowable charaters in basename
-        let ss_pat = try!(Regex::new(r"([0-9a-zA-Z-_]+)-ss(0|[1-9][0-9]*).pip"));
-        let cl_pat = try!(Regex::new(r"([0-9a-zA-Z-_]+)-ss(0|[1-9][0-9]*)-cl(0|[1-9][0-9]*).pipl"));
+        // Note: there are no defined rules about which characters are allowed
+        // in the basename, so just match anything.
+        let ss_pat = try!(Regex::new(r"(.+)-ss(0|[1-9][0-9]*).pip"));
+        let cl_pat = try!(Regex::new(r"(.+)-ss(0|[1-9][0-9]*)-cl(0|[1-9][0-9]*).pipl"));
         
         let mut snapshots = VecMap::new();
         let mut dir_path = None;
