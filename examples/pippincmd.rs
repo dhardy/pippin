@@ -228,7 +228,9 @@ fn inner(files: Vec<String>, op: Operation, part: Option<String>,
                                 let elt_data = if let Some(d) = state.get_elt(id) {
                                     d.data()
                                 } else {
-                                    return Err(Error::NoEltFound("no element to edit"));
+                                    //TODO: fix error handling
+                                    panic!("element not found");
+//                                     return Err(Error::NoEltFound("no element to edit"));
                                 };
                                 let mut file = try!(fs::OpenOptions::new().write(true).open(&tmp_path));
                                 try!(file.write(elt_data));

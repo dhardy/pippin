@@ -11,13 +11,14 @@ use TipError;
 pub type Result<T> = result::Result<T, Error>;
 
 /// Our custom compound error type
+#[derive(Debug)]
 pub enum Error {
     /// Error while reading from a stream (syntactical or semantic)
     Read(ReadError),
     /// Invalid argument
     Arg(ArgError),
-    /// No element found for replacement/removal/retrieval
-    NoEltFound(&'static str),
+    /// Element operation failure
+    ElementOp(ElementOp),
     /// Regeneration of state from change sets failed
     Replay(ReplayError),
     /// Error messages about some path on the file system
@@ -39,7 +40,7 @@ pub enum Error {
 }
 
 /// For read errors; adds a read position
-#[derive(PartialEq)]
+#[derive(PartialEq, Debug)]
 pub struct ReadError {
     msg: &'static str,
     pos: usize,
@@ -107,14 +108,60 @@ fn write_hex_line(line: &[u8], f: &mut fmt::Formatter) -> result::Result<(), fmt
 }
 
 /// Any error where an invalid argument was supplied
-#[derive(PartialEq)]
+#[derive(PartialEq, Debug)]
 pub struct ArgError {
     msg: &'static str
 }
 
+/// Element operation error details
+#[derive(PartialEq, Debug)]
+pub struct ElementOp {
+    /// Identity of element
+    pub id: u64,
+    /// Classification of failure
+    pub class: ElementOpClass,
+}
+/// Classification of element operation failure
+#[derive(PartialEq, Debug)]
+pub enum ElementOpClass {
+    /// Insertion failed due to identity clash (element identifier)
+    InsertionFailure,
+    /// Replacement failed due to missing element (element identifier)
+    ReplacementFailure,
+    /// Deletion failed due to missing element (element identifier)
+    DeletionFailure,
+}
+impl ElementOp {
+    /// Get the description string corresponding to the classification
+    pub fn description(&self) -> &'static str {
+        match self.class {
+            ElementOpClass::InsertionFailure => "insertion failed: identifier already in use",
+            ElementOpClass::ReplacementFailure => "replacement failed: cannot find element to replace",
+            ElementOpClass::DeletionFailure => "deletion failed: element not found",
+        }
+    }
+    /// Create an instance
+    pub fn insertion_failure(id: u64) -> ElementOp {
+        ElementOp { id: id, class: ElementOpClass::InsertionFailure }
+    }
+    /// Create an instance
+    pub fn replacement_failure(id: u64) -> ElementOp {
+        ElementOp { id: id, class: ElementOpClass::ReplacementFailure }
+    }
+    /// Create an instance
+    pub fn deletion_failure(id: u64) -> ElementOp {
+        ElementOp { id: id, class: ElementOpClass::DeletionFailure }
+    }
+}
+impl fmt::Display for ElementOp {
+    fn fmt(&self, f: &mut fmt::Formatter) -> result::Result<(), fmt::Error> {
+        write!(f, "{}: {}", self.description(), self.id)
+    }
+}
+
 /// Errors in log replay (due either to corruption or providing incompatible
 /// states and commit logs)
-#[derive(PartialEq)]
+#[derive(PartialEq, Debug)]
 pub struct ReplayError {
     msg: &'static str
 }
@@ -128,10 +175,6 @@ impl Error {
     /// Create an "invalid argument" error
     pub fn arg(msg: &'static str) -> Error {
         Error::Arg(ArgError { msg: msg })
-    }
-    /// Create a "no element found" error
-    pub fn no_elt(msg: &'static str) -> Error {
-        Error::NoEltFound(msg)
     }
     /// Create a "log replay" error
     pub fn replay(msg: &'static str) -> Error {
@@ -162,7 +205,7 @@ impl error::Error for Error {
         match *self {
             Error::Read(ref e) => e.msg,
             Error::Arg(ref e) => e.msg,
-            Error::NoEltFound(msg) => msg,
+            Error::ElementOp(ref e) => e.description(),
             Error::Replay(ref e) => e.msg,
             Error::Path(ref msg, _) => msg,
             Error::NotReady(ref msg) => msg,
@@ -178,28 +221,10 @@ impl error::Error for Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> result::Result<(), fmt::Error> {
         match *self {
-            Error::Read(ref e) => write!(f, "Position {}, offset ({}, {}): {}", e.pos, e.off_start, e.off_end, e.msg),
-            Error::Arg(ref e) => write!(f, "Invalid argument: {}", e.msg),
-            Error::NoEltFound(ref msg) => write!(f, "{}", msg),
-            Error::Replay(ref e) => write!(f, "Failed to recreate state from log: {}", e.msg),
-            Error::Path(ref msg, ref path) => write!(f, "{}: {}", msg, path.display()),
-            Error::NotReady(ref msg) => write!(f, "{}", msg),
-            Error::CmdFailed(ref msg) => write!(f, "{}", msg),
-            Error::Io(ref e) => e.fmt(f),
-            Error::Utf8(ref e) => e.fmt(f),
-            Error::ParseInt(ref e) => e.fmt(f),
-            Error::VarError(ref e) => e.fmt(f),
-            Error::Regex(ref e) => e.fmt(f),
-        }
-    }
-}
-impl fmt::Debug for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> result::Result<(), fmt::Error> {
-        match *self {
-            Error::Read(ref e) => write!(f, "Position {}, offset ({}, {}): {}", e.pos, e.off_start, e.off_end, e.msg),
-            Error::Arg(ref e) => write!(f, "Invalid argument: {}", e.msg),
-            Error::NoEltFound(ref msg) => write!(f, "{}", msg),
-            Error::Replay(ref e) => write!(f, "Failed to recreate state from log: {}", e.msg),
+            Error::Read(ref e) => write!(f, "read error at position {}, offset ({}, {}): {}", e.pos, e.off_start, e.off_end, e.msg),
+            Error::Arg(ref e) => write!(f, "invalid argument: {}", e.msg),
+            Error::ElementOp(ref e) => e.fmt(f),
+            Error::Replay(ref e) => write!(f, "failed to recreate state from log: {}", e.msg),
             Error::Path(ref msg, ref path) => write!(f, "{}: {}", msg, path.display()),
             Error::NotReady(ref msg) => write!(f, "{}", msg),
             Error::CmdFailed(ref msg) => write!(f, "{}", msg),
@@ -218,6 +243,9 @@ impl From<ReadError> for Error {
 }
 impl From<ArgError> for Error {
     fn from(e: ArgError) -> Error { Error::Arg(e) }
+}
+impl From<ElementOp> for Error {
+    fn from(e: ElementOp) -> Error { Error::ElementOp(e) }
 }
 impl From<ReplayError> for Error {
     fn from(e: ReplayError) -> Error { Error::Replay(e) }

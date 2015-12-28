@@ -5,7 +5,7 @@ use std::ops;
 use std::fmt;
 
 
-// NOTE: when simd is stable, it could be used
+// #0018: when simd is stable, it could be used
 // use simd::u8x16;
 /// A convenient way to manage and manipulate a checksum
 #[derive(Copy, Clone, PartialEq, Eq, Hash)]
@@ -34,7 +34,7 @@ impl Sum {
     pub fn load(arr: &[u8]) -> Sum {
         assert_eq!(arr.len(), 32);
 //         Sum { s1: u8x16::load(&arr, 0), s2: u8x16::load(&arr, 16) }
-        //TODO there must be a better way than this!
+        // #0018 : how to do a fixed-size array copy?
         let mut result = Sum::zero();
         for i in 0..32 {
             result.s[i] = arr[i];
@@ -61,7 +61,7 @@ impl Sum {
 impl ops::BitXor for Sum {
     type Output = Self;
     fn bitxor(self, rhs: Sum) -> Sum {
-        //TODO optimise
+        // #0018: optimise XOR operation
         let mut result = Sum::zero();
         for i in 0..32 {
             result.s[i] = self.s[i] ^ rhs.s[i];

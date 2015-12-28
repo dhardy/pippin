@@ -5,3 +5,5 @@ This tracks work-arounds which are waiting for Rust language or standard libary
 changes.
 
 std::io::Read::read_exact() — is unstable
+
+How to copy data from one fixed-size array to another?

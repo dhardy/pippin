@@ -4,9 +4,9 @@ use std::collections::{HashMap};
 use std::collections::hash_map::{Keys};
 use std::clone::Clone;
 use hashindexed::KeyComparator;
+use error::ElementOp;
 
 use detail::{Sum, Element};
-use ::{Result, Error};
 
 
 /// A state of elements within a partition.
@@ -70,30 +70,31 @@ impl PartitionState {
     
     /// Insert an element and return (), unless the id is already used in
     /// which case the function stops with an error.
-    pub fn insert_elt(&mut self, id: u64, elt: Element) -> Result<()> {
+    pub fn insert_elt(&mut self, id: u64, elt: Element) -> Result<(), ElementOp> {
 //        TODO: elt.cache_classifiers(classifiers);
-        if self.elts.contains_key(&id) { return Err(Error::arg("insertion conflicts with an existing element")); }
+        if self.elts.contains_key(&id) { return Err(ElementOp::insertion_failure(id)); }
         self.statesum.permute(elt.sum());
         self.elts.insert(id, elt);
         Ok(())
     }
     /// Replace an existing element and return the replaced element, unless the
     /// id is not already used in which case the function stops with an error.
-    pub fn replace_elt(&mut self, id: u64, elt: Element) -> Result<Element> {
+    pub fn replace_elt(&mut self, id: u64, elt: Element) -> Result<Element, ElementOp> {
 //        TODO: elt.cache_classifiers(classifiers);
         self.statesum.permute(elt.sum());
         match self.elts.insert(id, elt) {
-            None => Err(Error::no_elt("replacement failed: no existing element")),
+            None => Err(ElementOp::replacement_failure(id)),
             Some(removed) => {
                 self.statesum.permute(removed.sum());
                 Ok(removed)
             }
         }
     }
-    /// Remove an element, returning it.
-    pub fn remove_elt(&mut self, id: u64) -> Result<Element> {
+    /// Remove an element, returning the element removed. If no element is
+    /// found with the `id` given, `None` is returned.
+    pub fn remove_elt(&mut self, id: u64) -> Result<Element, ElementOp> {
         match self.elts.remove(&id) {
-            None => Err(Error::no_elt("deletion failed: no element")),
+            None => Err(ElementOp::deletion_failure(id)),
             Some(removed) => {
                 self.statesum.permute(removed.sum());
                 Ok(removed)

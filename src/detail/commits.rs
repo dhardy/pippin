@@ -7,6 +7,7 @@ use hashindexed::HashIndexed;
 use detail::{Sum, Element, PartitionState, PartitionStateSumComparator};
 use detail::readwrite::CommitReceiver;
 use ::{Result, Error};
+use ::error::ElementOp;
 
 
 /// Holds a set of commits, ordered by insertion order.
@@ -128,10 +129,9 @@ impl Commit {
                         changes.insert(*id, EltChange::replacement(new_elt));
                     }
                 },
-                Err(Error::NoEltFound(_)) => {
+                Err(ElementOp{id: _,class: _}) => {
                     changes.insert(*id, EltChange::deletion());
-                },
-                Err(_) => panic!("should be impossible") /*TODO refactor or deal with this properly*/
+                }
             }
         }
         for (id, new_elt) in state.map() /*TODO: into iter*/ {
