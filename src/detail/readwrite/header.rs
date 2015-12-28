@@ -2,7 +2,8 @@
 
 use std::{io};
 use std::cmp::min;
-use ::error::{Result, Error};
+use std::result::Result as stdResult;
+use ::error::{Error, Result, ArgError, ReadError, make_io_err};
 use ::util::rtrim;
 use super::{sum, fill};
 
@@ -24,9 +25,9 @@ pub struct FileHeader {
     pub user_fields: Vec<Vec<u8>>
 }
 
-pub fn validate_repo_name(name: &str) -> Result<()> {
+pub fn validate_repo_name(name: &str) -> stdResult<(), ArgError> {
     if name.as_bytes().len() > 16 {
-        return Err(Error::arg("repo name too long"));
+        return Err(ArgError::new("repo name too long"));
     }
     Ok(())
 }
@@ -45,14 +46,14 @@ pub fn read_head(r: &mut io::Read) -> Result<FileHeader> {
     } else if buf == HEAD_COMMITLOG {
         FileType::CommitLog
     } else {
-        return Err(Error::read("not a known Pippin file format", pos, (0, 16)));
+        return ReadError::err("not a known Pippin file format", pos, (0, 16));
     };
     pos += 16;
     
     try!(fill(&mut sum_reader, &mut buf[0..16], pos));
     let repo_name = match String::from_utf8(rtrim(&buf, 0).to_vec()) {
         Ok(name) => name,
-        Err(_) => return Err(Error::read("repo name not valid UTF-8", pos, (0, 16)))
+        Err(_) => return ReadError::err("repo name not valid UTF-8", pos, (0, 16))
     };
     pos += 16;
     
@@ -68,7 +69,7 @@ pub fn read_head(r: &mut io::Read) -> Result<FileHeader> {
             let x: usize = match buf[1] {
                 b'1' ... b'9' => buf[1] - b'0',
                 b'A' ... b'Z' => buf[1] + 10 - b'A',
-                _ => return Err(Error::read("header section Qx... has invalid length specification 'x'", pos, (0, 2)))
+                _ => return ReadError::err("header section Qx... has invalid length specification 'x'", pos, (0, 2))
             } as usize;
             let len = x * 16;
             if buf.len() < len { buf.resize(len, 0); }
@@ -76,7 +77,7 @@ pub fn read_head(r: &mut io::Read) -> Result<FileHeader> {
             pos += 2;
             (rtrim(&buf[2..len], 0), 2)
         } else {
-            return Err(Error::read("unexpected header contents", pos, (0, 1)));
+            return ReadError::err("unexpected header contents", pos, (0, 1));
         };
         
         if block[0..3] == *b"SUM" {
@@ -84,7 +85,7 @@ pub fn read_head(r: &mut io::Read) -> Result<FileHeader> {
                 /* we don't support anything else yet, so don't need to
                  * configure anything here */
             }else {
-                return Err(Error::read("unknown checksum format", pos, (3+off, 13+off)))
+                return ReadError::err("unknown checksum format", pos, (3+off, 13+off))
             };
             break;      // "HSUM" must be last item of header before final checksum
         } else if block[0] == b'R' {
@@ -112,7 +113,7 @@ pub fn read_head(r: &mut io::Read) -> Result<FileHeader> {
     let mut sum32 = [0u8; 32];
     sum_reader.digest().result(&mut sum32);
     if buf32 != sum32 {
-        return Err(Error::read("header checksum invalid", pos, (0, 32)));
+        return ReadError::err("header checksum invalid", pos, (0, 32));
     }
     
     Ok(FileHeader{
@@ -145,7 +146,7 @@ pub fn write_head(header: &FileHeader, w: &mut io::Write) -> Result<()> {
     for rem in &header.remarks {
         let b = rem.as_bytes();
         if b[0] != b'R' {
-            return Err(Error::arg("remark does not start 'R'"));
+            return ArgError::err("remark does not start 'R'");
         }
         if b.len() <= 15 {
             try!(sum_writer.write(b"H"));
@@ -158,7 +159,7 @@ pub fn write_head(header: &FileHeader, w: &mut io::Write) -> Result<()> {
             try!(sum_writer.write(b));
             try!(pad(&mut sum_writer, n * 16 - b.len() + 2));
         } else {
-            return Err(Error::arg("remark too long"));
+            return ArgError::err("remark too long");
         }
     }
     
@@ -175,7 +176,7 @@ pub fn write_head(header: &FileHeader, w: &mut io::Write) -> Result<()> {
             try!(sum_writer.write(&uf));
             try!(pad(&mut sum_writer, n * 16 - uf.len() - 3));
         } else {
-            return Err(Error::arg("user field too long"));
+            return ArgError::err("user field too long");
         }
     }
     
@@ -193,7 +194,7 @@ pub fn write_head(header: &FileHeader, w: &mut io::Write) -> Result<()> {
         let mut n = n1;
         while n > 0 {
             n -= match try!(w.write(&zeros[0..min(n, zeros.len())])) {
-                0 => return Err(Error::Io(io::Error::new(io::ErrorKind::WriteZero, "write failed"))),
+                0 => return make_io_err(io::ErrorKind::WriteZero, "write failed"),
                 x => x
             };
         }

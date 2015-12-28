@@ -7,8 +7,7 @@ use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
 use super::{sum, fill};
 use detail::{Sum, Element, PartitionState};
-use ::error::{Error, Result};
-
+use ::error::{Error, Result, ReadError};
 
 /// Read a snapshot of a set of elements from a stream.
 /// 
@@ -25,12 +24,12 @@ pub fn read_snapshot(reader: &mut Read) -> Result<PartitionState> {
     try!(fill(&mut r, &mut buf[0..32], pos));
     if buf[0..8] != *b"SNAPSHOT" {
         // note: we discard buf[8..16], the encoded date, for now
-        return Err(Error::read("unexpected contents (expected SNAPSHOT)", pos, (0, 8)));
+        return ReadError::err("unexpected contents (expected SNAPSHOT)", pos, (0, 8));
     }
     pos += 16;
     
     if buf[16..24] != *b"ELEMENTS" {
-        return Err(Error::read("unexpected contents (expected ELEMENTS)", pos, (16, 24)));
+        return ReadError::err("unexpected contents (expected ELEMENTS)", pos, (16, 24));
     }
     let num_elts = try!((&buf[24..32]).read_u64::<BigEndian>()) as usize;    // #0015
     pos += 16;
@@ -40,13 +39,13 @@ pub fn read_snapshot(reader: &mut Read) -> Result<PartitionState> {
         try!(fill(&mut r, &mut buf[0..32], pos));
         if buf[0..8] != *b"ELEMENT\x00" {
             println!("buf: \"{}\", {:?}", String::from_utf8_lossy(&buf[0..8]), &buf[0..8]);
-            return Err(Error::read("unexpected contents (expected ELEMENT\\x00)", pos, (0, 8)));
+            return ReadError::err("unexpected contents (expected ELEMENT\\x00)", pos, (0, 8));
         }
         let ident = try!((&buf[8..16]).read_u64::<BigEndian>());
         pos += 16;
         
         if buf[16..24] != *b"BYTES\x00\x00\x00" {
-            return Err(Error::read("unexpected contents (expected BYTES\\x00\\x00\\x00)", pos, (16, 24)));
+            return ReadError::err("unexpected contents (expected BYTES\\x00\\x00\\x00)", pos, (16, 24));
         }
         let data_len = try!((&buf[24..32]).read_u64::<BigEndian>()) as usize;   // #0015
         pos += 16;
@@ -64,7 +63,7 @@ pub fn read_snapshot(reader: &mut Read) -> Result<PartitionState> {
         let elt_sum = Sum::calculate(&data);
         try!(fill(&mut r, &mut buf[0..32], pos));
         if !elt_sum.eq(&buf[0..32]) {
-            return Err(Error::read("element checksum mismatch", pos, (0, 32)));
+            return ReadError::err("element checksum mismatch", pos, (0, 32));
         }
         pos += 32;
         
@@ -73,18 +72,18 @@ pub fn read_snapshot(reader: &mut Read) -> Result<PartitionState> {
     
     try!(fill(&mut r, &mut buf[0..16], pos));
     if buf[0..8] != *b"STATESUM" {
-        return Err(Error::read("unexpected contents (expected STATESUM)", pos, (0, 8)));
+        return ReadError::err("unexpected contents (expected STATESUM)", pos, (0, 8));
     }
     pos += 8;
     if (try!((&buf[8..16]).read_u64::<BigEndian>()) as usize) != num_elts {
-        return Err(Error::read("unexpected contents (number of elements \
-            differs from that previously stated)", pos, (8, 16)));
+        return ReadError::err("unexpected contents (number of elements \
+            differs from that previously stated)", pos, (8, 16));
     }
     pos += 8;
     
     try!(fill(&mut r, &mut buf[0..32], pos));
     if !state.statesum().eq(&buf[0..32]) {
-        return Err(Error::read("state checksum mismatch", pos, (0, 32)));
+        return ReadError::err("state checksum mismatch", pos, (0, 32));
     }
     pos += 32;
     
@@ -94,7 +93,7 @@ pub fn read_snapshot(reader: &mut Read) -> Result<PartitionState> {
     let mut r2 = r.into_inner();
     try!(fill(&mut r2, &mut buf[0..32], pos));
     if sum32 != buf[0..32] {
-        return Err(Error::read("checksum mismatch", pos, (0, 32)));
+        return ReadError::err("checksum mismatch", pos, (0, 32));
     }
     
     Ok(state)

@@ -10,7 +10,7 @@ use super::{Sum, Commit, CommitQueue, LogReplay,
     PartitionState, PartitionStateSumComparator};
 use super::readwrite::{FileHeader, FileType, read_head, write_head,
     read_snapshot, write_snapshot, read_log, start_log, write_commit};
-use error::{Result, Error};
+use error::{Result, Error, make_io_err};
 
 /// An interface providing read and/or write access to a suitable location.
 /// 
@@ -334,7 +334,7 @@ impl Partition {
         self.need_snapshot = num < ss_len - 1 || num_commits > 100;
         
         if self.tips.is_empty() {
-            Err(Error::io(ErrorKind::NotFound, "load operation found no states"))
+            make_io_err(ErrorKind::NotFound, "load operation found no states")
         } else {
             // success, but a merge may still be required
             if self.tips.len() == 1 {
