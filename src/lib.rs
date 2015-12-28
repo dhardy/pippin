@@ -20,9 +20,9 @@ extern crate vec_map;
 pub use detail::Repo;
 pub use detail::{Element};
 pub use detail::{PartitionState};
-pub use detail::{Partition, PartitionIO, PartitionDummyIO, TipError};
+pub use detail::{Partition, PartitionIO, PartitionDummyIO};
 pub use detail::DiscoverPartitionFiles;
-pub use error::{Error, Result};
+pub use error::{Result};
 
 pub mod error;
 pub mod util;

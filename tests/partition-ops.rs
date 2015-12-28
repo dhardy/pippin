@@ -10,7 +10,8 @@ use std::any::Any;
 // use std::io::stderr;
 // use std::path::Path;
 // use std::fs::{File, create_dir_all};
-use pippin::{Partition, PartitionIO, Element, Error, Result};
+use pippin::{Partition, PartitionIO, Element};
+use pippin::error::{make_io_err, Result};
 use vec_map::VecMap;
 
 /// Allows writing to in-memory streams. Refers to external data so that it
@@ -41,7 +42,7 @@ impl PartitionIO for PartitionStreams {
     }
     fn new_ss<'a>(&'a mut self, ss_num: usize) -> Result<Box<Write+'a>> {
         if self.ss.contains_key(&ss_num) {
-            Err(Error::io(ErrorKind::AlreadyExists, "snapshot already exists"))
+            make_io_err(ErrorKind::AlreadyExists, "snapshot already exists")
         } else {
             self.ss.insert(ss_num, (Vec::new(), VecMap::new()));
             return Ok(Box::new(&mut self.ss.get_mut(&ss_num).unwrap().0))
@@ -52,19 +53,19 @@ impl PartitionIO for PartitionStreams {
             let len = data.len();
             Ok(Box::new(&mut data[len..]))
         } else {
-            Err(Error::io(ErrorKind::NotFound, "commit log not found"))
+            make_io_err(ErrorKind::NotFound, "commit log not found")
         }
     }
     fn new_ss_cl<'a>(&'a mut self, ss_num: usize, cl_num: usize) -> Result<Box<Write+'a>> {
         if let Some(&mut (_, ref mut logs)) = self.ss.get_mut(&ss_num) {
             if logs.contains_key(&cl_num) {
-                return Err(Error::io(ErrorKind::AlreadyExists, "commit log already exists"));
+                return make_io_err(ErrorKind::AlreadyExists, "commit log already exists");
             }
             logs.insert(cl_num, Vec::new());
             let data = logs.get_mut(&cl_num).unwrap();
             Ok(box &mut *data)
         } else {
-            Err(Error::io(ErrorKind::NotFound, "no snapshot corresponding to new commit log"))
+            make_io_err(ErrorKind::NotFound, "no snapshot corresponding to new commit log")
         }
     }
 }

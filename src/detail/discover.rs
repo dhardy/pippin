@@ -8,7 +8,7 @@ use regex::Regex;
 use vec_map::VecMap;
 
 use super::partition::PartitionIO;
-use error::{Result, Error};
+use error::{Result, PathError, make_io_err};
 
 
 /// A helper to find files belonging to a partition (assuming a standard
@@ -31,7 +31,7 @@ impl DiscoverPartitionFiles {
     /// contain) data files for the existing partition. `basename` is the first
     /// part of the file name, common to all files of this partition.
     pub fn from_dir_basename(path: &Path, basename: &str) -> Result<DiscoverPartitionFiles> {
-        if !path.is_dir() { return Err(Error::path("not a directory", path.to_path_buf())); }
+        if !path.is_dir() { return PathError::err("not a directory", path.to_path_buf()); }
         //TODO: validate basename
         
         let ss_pat = try!(Regex::new("-ss([1-9][0-9]*).pip"));
@@ -89,7 +89,7 @@ impl DiscoverPartitionFiles {
         
         for path in paths.into_iter() {
             if !path.is_file() {
-                return Err(Error::path("not a file", path));
+                return PathError::err("not a file", path);
             }
             if dir_path == None {
                 dir_path = Some(path.parent().expect("all file paths should have a parent").to_path_buf());
@@ -143,13 +143,13 @@ impl DiscoverPartitionFiles {
                     }
                 },
                 FileIs::BadFileName(msg) => {
-                    return Err(Error::path(msg, path));
+                    return PathError::err(msg, path);
                 },
             }
         }
         
         if basename == None {
-            return Err(Error::io(ErrorKind::NotFound, "no path"));
+            return make_io_err(ErrorKind::NotFound, "no path");
         }
         Ok(DiscoverPartitionFiles {
             dir: dir_path.expect("dir_path should be set when basename is set"),
@@ -219,7 +219,7 @@ impl PartitionIO for DiscoverPartitionFiles {
     fn new_ss<'a>(&mut self, ss_num: usize) -> Result<Box<Write+'a>> {
         let p = self.dir.join(PathBuf::from(format!("{}-ss{}.pip", self.basename, ss_num)));
         if self.ss.get(&ss_num).map_or(false, |&(ref p, _)| *p != PathBuf::new()) || p.exists() {
-            return Err(Error::io(ErrorKind::AlreadyExists, "snapshot already exists"));
+            return make_io_err(ErrorKind::AlreadyExists, "snapshot already exists");
         }
         let stream = try!(File::create(&p));
         if self.ss.contains_key(&ss_num) {
@@ -236,13 +236,13 @@ impl PartitionIO for DiscoverPartitionFiles {
                 let stream = try!(OpenOptions::new().write(true).append(true).open(p));
                 Ok(box stream)
             },
-            None => Err(Error::io(ErrorKind::NotFound, "commit log file not found"))
+            None => make_io_err(ErrorKind::NotFound, "commit log file not found")
         }
     }
     fn new_ss_cl<'a>(&mut self, ss_num: usize, cl_num: usize) -> Result<Box<Write+'a>> {
         let mut logs = &mut self.ss.entry(ss_num).or_insert_with(|| (PathBuf::new(), VecMap::new())).1;
         if logs.contains_key(&cl_num) {
-            return Err(Error::io(ErrorKind::AlreadyExists, "commit log file already exists"));
+            return make_io_err(ErrorKind::AlreadyExists, "commit log file already exists");
         }
         let p = self.dir.join(PathBuf::from(format!("{}-ss{}-cl{}.pipl", self.basename, ss_num, cl_num)));
         let stream = try!(OpenOptions::new().create(true).write(true).append(true).open(&p));

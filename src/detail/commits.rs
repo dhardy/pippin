@@ -6,8 +6,7 @@ use hashindexed::HashIndexed;
 
 use detail::{Sum, Element, PartitionState, PartitionStateSumComparator};
 use detail::readwrite::CommitReceiver;
-use ::{Result, Error};
-use ::error::ElementOp;
+use error::{Result, ReplayError, ElementOp};
 
 
 /// Holds a set of commits, ordered by insertion order.
@@ -190,7 +189,7 @@ impl<'a> LogReplay<'a> {
     pub fn replay(&mut self, commits: CommitQueue) -> Result<&Self> {
         for commit in commits.commits {
             let mut state = try!(self.states.get(&commit.parent)
-                .ok_or(Error::replay("parent state of commit not found")))
+                .ok_or(ReplayError::new("parent state of commit not found")))
                 .clone();
             if self.states.contains(&commit.statesum) {
                 // NOTE: could verify that this state matches that derived from
@@ -219,7 +218,7 @@ impl<'a> LogReplay<'a> {
             }
             
             if state.statesum() != commit.statesum {
-                return Err(Error::replay("checksum failure of replayed commit"));
+                return ReplayError::err("checksum failure of replayed commit");
             }
             let has_existing = if let Some(existing) = self.states.get(&state.statesum()) {
                 if *existing != state {
@@ -260,7 +259,7 @@ impl<'a> LogReplay<'a> {
     
     fn tip_sum(&self) -> Result<Sum> {
         if self.tips.len() > 1 {
-            return Err(Error::replay("no single latest state (merge required)"));
+            return ReplayError::err("no single latest state (merge required)");
         }
         for tip in self.tips.iter() {
             return Ok(*tip);

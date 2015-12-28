@@ -8,7 +8,7 @@ mod snapshot;
 mod commitlog;
 
 use std::{io, mem};
-use error::{Error, Result};
+use error::{ReadError, Result};
 
 pub use self::header::{FileHeader, FileType, read_head, write_head, validate_repo_name};
 pub use self::snapshot::{read_snapshot, write_snapshot};
@@ -21,7 +21,7 @@ fn fill<R: io::Read>(r: &mut R, mut buf: &mut [u8], pos: usize) -> Result<()> {
     let mut p = pos;
     while buf.len() > 0 {
         match try!(r.read(buf)) {
-            0 => return Err(Error::read("corrupt (file terminates unexpectedly)", p, (0, 0))),
+            0 => return ReadError::err("corrupt (file terminates unexpectedly)", p, (0, 0)),
             n => { buf = &mut mem::replace(&mut buf, &mut [])[n..]; p += n },
         }
     }
