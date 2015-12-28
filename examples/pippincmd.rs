@@ -5,14 +5,14 @@ extern crate pippin;
 extern crate rustc_serialize;
 extern crate docopt;
 
-use std::{fs, env};
+use std::{fs, env, fmt, result};
 use std::process::{exit, Command};
 use std::path::PathBuf;
 use std::io::{Read, Write, ErrorKind};
 use std::ffi::OsStr;
 use std::os::unix::ffi::OsStrExt;
 use docopt::Docopt;
-use pippin::{Result, Error};
+use pippin::error::{Result, make_io_err};
 use pippin::{DiscoverPartitionFiles, Partition, PartitionIO, Element};
 use pippin::util::rtrim;
 
@@ -216,11 +216,11 @@ fn inner(files: Vec<String>, op: Operation, part: Option<String>,
                                 .arg("--tmpdir")
                                 .arg("pippin-element.XXXXXXXX").output());
                             if !output.status.success() {
-                                return Err(Error::cmd_failed("mktemp", output.status.code()));
+                                return CmdFailed::err("mktemp", output.status.code());
                             }
                             let tmp_path = PathBuf::from(OsStr::from_bytes(rtrim(&output.stdout, b'\n')));
                             if !tmp_path.is_file() {
-                                return Err(Error::io(ErrorKind::NotFound, "temporary file not found"));
+                                return make_io_err(ErrorKind::NotFound, "temporary file not found");
                             }
                             
                             let id: u64 = try!(elt.parse());
@@ -243,7 +243,7 @@ fn inner(files: Vec<String>, op: Operation, part: Option<String>,
                             }));
                             let status = try!(Command::new(&editor_cmd).arg(&tmp_path).status());
                             if !status.success() {
-                                return Err(Error::cmd_failed(editor_cmd, status.code()));
+                                return CmdFailed::err(editor_cmd, status.code());
                             }
                             let mut file = try!(fs::File::open(&tmp_path));
                             let mut buf = Vec::new();
@@ -290,4 +290,27 @@ fn inner(files: Vec<String>, op: Operation, part: Option<String>,
 //             //TODO: only if changed
 //             try!(repo.save_file(&path));
 //         }
+}
+
+/// Error type used to indicate a command failure
+#[derive(Debug)]
+pub struct CmdFailed {
+    msg: String
+}
+impl CmdFailed {
+    /// Create an "external command" error.
+    pub fn err<S, T: fmt::Display>(cmd: T, status: Option<i32>) -> Result<S> {
+        Err(box CmdFailed{ msg: match status {
+            Some(code) => format!("external command failed with status {}: {}", code, cmd),
+            None => format!("external command failed (interrupted): {}", cmd),
+        }})
+    }
+}
+impl fmt::Display for CmdFailed {
+    fn fmt(&self, f: &mut fmt::Formatter) -> result::Result<(), fmt::Error> {
+        write!(f, "{}", self.msg)
+    }
+}
+impl std::error::Error for CmdFailed {
+    fn description(&self) -> &str { "tip not ready" }
 }

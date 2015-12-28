@@ -1,11 +1,8 @@
 //! Internal error structs used by Pippin
 
-use std::{io, error, fmt, result, string, num, env};
+use std::{io, fmt, result};
 use std::path::PathBuf;
 use std::cmp::{min, max};
-use byteorder;
-use regex;
-use TipError;
 
 /// Our custom result type
 pub type Result<T> = result::Result<T, Error>;
@@ -13,9 +10,7 @@ pub type Result<T> = result::Result<T, Error>;
 /// Our custom compound error type
 pub type Error = Box<ErrorTrait>;
 
-/// Trait which errors should implement
-pub trait ErrorTrait : fmt::Debug + fmt::Display {
-}
+pub use std::error::Error as ErrorTrait;
 
 /// For read errors; adds a read position
 #[derive(PartialEq, Debug)]
@@ -32,6 +27,7 @@ impl ReadError {
         let (o0, o1) = offset;
         ReadError { msg: msg, pos: pos, off_start: o0, off_end: o1 }
     }
+    /// New instance, wrapped with `Err`
     pub fn err<T>(msg: &'static str, pos: usize, offset: (usize, usize)) -> Result<T> {
         Err(box ReadError::new(msg, pos, offset))
     }
@@ -43,7 +39,9 @@ impl ReadError {
     }
 }
 
-impl ErrorTrait for ReadError {}
+impl ErrorTrait for ReadError {
+    fn description(&self) -> &str { self.msg }
+}
 impl fmt::Display for ReadError {
     fn fmt(&self, f: &mut fmt::Formatter) -> result::Result<(), fmt::Error> {
         write!(f, "read error at position {}, offset ({}, {}): {}", 
@@ -111,12 +109,14 @@ impl ArgError {
     pub fn new(msg: &'static str) -> ArgError {
         ArgError{ msg: msg }
     }
-    /// Wrap in an Err
+    /// New instance, wrapped with `Err`
     pub fn err<T>(msg: &'static str) -> Result<T> {
         Err(box ArgError::new(msg))
     }
 }
-impl ErrorTrait for ArgError {}
+impl ErrorTrait for ArgError {
+    fn description(&self) -> &str { self.msg }
+}
 impl fmt::Display for ArgError {
     fn fmt(&self, f: &mut fmt::Formatter) -> result::Result<(), fmt::Error> {
         write!(f, "invalid argument: {}", self.msg)
@@ -131,7 +131,9 @@ pub struct ElementOp {
     /// Classification of failure
     pub class: ElementOpClass,
 }
-impl ErrorTrait for ElementOp {}
+impl ErrorTrait for ElementOp {
+    fn description(&self) -> &str { self.description() }
+}
 
 /// Classification of element operation failure
 #[derive(PartialEq, Debug)]
@@ -182,11 +184,14 @@ impl ReplayError {
     pub fn new(msg: &'static str) -> ReplayError {
         ReplayError { msg: msg }
     }
+    /// New instance, wrapped with `Err`
     pub fn err<T>(msg: &'static str) -> Result<T> {
         Err(box ReplayError::new(msg))
     }
 }
-impl ErrorTrait for ReplayError {}
+impl ErrorTrait for ReplayError {
+    fn description(&self) -> &str { self.msg }
+}
 impl fmt::Display for ReplayError {
     fn fmt(&self, f: &mut fmt::Formatter) -> result::Result<(), fmt::Error> {
         write!(f, "failed to recreate state from log: {}", self.msg)
@@ -205,42 +210,43 @@ impl PathError {
     pub fn new(msg: &'static str, path: PathBuf) -> PathError {
         PathError { msg: msg, path: path }
     }
+    /// New instance, wrapped with `Err`
     pub fn err<T>(msg: &'static str, path: PathBuf) -> Result<T> {
         Err(box PathError::new(msg, path))
     }
 }
-impl ErrorTrait for PathError {}
+impl ErrorTrait for PathError {
+    fn description(&self) -> &str { self.msg }
+}
 impl fmt::Display for PathError {
     fn fmt(&self, f: &mut fmt::Formatter) -> result::Result<(), fmt::Error> {
         write!(f, "{}: {}", self.msg, self.path.display())
     }
 }
 
-/*TODO (is this only needed for examples?)
-impl Error {
-    /// Create an "external command" error.
-    pub fn cmd_failed<T: fmt::Display>(cmd: T, status: Option<i32>) -> Error {
-        Error::CmdFailed(match status {
-            Some(code) => format!("Command failed with status {}: {}", code, cmd),
-            None => format!("Command failed (interrupted): {}", cmd),
-        })
+/// Error type returned by `Partition::tip()`.
+#[derive(PartialEq, Eq, Debug)]
+pub enum TipError {
+    /// Partition has not yet been loaded or set "new".
+    NotReady,
+    /// Loaded data left multiple tips. A merge is required to create a single
+    /// tip.
+    MergeRequired,
+}
+impl fmt::Display for TipError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> result::Result<(), fmt::Error> {
+        match self {
+            &TipError::NotReady => write!(f, "tip not ready: no tips loaded"),
+            &TipError::MergeRequired => write!(f, "tip not ready: merge required"),
+        }
     }
 }
-*/
+impl ErrorTrait for TipError {
+    fn description(&self) -> &str { "tip not ready" }
+}
 
 /// Use io::error::new to make an IO error
 //TODO: replace all usages with Pippin-specific error types?
 pub fn make_io_err<T>(kind: io::ErrorKind, msg: &'static str) -> Result<T> {
     Err(box io::Error::new(kind, msg))
-}
-
-impl ErrorTrait for string::FromUtf8Error {}
-impl ErrorTrait for io::error::Error {}
-impl ErrorTrait for num::ParseIntError {}
-impl ErrorTrait for byteorder::new::Error {}
-impl ErrorTrait for regex::re::Error {}
-
-// From impls
-impl<T> From<T> for Error where T: ErrorTrait + 'static {
-    fn from(e: T) -> Error { box e }
 }

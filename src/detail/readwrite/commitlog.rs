@@ -11,7 +11,7 @@ use ::{Element};
 use super::{sum, fill};
 use detail::{Sum, Commit};
 use detail::commits::EltChange;
-use ::error::{Error, Result, ReadError};
+use ::error::{Result, ReadError};
 
 /// Implement this to use read_log().
 pub trait CommitReceiver {

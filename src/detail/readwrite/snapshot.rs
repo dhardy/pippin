@@ -7,7 +7,7 @@ use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
 use super::{sum, fill};
 use detail::{Sum, Element, PartitionState};
-use ::error::{Error, Result, ReadError};
+use ::error::{Result, ReadError};
 
 /// Read a snapshot of a set of elements from a stream.
 /// 

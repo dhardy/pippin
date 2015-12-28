@@ -3,7 +3,7 @@
 use std::{io};
 use std::cmp::min;
 use std::result::Result as stdResult;
-use ::error::{Error, Result, ArgError, ReadError, make_io_err};
+use ::error::{Result, ArgError, ReadError, make_io_err};
 use ::util::rtrim;
 use super::{sum, fill};
 
