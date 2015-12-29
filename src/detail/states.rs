@@ -22,18 +22,23 @@ use detail::{Sum, Element};
 /// supported.
 #[derive(PartialEq,Eq,Debug)]
 pub struct PartitionState {
+    parent: Sum,
     statesum: Sum,
     elts: HashMap<u64, Element>
 }
 
 impl PartitionState {
-    /// Create a new state, with no elements
+    /// Create a new state, with no elements or history.
+    /// 
+    /// The parent's checksum must be specified.
     pub fn new() -> PartitionState {
-        PartitionState { statesum: Sum::zero(), elts: HashMap::new() }
+        PartitionState { parent: Sum::zero(), statesum: Sum::zero(), elts: HashMap::new() }
     }
     /// Create from a map of elements
-    pub fn from_hash_map(map: HashMap<u64, Element>, statesum: Sum) -> PartitionState {
-        PartitionState { statesum: statesum, elts: map }
+    pub fn from_hash_map(parent: Sum,
+        map: HashMap<u64, Element>, statesum: Sum) -> PartitionState
+    {
+        PartitionState { parent: parent, statesum: statesum, elts: map }
     }
     
     /// Get the state sum
@@ -101,13 +106,29 @@ impl PartitionState {
             }
         }
     }
-}
-
-impl Clone for PartitionState {
-    /// Clone the state. Elements are considered Copy-On-Write so cloning the
+    
+    // Also see #0021 about commit creation.
+    
+    /// Clone the state, creating a child state. The new state will consider
+    /// the current state to be its parent. This is what should be done when
+    /// making changes in order to make a new commit.
+    /// 
+    /// This "clone" will not compare equal to the current one since the
+    /// parents are different.
+    /// 
+    /// Elements are considered Copy-On-Write so cloning the
     /// state is not particularly expensive.
-    fn clone(&self) -> Self {
-        PartitionState { statesum: self.statesum, elts: self.elts.clone() }
+    pub fn clone_child(&self) -> Self {
+        PartitionState { parent: self.statesum, statesum: self.statesum, elts: self.elts.clone() }
+    }
+    
+    /// Clone the state, creating an exact copy. The new state will have the
+    /// same parent as the current one.
+    /// 
+    /// Elements are considered Copy-On-Write so cloning the
+    /// state is not particularly expensive.
+    pub fn clone_exact(&self) -> Self {
+        PartitionState { parent: self.parent, statesum: self.statesum, elts: self.elts.clone() }
     }
 }
 

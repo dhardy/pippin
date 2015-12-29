@@ -34,6 +34,8 @@ pub fn read_snapshot(reader: &mut Read) -> Result<PartitionState> {
     let num_elts = try!((&buf[24..32]).read_u64::<BigEndian>()) as usize;    // #0015
     pos += 16;
     
+    // #0016: here we set the "parent" sum to Sum::zero(). This isn't *correct*,
+    // but since we won't be creating a commit from it it doesn't actually matter.
     let mut state = PartitionState::new();
     for _ in 0..num_elts {
         try!(fill(&mut r, &mut buf[0..32], pos));

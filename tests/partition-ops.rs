@@ -86,7 +86,7 @@ fn create_small() {
             .expect("getting elt 5698131");
     }
     part.commit().expect("committing");
-    let state1 = part.tip().expect("has tip").clone();
+    let state1 = part.tip().expect("has tip").clone_exact();
     {
         let state = part.tip().expect("getting tip");
         state.insert_elt(68168, Element::from_str("sixty eight thousand, one hundred and sixty eight"))
@@ -99,7 +99,7 @@ fn create_small() {
         state.insert_elt(1063, Element::from_str("one thousand and sixty three")).expect("getting elt 1063");
     }
     part.commit().expect("committing");
-    let state3 = part.tip().expect("has tip").clone();
+    let state3 = part.tip().expect("has tip").clone_exact();
     
     // 3 Write to streams in memory
     part.write(true).expect("writing");
@@ -142,6 +142,9 @@ fn create_small() {
     // 5 Read streams back again and compare
     let mut part2 = Partition::create(boxed_io);
     part2.load(true).expect("part2.load");
-    assert_eq!(state1, *part2.state(state1.statesum_ref()).expect("get state1 by sum"));
+    // The "parent" field is not saved and so unequal in the reloaded state.
+    // As a work-around, we use clone_child() which updates the "parent" field.
+    assert_eq!(state1.clone_child(),
+        part2.state(state1.statesum_ref()).expect("get state1 by sum").clone_child());
     assert_eq!(state3, *part2.tip().expect("part2 tip"));
 }

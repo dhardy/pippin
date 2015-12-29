@@ -4,6 +4,7 @@ use std::io::{Read, Write, ErrorKind};
 use std::collections::{HashSet, VecDeque};
 use std::result;
 use std::any::Any;
+use std::mem::swap;
 use hashindexed::HashIndexed;
 
 use super::{Sum, Commit, CommitQueue, LogReplay,
@@ -193,7 +194,7 @@ impl Partition {
             tips: HashSet::new(),
             unsaved: VecDeque::new(),
             parent: state.statesum(),
-            current: state.clone(),
+            current: state.clone_child(),
         };
         part.tips.insert(state.statesum());
         part.states.insert(state);
@@ -226,7 +227,7 @@ impl Partition {
             tips: HashSet::new(),
             unsaved: VecDeque::new(),
             parent: Sum::zero() /* key to initial state */,
-            current: PartitionState::new() /* copy of initial state */,
+            current: PartitionState::new() /* meaningless until ready, but we have to specify something */,
         }
     }
     
@@ -339,7 +340,7 @@ impl Partition {
             // success, but a merge may still be required
             if self.tips.len() == 1 {
                 let tip = self.tips.iter().next().expect("len is 1 so next() should yield an element");
-                self.current = self.states.get(tip).expect("state for tip should be present").clone();
+                self.current = self.states.get(tip).expect("state for tip should be present").clone_child();
                 self.parent = *tip;
             }
             Ok(())
@@ -481,7 +482,11 @@ impl Partition {
         };
         if let Some(commit) = c {
             self.unsaved.push_back(commit);
-            self.states.insert(self.current.clone());
+            // Move "current" to self.states as history; make "current" a child
+            // of what it is now (to start a new commit)
+            let mut state = self.current.clone_child();
+            swap(&mut self.current, &mut state);
+            self.states.insert(state);
             self.tips.remove(&self.parent);
             self.parent = self.current.statesum();
             self.tips.insert(self.parent);
