@@ -8,7 +8,7 @@ use regex::Regex;
 use vec_map::VecMap;
 
 use super::partition::PartitionIO;
-use error::{Result, PathError, make_io_err};
+use error::{Result, PathError, ArgError, make_io_err};
 
 
 /// A helper to find files belonging to a partition (assuming a standard

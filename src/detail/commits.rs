@@ -36,21 +36,6 @@ impl CommitReceiver for CommitQueue {
     /// Implement function required by readwrite::read_log().
     fn receive(&mut self, commit: Commit) -> bool {
         self.commits.push(commit);
-        //TODO: what should we do when commit statesums clash?
-        //
-        // Possible exploit: someone forks the repo, creates a new state
-        // decending from an ancestor of commit X but with checksum
-        // collision against X, pushes it back to the local repo and thus
-        // rewrites history. Okay, this involves being able to forge SHA256
-        // hash collisions *and* get your target to pull your changes.
-        // 
-        // More likely case: two commits are made which reach the same
-        // state and thus have the same sum. One gets ignored. Maybe okay?
-        //
-        // Possible bug: a commit reverts to the previous state, thus its
-        // sum collides with that of an ancestor commit. This could be
-        // problematic!
-        
         true    // continue reading to EOF
     }
 }
@@ -76,7 +61,6 @@ pub enum EltChange {
     Insertion(Element),
     /// Element was replaced (full data)
     Replacement(Element),
-    //TODO: patches (?)
 }
 impl EltChange {
     /// Create an `Insertion`

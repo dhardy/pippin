@@ -1,4 +1,4 @@
-Basic checksum and history operations
+#0003 Basic checksum and history operations
 ---------------------------------------------------
 
 *   corruption detection
@@ -7,5 +7,4 @@ Basic checksum and history operations
 
 Checksums are integrated.
 
-TODO: reverting, cloning (with history).
-
+TODO: reverting, cloning, reading history.

@@ -6,3 +6,6 @@ To finalise:
 Include time-stamps of writing and/or commit creation in files?
 
 Do we need the "COMMIT LOG" line?
+
+What should headers contain? Repository name or numeric identifier? Partition
+identifier?

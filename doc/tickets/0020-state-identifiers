@@ -1,0 +1,29 @@
+#0020 State identifiers
+==============
+
+What should we do when commit statesums clash?
+
+Possible exploit: someone forks the repo, creates a new state
+decending from an ancestor of commit X but with checksum
+collision against X, pushes it back to the local repo and thus
+rewrites history. Okay, this involves being able to forge SHA256
+hash collisions *and* get your target to pull your changes.
+
+More likely case: two commits are made which reach the same
+state and thus have the same sum. One gets ignored. Maybe okay?
+
+Possible bug: a commit reverts to the previous state, thus its
+sum collides with that of an ancestor commit. This could be
+problematic!
+
+
+Possible solutions
+---------------
+
+Make each commit somehow mutate the state in a way that can't
+be reversed. This avoids the revert-to-previous-state issue (if that is indeed
+an issue), but not checksum-collision.
+
+Do nothing. Does collision matter in the case of a revert? What happens in the
+case of an accidental collision? Intentional collision is not really possible
+with secure checksums.

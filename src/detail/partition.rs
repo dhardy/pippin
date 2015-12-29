@@ -60,7 +60,7 @@ pub trait PartitionIO {
     
     /// Open an append-write stream on an existing commit file. Writes may be
     /// atomic. Each commit should be written via a single write operation.
-    //TODO: verify atomicity of writes
+    // #0012: verify atomicity of writes
     fn append_ss_cl<'a>(&'a mut self, ss_num: usize, cl_num: usize) -> Result<Box<Write+'a>>;
     
     /// Open a write-stream on a new commit file. As with the append version,
@@ -70,7 +70,7 @@ pub trait PartitionIO {
     /// 
     /// Fails if a commit log with number `cl_num` for snapshot `ss_num`
     /// already exists.
-    //TODO: verify atomicity of writes
+    // #0012: verify atomicity of writes
     fn new_ss_cl<'a>(&'a mut self, ss_num: usize, cl_num: usize) -> Result<Box<Write+'a>>;
     
     // TODO: other operations (delete file, ...?)
@@ -330,7 +330,7 @@ impl Partition {
         
         self.ss_num = ss_len - 1;
         // We should make a new snapshot if the last one is missing or we have
-        // many commits (in total). TODO: proper new-snapshot policy.
+        // many commits (in total). Make the new-snapshot policy configurable.
         self.need_snapshot = num < ss_len - 1 || num_commits > 100;
         
         if self.tips.is_empty() {
@@ -371,7 +371,7 @@ impl Partition {
     /// the repository and partition identified by the file. This function is
     /// called for every file loaded.
     pub fn validate_header(&mut self, _header: FileHeader) -> Result<()> {
-        // TODO: I guess we need to assign repository and partition UUIDs or
+        // #0016: I guess we need to assign repository and partition UUIDs or
         // something, and consider how to handle history across repartitioning.
         Ok(())
     }
@@ -430,7 +430,7 @@ impl Partition {
         self.states.get(key)
     }
     
-    // TODO: allow getting a reference to other states listing snapshots, commits, getting non-current states and
+    // #0003: allow getting a reference to other states listing snapshots, commits, getting non-current states and
     // getting diffs.
     
     /// This will create a new commit in memory (if there are any changes to
@@ -439,7 +439,8 @@ impl Partition {
     /// 
     /// Returns true if a new commit was made, false if no changes were found.
     pub fn commit(&mut self) -> Result<bool> {
-        // TODO: diff-based commit?
+        // #0019: Commit::from_diff compares old and new states and code be slow.
+        // #0019: Instead, we could record each alteration as it happens.
         let c = if self.parent == Sum::zero() {
             if self.current.is_empty() {
                 None
@@ -491,14 +492,13 @@ impl Partition {
         let result = if self.unsaved.is_empty() {
             false
         } else {
-            // TODO: extend existing logs instead of always writing a new log file.
-            
-            let cl_num = self.io.ss_cl_len(self.ss_num);     // new commit (TODO don't always want this)
+            // #0012: extend existing logs instead of always writing a new log file.
+            let cl_num = self.io.ss_cl_len(self.ss_num);
             let (mut w,is_new) = (try!(self.io.new_ss_cl(self.ss_num, cl_num)), true);
             if is_new {
                 let header = FileHeader {
                     ftype: FileType::CommitLog,
-                    name: "".to_string() /*TODO: repo name?*/,
+                    name: "".to_string() /* #0016: repo name?*/,
                     remarks: Vec::new(),
                     user_fields: Vec::new(),
                 };
@@ -516,35 +516,37 @@ impl Partition {
         if fast { return Ok(result); }
         
         // Third step: maintenance operations
-        if self.need_snapshot {
+        if self.need_snapshot && self.is_ready() {
             try!(self.write_snapshot());
             self.need_snapshot = false;
         }
         Ok(result)
     }
     
-    /// Write a new snapshot from the latest commit, unless the partition has
-    /// no commits, in which case do nothing.
-    //TODO: writing a new snapshot is only acceptable when we are currently on
-    // the latest state, otherwise what was the latest state will be "hidden"
-    // (only the latest snapshot is read normally).
-    // Make partition read-only until latest state is read?
+    /// Write a new snapshot from the tip.
+    /// 
+    /// Fails when `tip()` fails.
     pub fn write_snapshot(&mut self) -> Result<()> {
-        if let Some(state) = self.states.get(&self.parent) {
-            //TODO: we should try a new snapshot number if this fails with AlreadyExists
-            let ss_num = self.ss_num + 1;
-            let mut writer = try!(self.io.new_ss(ss_num));
-            let header = FileHeader {
-                ftype: FileType::Snapshot,
-                name: "".to_string() /*TODO: repo name?*/,
-                remarks: Vec::new(),
-                user_fields: Vec::new(),
-            };
-            try!(write_head(&header, &mut writer));
-            try!(write_snapshot(state, &mut writer));
-            self.ss_num = ss_num;
-            self.need_snapshot = false;
+        // fail early if not ready:
+        if self.tips.is_empty() {
+            return Err(box TipError::NotReady);
+        } else if self.tips.len() > 1 {
+            return Err(box TipError::MergeRequired);
         }
+        
+        //TODO: we should try a new snapshot number if this fails with AlreadyExists
+        let ss_num = self.ss_num + 1;
+        let mut writer = try!(self.io.new_ss(ss_num));
+        let header = FileHeader {
+            ftype: FileType::Snapshot,
+            name: "".to_string() /* #0016: repo name?*/,
+            remarks: Vec::new(),
+            user_fields: Vec::new(),
+        };
+        try!(write_head(&header, &mut writer));
+        try!(write_snapshot(&mut self.current, &mut writer));
+        self.ss_num = ss_num;
+        self.need_snapshot = false;
         Ok(())
     }
 }
@@ -589,6 +591,3 @@ fn on_new_partition() {
     
     assert_eq!(part.commit().expect("committing"), false);
 }
-
-//TODO: test IO, loading of an existing partition, reading of historical states
-//TODO: and merge operations.
