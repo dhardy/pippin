@@ -56,7 +56,53 @@ impl Sum {
     pub fn permute(&mut self, other: &Self) {
         (*self) = (*self) ^ (*other);
     }
+    
+    /// Format as a string.
+    /// 
+    /// If `separate_pairs` is true, a space is inserted between every pair
+    /// of chars (i.e. between every byte).
+    pub fn as_string(&self, separate_pairs: bool) -> String {
+        let step = if separate_pairs { 3 } else { 2 };
+        let mut buf = vec![b' '; 32 * step];
+        for i in 0..32 {
+            let byte = self.s[i];
+            buf[i*step] = HEX_CHARS[(byte / 16) as usize];
+            buf[i*step + 1] = HEX_CHARS[(byte % 16) as usize];
+        }
+        String::from_utf8(buf).unwrap()
+    }
+    
+    /// Return true if the given string is equivalent to the whole or an
+    /// abreviated form of this checksum, rendered as hexadecimal using the
+    /// symbols 0-9, A-F.
+    /// 
+    /// To improve matching, you may wish to strip spaces from and capitalise
+    /// all letters of the string before calling this function.
+    // #0019: I'm sure this function could be faster (in particular, by not using write!())
+    pub fn matches_string(&self, string: &[u8]) -> bool {
+        if string.len() > 2 * 32 {
+            return false;
+        }
+        let mut buf = [0u8; 2];
+        for i in 0..string.len() / 2 /*note: rounds down*/ {
+            let byte = self.s[i];
+            buf[0] = HEX_CHARS[(byte / 16) as usize];
+            buf[1] = HEX_CHARS[(byte % 16) as usize];
+            if string[i*2..i*2+2] != buf[..] {
+                return false;
+            }
+        }
+        if string.len() % 2 == 1 {
+            buf[0] = HEX_CHARS[(self.s[string.len() / 2] / 16) as usize];
+            if string[string.len() - 1] != buf[0] {
+                return false;
+            }
+        }
+        return true;
+    }
 }
+
+const HEX_CHARS : &'static [u8; 16] = b"0123456789ABCDEF";
 
 impl ops::BitXor for Sum {
     type Output = Self;

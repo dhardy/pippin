@@ -10,7 +10,7 @@ use super::{Sum, Commit, CommitQueue, LogReplay,
     PartitionState, PartitionStateSumComparator};
 use super::readwrite::{FileHeader, FileType, read_head, write_head,
     read_snapshot, write_snapshot, read_log, start_log, write_commit};
-use error::{Result, TipError, make_io_err};
+use error::{Result, TipError, MatchError, make_io_err};
 
 /// An interface providing read and/or write access to a suitable location.
 /// 
@@ -409,7 +409,7 @@ impl Partition {
     /// This operation will fail if no data has been loaded yet or a merge is
     /// required.
     /// 
-    /// The operation requires some copying but uses copy-on-write elements
+    /// The operation requires some copying but uses copy'c,d-on-write elements
     /// internally. This copy is needed to create a commit from the diff of the
     /// last committed state and the new state.
     //TODO: instead of returning a &mut reference to self.current, we should make the user clone.
@@ -426,8 +426,30 @@ impl Partition {
     /// Get a read-only reference to a state by its statesum, if found.
     /// 
     /// If you want to keep a copy, clone it.
-    pub fn get(&self, key: &Sum) -> Option<&PartitionState> {
+    pub fn state(&self, key: &Sum) -> Option<&PartitionState> {
         self.states.get(key)
+    }
+    
+    /// Try to find a state given a string representation of the key (as a byte array).
+    /// 
+    /// Like git, we accept partial keys (so long as they uniquely resolve a key).
+    pub fn state_from_string(&self, string: String) -> Result<&PartitionState, MatchError> {
+        let string = string.to_uppercase().replace(" ", "");
+        let mut matching = Vec::new();
+        for state in self.states.iter() {
+            if state.statesum_ref().matches_string(&string.as_bytes()) {
+                matching.push(state.statesum());
+            }
+            if matching.len() > 1 {
+                return Err(MatchError::MultiMatch(
+                    matching[0].as_string(false), matching[1].as_string(false)));
+            }
+        }
+        if matching.len() == 1 {
+            Ok(self.states.get(&matching[0]).unwrap())
+        } else {
+            Err(MatchError::NoMatch)
+        }
     }
     
     // #0003: allow getting a reference to other states listing snapshots, commits, getting non-current states and
@@ -582,7 +604,7 @@ fn on_new_partition() {
     assert_eq!(part.unsaved.len(), 1);
     assert_eq!(part.states.len(), 2);
     {
-        let state = part.get(&key).expect("getting state by key");
+        let state = part.state(&key).expect("getting state by key");
         assert!(state.has_elt(1));
         assert_eq!(state.get_elt(2), Some(&Element::from_str("Element two data.")));
     }   // `state` goes out of scope

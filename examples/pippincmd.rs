@@ -148,7 +148,6 @@ fn inner(files: Vec<String>, op: Operation, part: Option<String>,
 //             assert_eq!(paths.len(), 1);
 //             assert_eq!(part, None);
 //             assert_eq!(commit, None);
-//             //TODO: validate filename
 //             let path = &paths[0];
 //             println!("Initial snapshot: {}", path.display());
 //             if path.exists() {
@@ -185,14 +184,16 @@ fn inner(files: Vec<String>, op: Operation, part: Option<String>,
                 Ok(())
             } else {
                 let mut part = Partition::create(box discover);
-                if let Some(_) = commit {
-                    println!("TODO: no support yet for specified commits; using latest state instead");
-                }
-                try!(part.load(false));
-                //TODO merge operation
-                
                 {
-                    let state = try!(part.tip());
+                    let state = if let Some(ss) = commit {
+                        try!(part.load(true));
+//                         try!(part.state_from_string(ss))
+                        panic!("Cannot yet operate on historical states");
+                        // Note that we could do read-only operations now, but would have to have separate code paths for mutable vs immutable state
+                    } else {
+                        try!(part.load(false));
+                        try!(part.tip())
+                    };
                     match part_op {
                         PartitionOp::List(_,_) => { panic!("possibility already eliminated"); },
                         PartitionOp::ListElts => {
@@ -212,6 +213,9 @@ fn inner(files: Vec<String>, op: Operation, part: Option<String>,
                             }
                         },
                         PartitionOp::EltEdit(elt, editor) => {
+                            if commit != None {
+                                //TODO: confirm editing of historical state
+                            }
                             let output = try!(Command::new("mktemp")
                                 .arg("--tmpdir")
                                 .arg("pippin-element.XXXXXXXX").output());
@@ -253,6 +257,9 @@ fn inner(files: Vec<String>, op: Operation, part: Option<String>,
                             try!(fs::remove_file(tmp_path));
                         },
                         PartitionOp::EltDelete(elt) => {
+                            if commit != None {
+                                //TODO: confirm editing of historical state
+                            }
                             let id: u64 = try!(elt.parse());
                             try!(state.remove_elt(id));
                         },

@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::cmp::{min, max};
 
 /// Our custom result type
-pub type Result<T> = result::Result<T, Error>;
+pub type Result<T, E = Error> = result::Result<T, E>;
 
 /// Our custom compound error type
 pub type Error = Box<ErrorTrait>;
@@ -221,6 +221,32 @@ impl ErrorTrait for PathError {
 impl fmt::Display for PathError {
     fn fmt(&self, f: &mut fmt::Formatter) -> result::Result<(), fmt::Error> {
         write!(f, "{}: {}", self.msg, self.path.display())
+    }
+}
+
+/// Error messages about some path on the file system
+#[derive(PartialEq, Debug)]
+pub enum MatchError {
+    /// No matching string found
+    NoMatch,
+    /// Multiple matching strings found; two examples follow
+    MultiMatch(String, String),
+}
+impl ErrorTrait for MatchError {
+    fn description(&self) -> &str {
+        match self {
+            &MatchError::NoMatch => "no matching string",
+            &MatchError::MultiMatch(_,_) => "multiple matching strings",
+        }
+    }
+}
+impl fmt::Display for MatchError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> result::Result<(), fmt::Error> {
+        match self {
+            &MatchError::NoMatch => write!(f, "no match found"),
+            &MatchError::MultiMatch(ref m1, ref m2) =>
+                write!(f, "multiple matches found ({}, {}, ...)", m1, m2)
+        }
     }
 }
 
