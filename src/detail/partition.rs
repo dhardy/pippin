@@ -10,7 +10,7 @@ use super::{Sum, Commit, CommitQueue, LogReplay,
     PartitionState, PartitionStateSumComparator};
 use super::readwrite::{FileHeader, FileType, read_head, write_head,
     read_snapshot, write_snapshot, read_log, start_log, write_commit};
-use error::{Result, ArgError, TipError, MatchError, make_io_err};
+use error::{Result, ArgError, TipError, MatchError, OtherError, make_io_err};
 
 /// An interface providing read and/or write access to a suitable location.
 /// 
@@ -45,33 +45,58 @@ pub trait PartitionIO {
     /// Get a snapshot with the given number. If no snapshot is present or if
     /// ss_num is too large, None will be returned.
     /// 
+    /// Returns a heap-allocated read stream, either on some external resource
+    /// (such as a file) or on an internal data-structure.
+    /// 
     /// This can fail due to IO operations failing.
     fn read_ss<'a>(&'a self, ss_num: usize) -> Result<Option<Box<Read+'a>>>;
     
     /// Get a commit log (numbered `cl_num`) file for a snapshot (numbered
     /// `ss_num`). If none is found, return Ok(None).
+    /// 
+    /// Returns a heap-allocated read stream, either on some external resource
+    /// (such as a file) or on an internal data-structure.
+    /// 
+    /// This can fail due to IO operations failing.
     fn read_ss_cl<'a>(&'a self, ss_num: usize, cl_num: usize) -> Result<Option<Box<Read+'a>>>;
     
     /// Open a write stream on a new snapshot file, numbered ss_num.
     /// This will increase the number returned by ss_len().
     /// 
-    /// Fails if a snapshot with number ss_num already exists.
-    fn new_ss<'a>(&'a mut self, ss_num: usize) -> Result<Box<Write+'a>>;
+    /// Returns None if a snapshot with number ss_num already exists.
+    /// 
+    /// Returns a heap-allocated write stream, either to some external resource
+    /// (such as a file) or to an internal data-structure.
+    /// 
+    /// This can fail due to IO operations failing.
+    fn new_ss<'a>(&'a mut self, ss_num: usize) -> Result<Option<Box<Write+'a>>>;
     
     /// Open an append-write stream on an existing commit file. Writes may be
     /// atomic. Each commit should be written via a single write operation.
+    /// 
+    /// Returns None if no commit file with this `ss_num` and `cl_num` exists.
+    /// 
+    /// Returns a heap-allocated write stream, either to some external resource
+    /// (such as a file) or to an internal data-structure.
+    /// 
+    /// This can fail due to IO operations failing.
     // #0012: verify atomicity of writes
-    fn append_ss_cl<'a>(&'a mut self, ss_num: usize, cl_num: usize) -> Result<Box<Write+'a>>;
+    fn append_ss_cl<'a>(&'a mut self, ss_num: usize, cl_num: usize) -> Result<Option<Box<Write+'a>>>;
     
     /// Open a write-stream on a new commit file. As with the append version,
     /// the file will be opened in append mode, thus writes may be atomic.
     /// Each commit (and the header, including commit section marker) should be
     /// written via a single write operation.
     /// 
-    /// Fails if a commit log with number `cl_num` for snapshot `ss_num`
+    /// Returns None if a commit log with number `cl_num` for snapshot `ss_num`
     /// already exists.
+    /// 
+    /// Returns a heap-allocated write stream, either to some external resource
+    /// (such as a file) or to an internal data-structure.
+    /// 
+    /// This can fail due to IO operations failing.
     // #0012: verify atomicity of writes
-    fn new_ss_cl<'a>(&'a mut self, ss_num: usize, cl_num: usize) -> Result<Box<Write+'a>>;
+    fn new_ss_cl<'a>(&'a mut self, ss_num: usize, cl_num: usize) -> Result<Option<Box<Write+'a>>>;
     
     // TODO: other operations (delete file, ...?)
 }
@@ -102,17 +127,17 @@ impl PartitionIO for PartitionDummyIO {
     fn read_ss_cl(&self, _ss_num: usize, _cl_num: usize) -> Result<Option<Box<Read+'static>>> {
         Ok(None)
     }
-    fn new_ss<'a>(&'a mut self, _ss_num: usize) -> Result<Box<Write+'a>> {
+    fn new_ss<'a>(&'a mut self, _ss_num: usize) -> Result<Option<Box<Write+'a>>> {
         self.buf.clear();
-        Ok(Box::new(&mut self.buf))
+        Ok(Some(Box::new(&mut self.buf)))
     }
-    fn append_ss_cl<'a>(&'a mut self, _ss_num: usize, _cl_num: usize) -> Result<Box<Write+'a>> {
+    fn append_ss_cl<'a>(&'a mut self, _ss_num: usize, _cl_num: usize) -> Result<Option<Box<Write+'a>>> {
         self.buf.clear();
-        Ok(Box::new(&mut self.buf))
+        Ok(Some(Box::new(&mut self.buf)))
     }
-    fn new_ss_cl<'a>(&'a mut self, _ss_num: usize, _cl_num: usize) -> Result<Box<Write+'a>> {
+    fn new_ss_cl<'a>(&'a mut self, _ss_num: usize, _cl_num: usize) -> Result<Option<Box<Write+'a>>> {
         self.buf.clear();
-        Ok(Box::new(&mut self.buf))
+        Ok(Some(Box::new(&mut self.buf)))
     }
 }
 
@@ -178,15 +203,18 @@ impl Partition {
     pub fn new(mut io: Box<PartitionIO>, name: &str) -> Result<Partition> {
         let state = PartitionState::new();
         {
-            let mut writer = try!(io.new_ss(0));
             let header = FileHeader {
                 ftype: FileType::Snapshot,
                 name: name.to_string(),
                 remarks: Vec::new(),
                 user_fields: Vec::new(),
             };
-            try!(write_head(&header, &mut writer));
-            try!(write_snapshot(&state, &mut writer));
+            if let Some(mut writer) = try!(io.new_ss(0)) {
+                try!(write_head(&header, &mut writer));
+                try!(write_snapshot(&state, &mut writer));
+            } else {
+                return make_io_err(ErrorKind::AlreadyExists, "snapshot already exists");
+            }
         }
         
         let mut part = Partition {
@@ -300,7 +328,13 @@ impl Partition {
                     self.states.insert(state);
                     break;  // we stop at the most recent snapshot we find
                 }
-                if num == 0 { break;        /* no more to try; assume zero is empty state */ }
+                if num == 0 {
+                    // no more snapshot numbers to try; assume zero is empty state
+                    let state = PartitionState::new();
+                    self.tips.insert(state.statesum().clone());
+                    self.states.insert(state);
+                    break;
+                }
                 num -= 1;
             }
             
@@ -497,38 +531,50 @@ impl Partition {
     /// again.
     pub fn write(&mut self, fast: bool) -> Result<bool> {
         // First step: write commits
-        let result = if self.unsaved.is_empty() {
-            false
-        } else {
+        let has_changes = !self.unsaved.is_empty();
+        if has_changes {
             // #0012: extend existing logs instead of always writing a new log file.
-            let cl_num = self.io.ss_cl_len(self.ss_num);
-            let (mut w,is_new) = (try!(self.io.new_ss_cl(self.ss_num, cl_num)), true);
-            if is_new {
-                let header = FileHeader {
-                    ftype: FileType::CommitLog,
-                    name: "".to_string() /* #0016: repo name?*/,
-                    remarks: Vec::new(),
-                    user_fields: Vec::new(),
-                };
-                try!(write_head(&header, &mut w));
-                try!(start_log(&mut w));
-            };
-            self.ss_policy.add_commits(self.unsaved.len());
-            while !self.unsaved.is_empty() {
-                // We try to write the commit, then when successful remove it
-                // from the list of 'unsaved' commits.
-                try!(write_commit(&self.unsaved.front().unwrap(), &mut w));
-                self.unsaved.pop_front().expect("pop_front");
+            let mut cl_num = self.io.ss_cl_len(self.ss_num);
+            loop {
+                if let Some(mut writer) = try!(self.io.new_ss_cl(self.ss_num, cl_num)) {
+                    // Write a header since this is a new file:
+                    let header = FileHeader {
+                        ftype: FileType::CommitLog,
+                        name: "".to_string() /* #0016: repo name?*/,
+                        remarks: Vec::new(),
+                        user_fields: Vec::new(),
+                    };
+                    try!(write_head(&header, &mut writer));
+                    try!(start_log(&mut writer));
+                    
+                    // Now write commits:
+                    while !self.unsaved.is_empty() {
+                        // We try to write the commit, then when successful remove it
+                        // from the list of 'unsaved' commits.
+                        try!(write_commit(&self.unsaved.front().unwrap(), &mut writer));
+                        self.unsaved.pop_front().expect("pop_front");
+                        self.ss_policy.add_commits(1);
+                    }
+                    break;
+                } else {
+                    // Log file already exists! So try another number.
+                    if cl_num > 1000_000 {
+                        // We should give up eventually. When is arbitrary.
+                        return Err(box OtherError::new("Commit log number too high"));
+                    }
+                    cl_num += 1;
+                }
             }
-            true
-        };
-        if fast { return Ok(result); }
+        }
         
         // Second step: maintenance operations
-        if self.is_ready() && self.ss_policy.snapshot() {
-            try!(self.write_snapshot());
+        if !fast {
+            if self.is_ready() && self.ss_policy.snapshot() {
+                try!(self.write_snapshot());
+            }
         }
-        Ok(result)
+        
+        Ok(has_changes)
     }
     
     /// Write a new snapshot from the tip.
@@ -541,20 +587,30 @@ impl Partition {
         // fail early if not ready:
         let tip_key = try!(self.tip_key()).clone();
         
-        //TODO: we should try a new snapshot number if this fails with AlreadyExists
-        let ss_num = self.ss_num + 1;
-        let mut writer = try!(self.io.new_ss(ss_num));
-        let header = FileHeader {
-            ftype: FileType::Snapshot,
-            name: "".to_string() /* #0016: repo name?*/,
-            remarks: Vec::new(),
-            user_fields: Vec::new(),
-        };
-        try!(write_head(&header, &mut writer));
-        try!(write_snapshot(self.states.get(&tip_key).unwrap(), &mut writer));
-        self.ss_num = ss_num;
-        self.ss_policy.reset();
-        Ok(())
+        let mut ss_num = self.ss_num + 1;
+        loop {
+            // Try to get a writer for this snapshot number:
+            if let Some(mut writer) = try!(self.io.new_ss(ss_num)) {
+                let header = FileHeader {
+                    ftype: FileType::Snapshot,
+                    name: "".to_string() /* #0016: repo name?*/,
+                    remarks: Vec::new(),
+                    user_fields: Vec::new(),
+                };
+                try!(write_head(&header, &mut writer));
+                try!(write_snapshot(self.states.get(&tip_key).unwrap(), &mut writer));
+                self.ss_num = ss_num;
+                self.ss_policy.reset();
+                return Ok(())
+            } else {
+                // Snapshot file already exists! So try another number.
+                if ss_num > 1000_000 {
+                    // We should give up eventually. When is arbitrary.
+                    return Err(box OtherError::new("Snapshot number too high"));
+                }
+                ss_num += 1;
+            }
+        }
     }
 }
 

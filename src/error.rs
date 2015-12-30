@@ -271,6 +271,26 @@ impl ErrorTrait for TipError {
     fn description(&self) -> &str { "tip not ready" }
 }
 
+/// Unclassified, generally not recoverable errors
+#[derive(PartialEq, Eq, Debug)]
+pub struct OtherError {
+    msg: &'static str,
+}
+impl OtherError {
+    /// Create with a message
+    pub fn new(msg: &'static str) -> OtherError {
+        OtherError { msg: msg }
+    }
+}
+impl fmt::Display for OtherError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> result::Result<(), fmt::Error> {
+        write!(f, "{}", self.msg)
+    }
+}
+impl ErrorTrait for OtherError {
+    fn description(&self) -> &str { self.msg }
+}
+
 /// Use io::error::new to make an IO error
 //TODO: replace all usages with Pippin-specific error types?
 pub fn make_io_err<T>(kind: io::ErrorKind, msg: &'static str) -> Result<T> {

@@ -221,10 +221,10 @@ impl PartitionIO for DiscoverPartitionFiles {
         })
     }
     
-    fn new_ss<'a>(&mut self, ss_num: usize) -> Result<Box<Write+'a>> {
+    fn new_ss<'a>(&mut self, ss_num: usize) -> Result<Option<Box<Write+'a>>> {
         let p = self.dir.join(PathBuf::from(format!("{}-ss{}.pip", self.basename, ss_num)));
         if self.ss.get(&ss_num).map_or(false, |&(ref p, _)| *p != PathBuf::new()) || p.exists() {
-            return make_io_err(ErrorKind::AlreadyExists, "snapshot already exists");
+            return Ok(None);
         }
         let stream = try!(File::create(&p));
         if self.ss.contains_key(&ss_num) {
@@ -232,26 +232,23 @@ impl PartitionIO for DiscoverPartitionFiles {
         } else {
             self.ss.insert(ss_num, (p, VecMap::new()));
         }
-        Ok(box stream)
+        Ok(Some(box stream))
     }
     
-    fn append_ss_cl<'a>(&mut self, ss_num: usize, cl_num: usize) -> Result<Box<Write+'a>> {
-        match self.ss.get(&ss_num).and_then(|&(_, ref logs)| logs.get(&cl_num)) {
-            Some(p) => {
-                let stream = try!(OpenOptions::new().write(true).append(true).open(p));
-                Ok(box stream)
-            },
-            None => make_io_err(ErrorKind::NotFound, "commit log file not found")
-        }
+    fn append_ss_cl<'a>(&mut self, ss_num: usize, cl_num: usize) -> Result<Option<Box<Write+'a>>> {
+        Ok(match self.ss.get(&ss_num).and_then(|&(_, ref logs)| logs.get(&cl_num)) {
+            Some(p) => Some(box try!(OpenOptions::new().write(true).append(true).open(p))),
+            None => None
+        })
     }
-    fn new_ss_cl<'a>(&mut self, ss_num: usize, cl_num: usize) -> Result<Box<Write+'a>> {
+    fn new_ss_cl<'a>(&mut self, ss_num: usize, cl_num: usize) -> Result<Option<Box<Write+'a>>> {
         let mut logs = &mut self.ss.entry(ss_num).or_insert_with(|| (PathBuf::new(), VecMap::new())).1;
         if logs.contains_key(&cl_num) {
-            return make_io_err(ErrorKind::AlreadyExists, "commit log file already exists");
+            return Ok(None);
         }
         let p = self.dir.join(PathBuf::from(format!("{}-ss{}-cl{}.pipl", self.basename, ss_num, cl_num)));
         let stream = try!(OpenOptions::new().create(true).write(true).append(true).open(&p));
         logs.insert(cl_num, p);
-        Ok(box stream)
+        Ok(Some(box stream))
     }
 }
