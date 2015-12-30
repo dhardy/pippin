@@ -185,15 +185,14 @@ fn inner(files: Vec<String>, op: Operation, part: Option<String>,
             } else {
                 let mut part = Partition::create(box discover);
                 {
-                    let state = if let Some(ss) = commit {
+                    let mut state = if let Some(ss) = commit {
                         try!(part.load(true));
-//                         try!(part.state_from_string(ss))
-                        panic!("Cannot yet operate on historical states");
-                        // Note that we could do read-only operations now, but would have to have separate code paths for mutable vs immutable state
+                        try!(part.state_from_string(ss)).clone_child()
                     } else {
                         try!(part.load(false));
-                        try!(part.tip())
+                        try!(part.tip()).clone_child()
                     };
+                    let is_tip = part.tip_key().map(|k| k == state.statesum()).unwrap_or(false);
                     match part_op {
                         PartitionOp::List(_,_) => { panic!("possibility already eliminated"); },
                         PartitionOp::ListElts => {
@@ -213,7 +212,7 @@ fn inner(files: Vec<String>, op: Operation, part: Option<String>,
                             }
                         },
                         PartitionOp::EltEdit(elt, editor) => {
-                            if commit != None {
+                            if !is_tip {
                                 //TODO: confirm editing of historical state
                             }
                             let output = try!(Command::new("mktemp")
@@ -257,7 +256,7 @@ fn inner(files: Vec<String>, op: Operation, part: Option<String>,
                             try!(fs::remove_file(tmp_path));
                         },
                         PartitionOp::EltDelete(elt) => {
-                            if commit != None {
+                            if !is_tip {
                                 //TODO: confirm editing of historical state
                             }
                             let id: u64 = try!(elt.parse());

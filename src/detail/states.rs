@@ -42,9 +42,9 @@ impl PartitionState {
     }
     
     /// Get the state sum
-    pub fn statesum(&self) -> Sum { self.statesum }
-    /// Get the state sum by reference
-    pub fn statesum_ref(&self) -> &Sum { &self.statesum }
+    pub fn statesum(&self) -> &Sum { &self.statesum }
+    /// Get the parent's sum
+    pub fn parent(&self) -> &Sum { &self.parent }
     
     /// Get access to the map holding elements
     pub fn map(&self) -> &HashMap<u64, Element> {
@@ -119,7 +119,10 @@ impl PartitionState {
     /// Elements are considered Copy-On-Write so cloning the
     /// state is not particularly expensive.
     pub fn clone_child(&self) -> Self {
-        PartitionState { parent: self.statesum, statesum: self.statesum, elts: self.elts.clone() }
+        PartitionState {
+            parent: self.statesum.clone(),
+            statesum: self.statesum.clone(),
+            elts: self.elts.clone() }
     }
     
     /// Clone the state, creating an exact copy. The new state will have the
@@ -128,7 +131,9 @@ impl PartitionState {
     /// Elements are considered Copy-On-Write so cloning the
     /// state is not particularly expensive.
     pub fn clone_exact(&self) -> Self {
-        PartitionState { parent: self.parent, statesum: self.statesum, elts: self.elts.clone() }
+        PartitionState { parent: self.parent.clone(),
+            statesum: self.statesum.clone(),
+            elts: self.elts.clone() }
     }
 }
 
@@ -136,6 +141,6 @@ impl PartitionState {
 pub struct PartitionStateSumComparator;
 impl KeyComparator<PartitionState, Sum> for PartitionStateSumComparator {
     fn extract_key(value: &PartitionState) -> &Sum {
-        value.statesum_ref()
+        value.statesum()
     }
 }

@@ -7,8 +7,10 @@ use std::fmt;
 
 // #0018: when simd is stable, it could be used
 // use simd::u8x16;
-/// A convenient way to manage and manipulate a checksum
-#[derive(Copy, Clone, PartialEq, Eq, Hash)]
+/// A convenient way to manage and manipulate a checksum.
+/// 
+/// This is not marked `Copy` but in any case should be fairly cheap to clone.
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub struct Sum {
 //     s1: u8x16, s2: u8x16
     s: [u8; 32]
@@ -54,7 +56,7 @@ impl Sum {
     /// Change self to self ^ other
     /// Note that this operation is its own inverse: x.permute(y).permute(y) == x.
     pub fn permute(&mut self, other: &Self) {
-        (*self) = (*self) ^ (*other);
+        (*self) = &*self ^ other;
     }
     
     /// Format as a string.
@@ -104,9 +106,9 @@ impl Sum {
 
 const HEX_CHARS : &'static [u8; 16] = b"0123456789ABCDEF";
 
-impl ops::BitXor for Sum {
-    type Output = Self;
-    fn bitxor(self, rhs: Sum) -> Sum {
+impl<'a> ops::BitXor for &'a Sum {
+    type Output = Sum;
+    fn bitxor(self, rhs: &'a Sum) -> Sum {
         // #0018: optimise XOR operation
         let mut result = Sum::zero();
         for i in 0..32 {

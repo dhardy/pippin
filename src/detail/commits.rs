@@ -125,8 +125,8 @@ impl Commit {
             None
         } else {
             Some(Commit {
-                statesum: new_state.statesum(),
-                parent: old_state.statesum(),
+                statesum: new_state.statesum().clone(),
+                parent: old_state.statesum().clone(),
                 changes: changes
             })
         }
@@ -163,7 +163,7 @@ impl<'a> LogReplay<'a> {
     
     /// Insert an initial state, marked as a tip (pass by value or clone).
     pub fn add_state(&mut self, state: PartitionState) {
-        self.tips.insert(state.statesum());
+        self.tips.insert(state.statesum().clone());
         self.states.insert(state);
     }
     
@@ -201,7 +201,7 @@ impl<'a> LogReplay<'a> {
                 }
             }
             
-            if state.statesum() != commit.statesum {
+            if state.statesum() != &commit.statesum {
                 return ReplayError::err("checksum failure of replayed commit");
             }
             let has_existing = if let Some(existing) = self.states.get(&state.statesum()) {
@@ -246,7 +246,7 @@ impl<'a> LogReplay<'a> {
             return ReplayError::err("no single latest state (merge required)");
         }
         for tip in self.tips.iter() {
-            return Ok(*tip);
+            return Ok(tip.clone());
         }
         panic!("There should be at least one tip!")
     }

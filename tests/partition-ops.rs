@@ -76,29 +76,25 @@ fn create_small() {
     let mut part = Partition::new(box part_streams, "create_small").expect("creating partition");
     
     // 2 Add a few elements over multiple commits
-    {
-        let state = part.tip().expect("has tip");
-        state.insert_elt(35, Element::from_str("thirty five")).expect("getting elt 35");
-        state.insert_elt(6513, Element::from_str("six thousand, five hundred and thirteen"))
+    let mut state = part.tip().expect("has tip").clone_child();
+    state.insert_elt(35, Element::from_str("thirty five")).expect("getting elt 35");
+    state.insert_elt(6513, Element::from_str("six thousand, five hundred and thirteen"))
             .expect("getting elt 6513");
-        state.insert_elt(5698131, Element::from_str(
+    state.insert_elt(5698131, Element::from_str(
             "five million, six hundred and ninety eight thousand, one hundred and thirty one"))
             .expect("getting elt 5698131");
-    }
-    part.commit().expect("committing");
+    part.commit(state).expect("committing");
     let state1 = part.tip().expect("has tip").clone_exact();
-    {
-        let state = part.tip().expect("getting tip");
-        state.insert_elt(68168, Element::from_str("sixty eight thousand, one hundred and sixty eight"))
+    
+    let mut state = part.tip().expect("getting tip").clone_child();
+    state.insert_elt(68168, Element::from_str("sixty eight thousand, one hundred and sixty eight"))
             .expect("getting elt 68168");
-    }
-    part.commit().expect("committing");
-    {
-        let state = part.tip().expect("getting tip");
-        state.insert_elt(89, Element::from_str("eighty nine")).expect("getting elt 89");
-        state.insert_elt(1063, Element::from_str("one thousand and sixty three")).expect("getting elt 1063");
-    }
-    part.commit().expect("committing");
+    part.commit(state).expect("committing");
+    
+    let mut state = part.tip().expect("getting tip").clone_child();
+    state.insert_elt(89, Element::from_str("eighty nine")).expect("getting elt 89");
+    state.insert_elt(1063, Element::from_str("one thousand and sixty three")).expect("getting elt 1063");
+    part.commit(state).expect("committing");
     let state3 = part.tip().expect("has tip").clone_exact();
     
     // 3 Write to streams in memory
@@ -145,6 +141,6 @@ fn create_small() {
     // The "parent" field is not saved and so unequal in the reloaded state.
     // As a work-around, we use clone_child() which updates the "parent" field.
     assert_eq!(state1.clone_child(),
-        part2.state(state1.statesum_ref()).expect("get state1 by sum").clone_child());
+        part2.state(state1.statesum()).expect("get state1 by sum").clone_child());
     assert_eq!(state3, *part2.tip().expect("part2 tip"));
 }

@@ -4,14 +4,13 @@ use std::io::{Read, Write, ErrorKind};
 use std::collections::{HashSet, VecDeque};
 use std::result;
 use std::any::Any;
-use std::mem::swap;
 use hashindexed::HashIndexed;
 
 use super::{Sum, Commit, CommitQueue, LogReplay,
     PartitionState, PartitionStateSumComparator};
 use super::readwrite::{FileHeader, FileType, read_head, write_head,
     read_snapshot, write_snapshot, read_log, start_log, write_commit};
-use error::{Result, TipError, MatchError, make_io_err};
+use error::{Result, ArgError, TipError, MatchError, make_io_err};
 
 /// An interface providing read and/or write access to a suitable location.
 /// 
@@ -117,6 +116,23 @@ impl PartitionIO for PartitionDummyIO {
     }
 }
 
+/// Determines when to write a new snapshot automatically.
+struct SnapshotPolicy {
+    counter: usize,
+}
+impl SnapshotPolicy {
+    /// Create a new instance. Assume we have a fresh snapshot.
+    fn new() -> SnapshotPolicy { SnapshotPolicy { counter: 0 } }
+    /// Report that we definitely need a new snapshot
+    fn require(&mut self) { self.counter = 1000; }
+    /// Report `n_commits` commits since last event.
+    fn add_commits(&mut self, n_commits: usize) { self.counter += n_commits; }
+    /// Report that we have a fresh snapshot
+    fn reset(&mut self) { self.counter = 0; }
+    /// Return true when we should write a snapshot
+    fn snapshot(&self) -> bool { self.counter > 100 }
+}
+
 /// A *partition* is a sub-set of the entire set such that (a) each element is
 /// in exactly one partition, (b) a partition is small enough to be loaded into
 /// memory in its entirety, (c) there is some user control over the number of
@@ -134,28 +150,15 @@ pub struct Partition {
     io: Box<PartitionIO>,
     // Number of the current snapshot file
     ss_num: usize,
-    // Set to true if a new snapshot is required before further commit logs are
-    // written (e.g. file corruption, missing snapshot, blank state).
-    need_snapshot: bool,
+    // Determines when to write new snapshots
+    ss_policy: SnapshotPolicy,
     // Known committed states indexed by statesum 
     states: HashIndexed<PartitionState, Sum, PartitionStateSumComparator>,
     // All states without a known successor
+    //TODO: use a Vec? We shouldn't ever have *many* tips so lookups won't be slow...
     tips: HashSet<Sum>,
     // Commits created but not yet saved to disk. First in at front; use as queue.
     unsaved: VecDeque<Commit>,
-    // Index of parent state (i.e. the most recent commit). This is used when
-    // making a new commit.
-    // Special case: this is zero when there is no parent state (i.e. empty).
-    parent: Sum,
-    // Current state, to be modified. This is stored internally so that we do
-    // not have to trust the user, since if (a) the wrong state is committed, 
-    // it will replace everything in the partition (except history), and (b) if
-    // a state is held externally while the `Partition` is updated with new
-    // commits from another source, then that externally held state is used to
-    // make a new commit, the changes from the other commits will be reverted.
-    // It is only usable if tips.len() == 1
-    //TODO: neither of these limitations hold if we merge changes. Remove.
-    current: PartitionState,
 }
 
 // Methods creating a partition and loading its data
@@ -189,14 +192,12 @@ impl Partition {
         let mut part = Partition {
             io: io,
             ss_num: 0,
-            need_snapshot: false,
+            ss_policy: SnapshotPolicy::new(),
             states: HashIndexed::new(),
             tips: HashSet::new(),
             unsaved: VecDeque::new(),
-            parent: state.statesum(),
-            current: state.clone_child(),
         };
-        part.tips.insert(state.statesum());
+        part.tips.insert(state.statesum().clone());
         part.states.insert(state);
         
         Ok(part)
@@ -222,12 +223,10 @@ impl Partition {
         Partition {
             io: io,
             ss_num: 0,
-            need_snapshot: false,
+            ss_policy: SnapshotPolicy::new(),
             states: HashIndexed::new(),
             tips: HashSet::new(),
             unsaved: VecDeque::new(),
-            parent: Sum::zero() /* key to initial state */,
-            current: PartitionState::new() /* meaningless until ready, but we have to specify something */,
         }
     }
     
@@ -253,11 +252,7 @@ impl Partition {
     /// 
     /// TODO: fail if no data is found? Require call to merge_required()?
     /// TODO: don't fail, just report warnings?
-    /// 
-    /// Calls `self.commit()` internally to save any modifications as a new commit.
     pub fn load(&mut self, all_history: bool) -> Result<()> {
-        try!(self.commit());
-        
         let ss_len = self.io.ss_len();
         let mut num = ss_len - 1;
         let mut num_commits = 0;
@@ -271,7 +266,7 @@ impl Partition {
                 } else { None };
                 if let Some((head, state)) = result {
                     try!(self.validate_header(head));
-                    self.tips.insert(state.statesum());
+                    self.tips.insert(state.statesum().clone());
                     self.states.insert(state);
                 }
                 
@@ -301,7 +296,7 @@ impl Partition {
                 } else { None };
                 if let Some((head, state)) = result {
                     try!(self.validate_header(head));
-                    self.tips.insert(state.statesum());
+                    self.tips.insert(state.statesum().clone());
                     self.states.insert(state);
                     break;  // we stop at the most recent snapshot we find
                 }
@@ -330,19 +325,16 @@ impl Partition {
         }
         
         self.ss_num = ss_len - 1;
-        // We should make a new snapshot if the last one is missing or we have
-        // many commits (in total). Make the new-snapshot policy configurable.
-        self.need_snapshot = num < ss_len - 1 || num_commits > 100;
+        if num < ss_len -1 {
+            self.ss_policy.require();
+        } else {
+            self.ss_policy.add_commits(num_commits);
+        }
         
         if self.tips.is_empty() {
             make_io_err(ErrorKind::NotFound, "load operation found no states")
         } else {
             // success, but a merge may still be required
-            if self.tips.len() == 1 {
-                let tip = self.tips.iter().next().expect("len is 1 so next() should yield an element");
-                self.current = self.states.get(tip).expect("state for tip should be present").clone_child();
-                self.parent = *tip;
-            }
             Ok(())
         }
     }
@@ -404,6 +396,17 @@ impl Partition {
 
 // Methods saving a partition's data
 impl Partition {
+    /// Get the state-sum (key) of the tip. Fails when `tip()` fails.
+    pub fn tip_key(&self) -> result::Result<&Sum, TipError> {
+        if self.tips.len() == 1 {
+            Ok(self.tips.iter().next().unwrap())
+        } else if self.tips.is_empty() {
+            Err(TipError::NotReady)
+        } else {
+            Err(TipError::MergeRequired)
+        }
+    }
+    
     /// Get a reference to the PartitionState of the current tip. You can read
     /// this directly or make a clone in order to make your modifications.
     /// 
@@ -413,15 +416,8 @@ impl Partition {
     /// The operation requires some copying but uses copy'c,d-on-write elements
     /// internally. This copy is needed to create a commit from the diff of the
     /// last committed state and the new state.
-    //TODO: instead of returning a &mut reference to self.current, we should make the user clone.
-    pub fn tip(&mut self) -> result::Result<&mut PartitionState, TipError> {
-        if self.tips.len() == 1 {
-            Ok(&mut self.current)
-        } else if self.tips.is_empty() {
-            Err(TipError::NotReady)
-        } else {
-            Err(TipError::MergeRequired)
-        }
+    pub fn tip(&self) -> result::Result<&PartitionState, TipError> {
+        Ok(&self.states.get(try!(self.tip_key())).unwrap())
     }
     
     /// Get a read-only reference to a state by its statesum, if found.
@@ -438,7 +434,7 @@ impl Partition {
         let string = string.to_uppercase().replace(" ", "");
         let mut matching = Vec::new();
         for state in self.states.iter() {
-            if state.statesum_ref().matches_string(&string.as_bytes()) {
+            if state.statesum().matches_string(&string.as_bytes()) {
                 matching.push(state.statesum());
             }
             if matching.len() > 1 {
@@ -456,66 +452,51 @@ impl Partition {
     // #0003: allow getting a reference to other states listing snapshots, commits, getting non-current states and
     // getting diffs.
     
-    /// This will create a new commit in memory (if there are any changes to
-    /// commit). Use `write()` if you want to save commits to an external
-    /// resource (file or whatever).
+    /// This will create a new commit in memory by comparing the passed state
+    /// to its parent, held internally. If there are no changes to the passed
+    /// state, nothing happens.
+    /// 
+    /// A merge might be required after calling this (if the parent state of
+    /// that passed is no longer a 'tip').
+    /// 
+    /// Use `write()` afterwards to save newly created commits to an external
+    /// resource (e.g. a file).
     /// 
     /// Returns true if a new commit was made, false if no changes were found.
-    pub fn commit(&mut self) -> Result<bool> {
+    pub fn commit(&mut self, state: PartitionState) -> Result<bool> {
         // #0019: Commit::from_diff compares old and new states and code be slow.
         // #0019: Instead, we could record each alteration as it happens.
-        let c = if self.parent == Sum::zero() {
-            if self.current.is_empty() {
-                None
-            } else {
-                Commit::from_diff(&PartitionState::new(), &self.current)
-            }
+        let c = if state.statesum() == state.parent() {
+            None
         } else {
-            let state = self.states.get(&self.parent).expect("parent state not found");
-            if self.current == *state {
-                None
-            } else {
-                // We cannot modify self.states here due to borrow, hence
-                // return value and next 'if' block.
-                Commit::from_diff(state, &self.current)
-            }
+            let parent = try!(self.states.get(state.parent())
+                    .ok_or(ArgError::new("parent state not found")));
+            Commit::from_diff(parent, &state)
         };
         if let Some(commit) = c {
             self.unsaved.push_back(commit);
-            // Move "current" to self.states as history; make "current" a child
-            // of what it is now (to start a new commit)
-            let mut state = self.current.clone_child();
-            swap(&mut self.current, &mut state);
+            self.tips.remove(state.parent());   // this might fail (if the parent was not a tip)
+            self.tips.insert(state.statesum().clone());
             self.states.insert(state);
-            self.tips.remove(&self.parent);
-            self.parent = self.current.statesum();
-            self.tips.insert(self.parent);
             Ok(true)
         } else {
             Ok(false)
         }
     }
     
-    /// Commit changes to the log in memory and optionally on the disk.
-    /// 
-    /// This will create a new commit in memory (if there are any changes to
-    /// commit). It will then write all unsaved commits to a log on the disk.
+    /// This will write all unsaved commits to a log on the disk.
     /// 
     /// If `fast` is true, no further actions will happen, otherwise required
     /// maintenance operations will be carried out (e.g. creating a new
     /// snapshot when the current commit-log is long).
     /// 
-    /// Returns true if any new commits were made (i.e. changes were pending)
-    /// or if commits were pending writing. Returns false if nothing needed
-    /// doing.
+    /// Returns true if any commits were written (i.e. unsaved commits
+    /// were found). Returns false if nothing needed doing.
     /// 
     /// Note that writing to disk can fail. In this case it may be worth trying
-    /// again
+    /// again.
     pub fn write(&mut self, fast: bool) -> Result<bool> {
-        // First step: make a new commit
-        try!(self.commit());
-        
-        // Second step: write commits
+        // First step: write commits
         let result = if self.unsaved.is_empty() {
             false
         } else {
@@ -532,6 +513,7 @@ impl Partition {
                 try!(write_head(&header, &mut w));
                 try!(start_log(&mut w));
             };
+            self.ss_policy.add_commits(self.unsaved.len());
             while !self.unsaved.is_empty() {
                 // We try to write the commit, then when successful remove it
                 // from the list of 'unsaved' commits.
@@ -542,24 +524,22 @@ impl Partition {
         };
         if fast { return Ok(result); }
         
-        // Third step: maintenance operations
-        if self.need_snapshot && self.is_ready() {
+        // Second step: maintenance operations
+        if self.is_ready() && self.ss_policy.snapshot() {
             try!(self.write_snapshot());
-            self.need_snapshot = false;
         }
         Ok(result)
     }
     
     /// Write a new snapshot from the tip.
     /// 
+    /// Normally you can just call `write()` and let the library figure out
+    /// when to write a new snapshot, though you can also call this directly.
+    /// 
     /// Fails when `tip()` fails.
     pub fn write_snapshot(&mut self) -> Result<()> {
         // fail early if not ready:
-        if self.tips.is_empty() {
-            return Err(box TipError::NotReady);
-        } else if self.tips.len() > 1 {
-            return Err(box TipError::MergeRequired);
-        }
+        let tip_key = try!(self.tip_key()).clone();
         
         //TODO: we should try a new snapshot number if this fails with AlreadyExists
         let ss_num = self.ss_num + 1;
@@ -571,9 +551,9 @@ impl Partition {
             user_fields: Vec::new(),
         };
         try!(write_head(&header, &mut writer));
-        try!(write_snapshot(&mut self.current, &mut writer));
+        try!(write_snapshot(self.states.get(&tip_key).unwrap(), &mut writer));
         self.ss_num = ss_num;
-        self.need_snapshot = false;
+        self.ss_policy.reset();
         Ok(())
     }
 }
@@ -586,26 +566,24 @@ fn on_new_partition() {
     let io = box PartitionDummyIO::new();
     let mut part = Partition::new(io, "on_new_partition").expect("partition creation");
     assert_eq!(part.tips.len(), 1);
-    assert_eq!(part.parent, Sum::zero());
     
-    assert_eq!(part.commit().expect("committing"), false);
+    let state = part.tip().expect("getting tip").clone_child();
+    assert_eq!(state.parent(), &Sum::zero());
+    assert_eq!(part.commit(state).expect("committing"), false);
     
-    let key = {
-        let state = part.tip().expect("getting tip");
-        assert!(state.is_empty());
-        assert_eq!(state.statesum(), Sum::zero());
-        
-        let elt1 = Element::from_str("This is element one.");
-        let elt2 = Element::from_str("Element two data.");
-        let mut key = elt1.sum().clone();
-        key.permute(elt2.sum());
-        assert!(state.insert_elt(1, elt1).is_ok());
-        assert!(state.insert_elt(2, elt2).is_ok());
-        assert_eq!(state.statesum(), key);
-        key
-    };   // `state` goes out of scope
+    let mut state = part.tip().expect("getting tip").clone_child();
+    assert!(state.is_empty());
+    assert_eq!(state.statesum(), &Sum::zero());
     
-    assert_eq!(part.commit().expect("comitting"), true);
+    let elt1 = Element::from_str("This is element one.");
+    let elt2 = Element::from_str("Element two data.");
+    let mut key = elt1.sum().clone();
+    key.permute(elt2.sum());
+    assert!(state.insert_elt(1, elt1).is_ok());
+    assert!(state.insert_elt(2, elt2).is_ok());
+    assert_eq!(state.statesum(), &key);
+    
+    assert_eq!(part.commit(state).expect("comitting"), true);
     assert_eq!(part.unsaved.len(), 1);
     assert_eq!(part.states.len(), 2);
     {
@@ -613,8 +591,9 @@ fn on_new_partition() {
         assert!(state.has_elt(1));
         assert_eq!(state.get_elt(2), Some(&Element::from_str("Element two data.")));
     }   // `state` goes out of scope
-    assert_eq!(part.parent, key);
     assert_eq!(part.tips.len(), 1);
+    let state = part.tip().expect("getting tip").clone_child();
+    assert_eq!(state.parent(), &key);
     
-    assert_eq!(part.commit().expect("committing"), false);
+    assert_eq!(part.commit(state).expect("committing"), false);
 }
