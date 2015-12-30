@@ -25,7 +25,7 @@ Usage:
   pippincmd [-h] -n NAME FILE
   pippincmd [-h] [-P] FILE...
   pippincmd [-h] [-p PART] [-S] [-C] FILE...
-  pippincmd [-h] [-p PART] [-c COMMIT] [-s] [-E | -g ELT | -e ELT | -v ELT | -d ELT] FILE...
+  pippincmd [-h] [-f] [-p PART] [-c COMMIT] [-s] [-E | -g ELT | -e ELT | -v ELT | -d ELT] FILE...
   pippincmd --help | --version
 
 Options:
@@ -48,6 +48,9 @@ Options:
   -v --visual ELT       Like --edit, but use $VISUAL.
   -d --delete ELT       Remove an element.
   
+  -f --force            Allow less common operations such as editing from a
+                        historical state.
+  
   -h --help             Show this message.
   --version             Show version.
 ";
@@ -68,6 +71,7 @@ struct Args {
     flag_edit: Option<String>,
     flag_visual: Option<String>,
     flag_delete: Option<String>,
+    flag_force: bool,
     flag_help: bool,
     flag_version: bool,
 }
@@ -126,7 +130,9 @@ fn main() {
             } else {
                 Operation::Default
             };
-        match inner(args.arg_FILE, op, args.flag_partition, args.flag_commit, args.flag_snapshot) {
+        let rest = Rest{ part: args.flag_partition, commit: args.flag_commit,
+                snapshot: args.flag_snapshot, force: args.flag_force };
+        match inner(args.arg_FILE, op, rest) {
             Ok(()) => {},
             Err(e) => {
                 println!("Error: {}", e);
@@ -136,8 +142,13 @@ fn main() {
     }
 }
 
-fn inner(files: Vec<String>, op: Operation, part: Option<String>,
-    commit: Option<String>, snapshot: bool) -> Result<()>
+struct Rest {
+    part: Option<String>,
+    commit: Option<String>,
+    snapshot: bool,
+    force: bool,
+}
+fn inner(files: Vec<String>, op: Operation, args: Rest) -> Result<()>
 {
     let paths: Vec<PathBuf> = files.into_iter().map(|f| PathBuf::from(f)).collect();
     
@@ -146,8 +157,8 @@ fn inner(files: Vec<String>, op: Operation, part: Option<String>,
             println!("New-partition functionality not yet available");
 //             println!("Creating new partition: {}", name);
 //             assert_eq!(paths.len(), 1);
-//             assert_eq!(part, None);
-//             assert_eq!(commit, None);
+//             assert_eq!(args.part, None);
+//             assert_eq!(args.commit, None);
 //             let path = &paths[0];
 //             println!("Initial snapshot: {}", path.display());
 //             if path.exists() {
@@ -164,7 +175,7 @@ fn inner(files: Vec<String>, op: Operation, part: Option<String>,
         },
         Operation::OnPartition(part_op) => {
             println!("Scanning files ...");
-            //TODO: verify all files belong to the same partition `part`
+            //TODO: verify all files belong to the same partition `args.part`
             let discover = try!(DiscoverPartitionFiles::from_paths(paths));
             
             if let PartitionOp::List(list_snapshots, list_logs) = part_op {
@@ -185,7 +196,7 @@ fn inner(files: Vec<String>, op: Operation, part: Option<String>,
             } else {
                 let mut part = Partition::create(box discover);
                 {
-                    let mut state = if let Some(ss) = commit {
+                    let mut state = if let Some(ss) = args.commit {
                         try!(part.load(true));
                         try!(part.state_from_string(ss)).clone_child()
                     } else {
@@ -212,8 +223,8 @@ fn inner(files: Vec<String>, op: Operation, part: Option<String>,
                             }
                         },
                         PartitionOp::EltEdit(elt, editor) => {
-                            if !is_tip {
-                                //TODO: confirm editing of historical state
+                            if !is_tip && !args.force {
+                                panic!("Do you really want to make an edit from a historical state? If so specify '--force'.");
                             }
                             let output = try!(Command::new("mktemp")
                                 .arg("--tmpdir")
@@ -231,9 +242,7 @@ fn inner(files: Vec<String>, op: Operation, part: Option<String>,
                                 let elt_data = if let Some(d) = state.get_elt(id) {
                                     d.data()
                                 } else {
-                                    //TODO: fix error handling
                                     panic!("element not found");
-//                                     return Err(Error::NoEltFound("no element to edit"));
                                 };
                                 let mut file = try!(fs::OpenOptions::new().write(true).open(&tmp_path));
                                 try!(file.write(elt_data));
@@ -256,8 +265,8 @@ fn inner(files: Vec<String>, op: Operation, part: Option<String>,
                             try!(fs::remove_file(tmp_path));
                         },
                         PartitionOp::EltDelete(elt) => {
-                            if !is_tip {
-                                //TODO: confirm editing of historical state
+                            if !is_tip && !args.force {
+                                panic!("Do you really want to make an edit from a historical state? If so specify '--force'.");
                             }
                             let id: u64 = try!(elt.parse());
                             try!(state.remove_elt(id));
@@ -266,7 +275,7 @@ fn inner(files: Vec<String>, op: Operation, part: Option<String>,
                 }       // destroy reference `state`
                 
                 let has_changes = try!(part.write(true));
-                if has_changes && snapshot {
+                if has_changes && args.snapshot {
                     try!(part.write_snapshot());
                 }
                 Ok(())
@@ -287,15 +296,6 @@ fn inner(files: Vec<String>, op: Operation, part: Option<String>,
             Ok(())
         },
     }
-//         } else if args.cmd_insert {
-//             match repo.insert_elt(id, Element::from_vec(data.into())) {
-//                 Ok(()) => { println!("Element {} inserted.", id); },
-//                 Err(e) => { println!("Element {} couldn't be inserted: {}", id, e); }
-//             };
-//             
-//             //TODO: only if changed
-//             try!(repo.save_file(&path));
-//         }
 }
 
 /// Error type used to indicate a command failure
