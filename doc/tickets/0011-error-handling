@@ -1,4 +1,4 @@
-Error handling
+#0011 Error handling
 -----------
 
 Rethink which errors should panic, which should result in early return with an
@@ -7,5 +7,7 @@ Rethink which errors should panic, which should result in early return with an
 Implement a system for classifying errors or start fine-grained handling.
 
 Implement a system for reporting warnings.
+
+Possibly use custom error classes instead of std::io::Error (is there any point)?
 
 See #0017 (warnings).

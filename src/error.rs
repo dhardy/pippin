@@ -292,7 +292,7 @@ impl ErrorTrait for OtherError {
 }
 
 /// Use io::error::new to make an IO error
-//TODO: replace all usages with Pippin-specific error types?
+// #0011: replace all usages with Pippin-specific error types?
 pub fn make_io_err<T>(kind: io::ErrorKind, msg: &'static str) -> Result<T> {
     Err(box io::Error::new(kind, msg))
 }

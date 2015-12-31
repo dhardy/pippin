@@ -148,7 +148,6 @@ pub type StatesSet = HashIndexed<PartitionState, Sum, PartitionStateSumComparato
 /// This stores *all* recreated states since it does not know which may be used
 /// as parents of future commits. API currently only allows access to the tip,
 /// but could be modified.
-//TODO: remove struct and make `replay()` a free function?
 pub struct LogReplay<'a> {
     states: &'a mut StatesSet,
     tips: &'a mut HashSet<Sum>
@@ -176,8 +175,8 @@ impl<'a> LogReplay<'a> {
                 .ok_or(ReplayError::new("parent state of commit not found")))
                 .clone_child();
             if self.states.contains(&commit.statesum) {
-                // NOTE: could verify that this state matches that derived from
-                // the commit, but I'm not sure there's much point.
+                // #0022: could verify that this state matches that derived from
+                // the commit and warn if not.
                 
                 // Since the state is already known, it either is already
                 // marked a tip or it has been unmarked. Do not set again!
@@ -206,8 +205,8 @@ impl<'a> LogReplay<'a> {
             }
             let has_existing = if let Some(existing) = self.states.get(&state.statesum()) {
                 if *existing != state {
-                    // Collision. Probably best not to replace the existing,
-                    // but (TODO) should we emit a warning or something?
+                    // Collision. We can't do much in this case, so just warn about it.
+                    // #0017: warn about collision
                 }
                 true
             } else { false };
@@ -223,7 +222,7 @@ impl<'a> LogReplay<'a> {
     
     /// Merge all latest states into a single tip.
     pub fn merge(&mut self) -> Result<&Self> {
-        //TODO: write and test
+        // #0005: implement and test
         Ok(self)
     }
     

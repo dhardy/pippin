@@ -97,8 +97,6 @@ pub trait PartitionIO {
     /// This can fail due to IO operations failing.
     // #0012: verify atomicity of writes
     fn new_ss_cl<'a>(&'a mut self, ss_num: usize, cl_num: usize) -> Result<Option<Box<Write+'a>>>;
-    
-    // TODO: other operations (delete file, ...?)
 }
 
 /// Doesn't provide any IO.
@@ -180,7 +178,6 @@ pub struct Partition {
     // Known committed states indexed by statesum 
     states: HashIndexed<PartitionState, Sum, PartitionStateSumComparator>,
     // All states without a known successor
-    //TODO: use a Vec? We shouldn't ever have *many* tips so lookups won't be slow...
     tips: HashSet<Sum>,
     // Commits created but not yet saved to disk. First in at front; use as queue.
     unsaved: VecDeque<Commit>,
@@ -277,9 +274,6 @@ impl Partition {
     /// known states, one directed graph of one or more states with a single
     /// tip (latest state), or a graph with multiple tips (requiring a merge
     /// operation).
-    /// 
-    /// TODO: fail if no data is found? Require call to merge_required()?
-    /// TODO: don't fail, just report warnings?
     pub fn load(&mut self, all_history: bool) -> Result<()> {
         let ss_len = self.io.ss_len();
         let mut num = ss_len - 1;
