@@ -50,6 +50,11 @@ impl PartitionState {
     pub fn map(&self) -> &HashMap<u64, Element> {
         &self.elts
     }
+    /// Destroy the PartitionState, extracting its map of elements
+    pub fn into_map(self) -> HashMap<u64, Element> {
+        self.elts
+    }
+    
     /// Get a reference to some element.
     /// 
     /// Note that elements can't be modified directly but must instead be

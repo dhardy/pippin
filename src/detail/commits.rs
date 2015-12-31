@@ -117,8 +117,8 @@ impl Commit {
                 }
             }
         }
-        for (id, new_elt) in state.map() /*TODO: into iter*/ {
-            changes.insert(*id, EltChange::insertion(new_elt.clone() /*TODO move not clone*/));
+        for (id, new_elt) in state.into_map() {
+            changes.insert(id, EltChange::insertion(new_elt));
         }
         
         if changes.is_empty() {
