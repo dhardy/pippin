@@ -94,7 +94,7 @@ impl fmt::Debug for Element {
 }
 impl Clone for Element {
     /// Elements are Copy-On-Write, so cloning is cheap
-    fn clone(&self) -> Self {
+    fn clone(&self) -> Element {
         Element { r: self.r.clone() }
     }
 }

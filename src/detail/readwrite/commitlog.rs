@@ -131,7 +131,7 @@ pub fn read_log(reader_: &mut Read, receiver: &mut CommitReceiver) -> Result<()>
             return ReadError::err("checksum mismatch", pos, (0, 32));
         }
         
-        let cont = receiver.receive(Commit::new(commit_sum, parent_sum, changes));
+        let cont = receiver.receive(Commit::new(commit_sum, vec![parent_sum], changes));
         if !cont { break; }
     }
     
@@ -215,13 +215,13 @@ fn commit_write_read(){
     changes.insert(3, EltChange::insertion(Element::from_str("three")));
     changes.insert(4, EltChange::insertion(Element::from_str("four")));
     changes.insert(5, EltChange::insertion(Element::from_str("five")));
-    let commit_1 = Commit::new(seq, squares, changes);
+    let commit_1 = Commit::new(seq, vec![squares], changes);
     
     changes = HashMap::new();
     changes.insert(1, EltChange::deletion());
     changes.insert(9, EltChange::replacement(Element::from_str("NINE!")));
     changes.insert(5, EltChange::insertion(Element::from_str("five again?")));
-    let commit_2 = Commit::new(nonsense, quadr, changes);
+    let commit_2 = Commit::new(nonsense, vec![quadr], changes);
     
     let mut obj = Vec::new();
     assert!(start_log(&mut obj).is_ok());

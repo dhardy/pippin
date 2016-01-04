@@ -281,6 +281,10 @@ impl OtherError {
     pub fn new(msg: &'static str) -> OtherError {
         OtherError { msg: msg }
     }
+    /// New instance, wrapped with `Err`
+    pub fn err<T>(msg: &'static str) -> Result<T> {
+        Err(box OtherError::new(msg))
+    }
 }
 impl fmt::Display for OtherError {
     fn fmt(&self, f: &mut fmt::Formatter) -> result::Result<(), fmt::Error> {

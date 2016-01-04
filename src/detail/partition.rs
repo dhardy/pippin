@@ -8,6 +8,7 @@ use hashindexed::HashIndexed;
 
 use super::{Sum, Commit, CommitQueue, LogReplay,
     PartitionState, PartitionStateSumComparator};
+use super::merge::{TwoWayMerge, TwoWaySolver};
 use super::readwrite::{FileHeader, FileType, read_head, write_head,
     read_snapshot, write_snapshot, read_log, start_log, write_commit};
 use error::{Result, ArgError, TipError, MatchError, OtherError, make_io_err};
@@ -477,24 +478,97 @@ impl Partition {
         }
     }
     
+    /// Merge all latest states into a single tip.
+    /// 
+    /// This is a convenience version of `merge_two`.
+    /// 
+    /// Given more than two tips, there are multiple orders in which a merge
+    /// could take place, or one could in theory merge more than two tips at
+    /// once. This function simply selects any two tips and merges, then
+    /// repeats until done.
+    pub fn merge<S: TwoWaySolver>(&mut self, solver: &S) -> Result<()> {
+        while self.tips.len() > 1 {
+            let c = {
+                let (tip1, tip2) = {
+                    let mut iter = self.tips.iter();
+                    let tip1 = iter.next().unwrap();
+                    let tip2 = iter.next().unwrap();
+                    (tip1, tip2)
+                };
+                let common = try!(self.latest_common_ancestor(tip1, tip2));
+                let mut merger = TwoWayMerge::new(
+                    self.states.get(tip1).unwrap(),
+                    self.states.get(tip2).unwrap(),
+                    self.states.get(&common).unwrap());
+                merger.solve(solver);
+                merger.make_commit()
+            };
+            if let Some(commit) = c {
+                try!(self.push_commit(commit));
+            } else {
+                return OtherError::err("merge failed");
+            }
+        }
+        Ok(())
+    }
+    
+    /// Create a `TwoWayMerge` for any two tips. Use this to make a commit,
+    /// then call `push_commit()`. Repeat while `self.merge_required()` holds
+    /// true.
+    /// 
+    /// This is not eligant, but provides the user full control over the merge.
+    /// Alternatively, use `self.merge(solver)`.
+    pub fn merge_two(&mut self) -> Result<TwoWayMerge> {
+        if self.tips.len() < 2 {
+            return OtherError::err("merge_two() called when no states need merging");
+        }
+        let (tip1, tip2) = {
+            let mut iter = self.tips.iter();
+            let tip1 = iter.next().unwrap();
+            let tip2 = iter.next().unwrap();
+            (tip1, tip2)
+        };
+        let common = try!(self.latest_common_ancestor(tip1, tip2));
+        Ok(TwoWayMerge::new(
+            self.states.get(tip1).unwrap(),
+            self.states.get(tip2).unwrap(),
+            self.states.get(&common).unwrap()))
+    }
+    
     // #0003: allow getting a reference to other states listing snapshots, commits, getting non-current states and
     // getting diffs.
     
-    /// This will create a new commit in memory by comparing the passed state
-    /// to its parent, held internally. If there are no changes to the passed
-    /// state, nothing happens.
+    /// This adds a new commit to the list waiting to be written and updates
+    /// the states and 'tips' stored internally by creating a new state from
+    /// the commit, and returns true, unless the commit's state is already
+    /// known, in which case this does nothing and returns false.
+    pub fn push_commit(&mut self, commit: Commit) -> Result<bool> {
+        if self.states.contains(commit.statesum()) {
+            return Ok(false);
+        }
+        let mut state = try!(self.states.get(commit.parent())
+                .ok_or(ArgError::new("parent state not found")))
+                .clone_child();
+        try!(commit.patch(&mut state));
+        self.add_pair(commit, state);
+        Ok(true)
+    }
+    
+    /// This adds a new state to the partition, updating the 'tip', and adds a
+    /// new commit to the internal list waiting to be written to permanent
+    /// storage (see `write()`).
     /// 
     /// A merge might be required after calling this (if the parent state of
     /// that passed is no longer a 'tip').
     /// 
-    /// Use `write()` afterwards to save newly created commits to an external
-    /// resource (e.g. a file).
-    /// 
-    /// Returns true if a new commit was made, false if no changes were found.
-    pub fn commit(&mut self, state: PartitionState) -> Result<bool> {
+    /// The commit is created from the state passed by finding the state's
+    /// parent and comparing. If there are no changes, nothing happens and
+    /// this function returns false, otherwise the function returns true.
+    pub fn push_state(&mut self, state: PartitionState) -> Result<bool> {
         // #0019: Commit::from_diff compares old and new states and code be slow.
         // #0019: Instead, we could record each alteration as it happens.
         let c = if state.statesum() == state.parent() {
+            // #0022: compare states instead of sums to check for collisions?
             None
         } else {
             let parent = try!(self.states.get(state.parent())
@@ -502,14 +576,21 @@ impl Partition {
             Commit::from_diff(parent, &state)
         };
         if let Some(commit) = c {
-            self.unsaved.push_back(commit);
-            self.tips.remove(state.parent());   // this might fail (if the parent was not a tip)
-            self.tips.insert(state.statesum().clone());
-            self.states.insert(state);
+            self.add_pair(commit, state);
             Ok(true)
         } else {
             Ok(false)
         }
+    }
+    
+    // Add a paired commit and state.
+    // Assumptions: checksums match and parent state is present.
+    fn add_pair(&mut self, commit: Commit, state: PartitionState) {
+        self.unsaved.push_back(commit);
+        // This might fail (if the parent was not a tip), but it doesn't matter:
+        self.tips.remove(state.parent());
+        self.tips.insert(state.statesum().clone());
+        self.states.insert(state);
     }
     
     /// This will write all unsaved commits to a log on the disk.
@@ -608,6 +689,48 @@ impl Partition {
     }
 }
 
+// Support functions
+impl Partition {
+    // Take self and two sums. Return a copy of a key to avoid lifetime issues.
+    // 
+    // TODO: enable loading of additional history on demand. Or do we not need
+    // this?
+    fn latest_common_ancestor(&self, k1: &Sum, k2: &Sum) -> Result<Sum> {
+        // #0019: there are multiple strategies here; we just find all
+        // ancestors of one, then of the other. This simplifies lopic.
+        let mut a1 = HashSet::new();
+        
+        let mut k: &Sum = k1;
+        loop {
+            let s = self.states.get(k);
+            a1.insert(k);
+            if let Some(state) = s {
+                k = state.parent();
+            } else {
+                // can't find any more ancestors of k
+                break;
+            }
+        }
+        
+        k = k2;
+        loop {
+            if a1.contains(k) {
+                return Ok(k.clone());
+            }
+            let s = self.states.get(k);
+            // a2.insert(k);
+            if let Some(state) = s {
+                k = state.parent();
+            } else {
+                // can't find any more ancestors of k
+                break;
+            }
+        }
+        
+        Err(box OtherError::new("unable to find a common ancestor"))
+    }
+}
+
 
 #[test]
 fn on_new_partition() {
@@ -619,7 +742,7 @@ fn on_new_partition() {
     
     let state = part.tip().expect("getting tip").clone_child();
     assert_eq!(state.parent(), &Sum::zero());
-    assert_eq!(part.commit(state).expect("committing"), false);
+    assert_eq!(part.push_state(state).expect("committing"), false);
     
     let mut state = part.tip().expect("getting tip").clone_child();
     assert!(state.is_empty());
@@ -633,7 +756,7 @@ fn on_new_partition() {
     assert!(state.insert_elt(2, elt2).is_ok());
     assert_eq!(state.statesum(), &key);
     
-    assert_eq!(part.commit(state).expect("comitting"), true);
+    assert_eq!(part.push_state(state).expect("comitting"), true);
     assert_eq!(part.unsaved.len(), 1);
     assert_eq!(part.states.len(), 2);
     {
@@ -645,5 +768,5 @@ fn on_new_partition() {
     let state = part.tip().expect("getting tip").clone_child();
     assert_eq!(state.parent(), &key);
     
-    assert_eq!(part.commit(state).expect("committing"), false);
+    assert_eq!(part.push_state(state).expect("committing"), false);
 }

@@ -41,13 +41,17 @@ impl CommitReceiver for CommitQueue {
 }
 
 
-/// A commit: a set of changes
+/// A commit: a set of changes.
+/// 
+/// The number of parents is at least one; where more this is a merge commit.
 #[derive(Eq, PartialEq, Debug)]
 pub struct Commit {
-    /// Expected resultant state sum; doubles as an ID
+    /// Expected resultant state sum; doubles as an ID.
     statesum: Sum,
-    /// State sum (ID) of parent commit/snapshot
-    parent: Sum,
+    /// State sum (ID) of parent states. There must be at least one. Thes first
+    /// state is the *primary parent* and is what the *changes* are relative
+    /// to; the rest are simply "additional parents".
+    parents: Vec<Sum>,
     /// Per-element changes
     changes: HashMap<u64, EltChange>
 }
@@ -90,8 +94,11 @@ impl EltChange {
 impl Commit {
     /// Create a commit from parts. It is suggested not to use this unless you
     /// are sure all sums are correct.
-    pub fn new(statesum: Sum, parent: Sum, changes: HashMap<u64, EltChange>) -> Commit {
-        Commit { statesum: statesum, parent: parent, changes: changes }
+    /// 
+    /// This also panics if parents.len() == 0.
+    pub fn new(statesum: Sum, parents: Vec<Sum>, changes: HashMap<u64, EltChange>) -> Commit {
+        assert!(parents.len() >= 1);
+        Commit { statesum: statesum, parents: parents, changes: changes }
     }
     
     /// Create a commit from an old state and a new state. Return the commit if
@@ -126,15 +133,50 @@ impl Commit {
         } else {
             Some(Commit {
                 statesum: new_state.statesum().clone(),
-                parent: old_state.statesum().clone(),
+                parents: vec![old_state.statesum().clone()],
                 changes: changes
             })
         }
     }
-
+    
+    /// Apply this commit to a given state, thus updating the state.
+    /// 
+    /// Fails if the given state's initial state-sum is not equal to this
+    /// commit's parent or if there are any errors in applying this patch.
+    pub fn patch(&self, state: &mut PartitionState) -> Result<()> {
+        if state.statesum() != self.parent() {
+            return ReplayError::err("cannot apply commit: state does not match parent checksum");
+        }
+        
+        for (id, ref change) in self.changes.iter() {
+            match *change {
+                &EltChange::Deletion => {
+                    try!(state.remove_elt(*id));
+                },
+                &EltChange::Insertion(ref elt) => {
+                    try!(state.insert_elt(*id, elt.clone()));
+                }
+                &EltChange::Replacement(ref elt) => {
+                    try!(state.replace_elt(*id, elt.clone()));
+                }
+            }
+        }
+        
+        if state.statesum() != self.statesum() {
+            return ReplayError::err("checksum failure of replayed commit");
+        }
+        Ok(())
+    }
+    
+    /// Get the state checksum
     pub fn statesum(&self) -> &Sum { &self.statesum }
-    pub fn parent(&self) -> &Sum { &self.parent }
+    /// Get the first parent's `Sum`
+    pub fn parent(&self) -> &Sum { &self.parents[0] }
+    /// Get the list of all parents' `Sum`s
+    pub fn parents(&self) -> &Vec<Sum> { &self.parents }
+    /// Get the number of changes in the "patch"
     pub fn num_changes(&self) -> usize { self.changes.len() }
+    /// Get an iterator over changes
     pub fn changes_iter(&self) -> hash_map::Iter<u64, EltChange> { self.changes.iter() }
 }
 
@@ -171,7 +213,7 @@ impl<'a> LogReplay<'a> {
     /// any checksum is incorrect.
     pub fn replay(&mut self, commits: CommitQueue) -> Result<&Self> {
         for commit in commits.commits {
-            let mut state = try!(self.states.get(&commit.parent)
+            let mut state = try!(self.states.get(&commit.parent())
                 .ok_or(ReplayError::new("parent state of commit not found")))
                 .clone_child();
             if self.states.contains(&commit.statesum) {
@@ -182,27 +224,12 @@ impl<'a> LogReplay<'a> {
                 // marked a tip or it has been unmarked. Do not set again!
                 // However, we now know that the parent state isn't a tip, which
                 // might not have been known before (if new state is a snapshot).
-                self.tips.remove(&commit.parent);
+                self.tips.remove(&commit.parent());
                 continue;
             }
             
-            for (id,change) in commit.changes {
-                match change {
-                    EltChange::Deletion => {
-                        try!(state.remove_elt(id));
-                    },
-                    EltChange::Insertion(elt) => {
-                        try!(state.insert_elt(id, elt));
-                    }
-                    EltChange::Replacement(elt) => {
-                        try!(state.replace_elt(id, elt));
-                    }
-                }
-            }
+            try!(commit.patch(&mut state));
             
-            if state.statesum() != &commit.statesum {
-                return ReplayError::err("checksum failure of replayed commit");
-            }
             let has_existing = if let Some(existing) = self.states.get(&state.statesum()) {
                 if *existing != state {
                     // Collision. We can't do much in this case, so just warn about it.
@@ -214,40 +241,10 @@ impl<'a> LogReplay<'a> {
                 self.states.insert(state);
             }
             
+            self.tips.remove(&commit.parent());
             self.tips.insert(commit.statesum);
-            self.tips.remove(&commit.parent);
         }
         Ok(self)
-    }
-    
-    /// Merge all latest states into a single tip.
-    pub fn merge(&mut self) -> Result<&Self> {
-        // #0005: implement and test
-        Ok(self)
-    }
-    
-    /// Return the latest state, if there is a single latest state; otherwise
-    /// fail. You should probably call merge() first to make sure there is only
-    /// a single latest state.
-    pub fn tip(&self) -> Result<&PartitionState> {
-        let tip = try!(self.tip_sum());
-        Ok(self.states.get(&tip).expect("tip should point to a state"))
-    }
-    
-    /// As tip(), but consume self and return ownership of the state.
-    pub fn into_tip(mut self) -> Result<PartitionState> {
-        let tip = try!(self.tip_sum());
-        Ok(self.states.remove(&tip).expect("tip should point to a state"))
-    }
-    
-    fn tip_sum(&self) -> Result<Sum> {
-        if self.tips.len() > 1 {
-            return ReplayError::err("no single latest state (merge required)");
-        }
-        for tip in self.tips.iter() {
-            return Ok(tip.clone());
-        }
-        panic!("There should be at least one tip!")
     }
 }
 
@@ -279,9 +276,13 @@ fn commit_creation_and_replay(){
     commits.push(Commit::from_diff(&state_c, &state_d).unwrap());
     
     let (mut states, mut tips) = (HashIndexed::new(), HashSet::new());
-    let mut replayer = LogReplay::from_sets(&mut states, &mut tips);
-    replayer.add_state(state_a);
-    replayer.replay(commits).unwrap();
-    let replayed_state = replayer.into_tip().unwrap();
+    {
+        let mut replayer = LogReplay::from_sets(&mut states, &mut tips);
+        replayer.add_state(state_a);
+        replayer.replay(commits).unwrap();
+    }
+    assert_eq!(tips.len(), 1);
+    let tip_sum = tips.iter().next().unwrap();
+    let replayed_state = states.remove(&tip_sum).unwrap();
     assert_eq!(replayed_state, state_d);
 }

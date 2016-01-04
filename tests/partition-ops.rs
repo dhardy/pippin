@@ -83,18 +83,18 @@ fn create_small() {
     state.insert_elt(5698131, Element::from_str(
             "five million, six hundred and ninety eight thousand, one hundred and thirty one"))
             .expect("getting elt 5698131");
-    part.commit(state).expect("committing");
+    part.push_state(state).expect("committing");
     let state1 = part.tip().expect("has tip").clone_exact();
     
     let mut state = part.tip().expect("getting tip").clone_child();
     state.insert_elt(68168, Element::from_str("sixty eight thousand, one hundred and sixty eight"))
             .expect("getting elt 68168");
-    part.commit(state).expect("committing");
+    part.push_state(state).expect("committing");
     
     let mut state = part.tip().expect("getting tip").clone_child();
     state.insert_elt(89, Element::from_str("eighty nine")).expect("getting elt 89");
     state.insert_elt(1063, Element::from_str("one thousand and sixty three")).expect("getting elt 1063");
-    part.commit(state).expect("committing");
+    part.push_state(state).expect("committing");
     let state3 = part.tip().expect("has tip").clone_exact();
     
     // 3 Write to streams in memory
