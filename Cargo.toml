@@ -29,6 +29,8 @@ regex = "*"
 # reason to choose this over libstd containers however.
 vec_map = "*"
 
+rand = "*"
+
 # Dependencies for examples below
 [dev-dependencies]
 

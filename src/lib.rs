@@ -16,6 +16,7 @@ extern crate byteorder;
 extern crate hashindexed;
 extern crate regex;
 extern crate vec_map;
+extern crate rand;
 
 pub use detail::Repo;
 pub use detail::{Element};
