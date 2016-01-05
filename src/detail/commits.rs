@@ -251,9 +251,10 @@ impl<'a> LogReplay<'a> {
 
 #[test]
 fn commit_creation_and_replay(){
+    let part_id = 0;
     let mut commits = CommitQueue::new();
     
-    let mut state_a = PartitionState::new();
+    let mut state_a = PartitionState::new(part_id);
     state_a.insert_elt(1, Element::from_str("one")).unwrap();
     state_a.insert_elt(2, Element::from_str("two")).unwrap();
     

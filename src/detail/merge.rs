@@ -209,17 +209,25 @@ impl<'a> TwoWayMerge<'a> {
                 EltMerge::Rename => {
                     if let Some(elt1) = a {
                         if let Some(elt2) = b {
-                            panic!("need ID generator");
-                            /* TODO:
-                             * 1. we need some machinery to generate IDs
-                             * 2. the ID must be unique within the target state
-                             * 3. the ID must not match any used by this function
-                            let new_id = ...;
+                            let mut new_id = match self.a.gen_id() {
+                                Ok(id) => id,
+                                Err(_) => { /*#0017: warn about failure*/
+                                    return None;
+                                }
+                            };
+                            while self.a.has_elt(new_id) || self.b.has_elt(new_id) {
+                                new_id += 1;
+                                if (new_id & 0xFF_FFFF) == 1 << 24 {
+                                    // could wrap and try more, but there isn't a whole lot of point
+                                    //#0017: warn about failure
+                                    return None;
+                                }
+                            }
+                            
                             c1.insert(new_id, EltChange::insertion(elt2.clone()));
                             sum1.permute(elt2.sum());
                             c2.insert(new_id, EltChange::insertion(elt1.clone()));
                             sum2.permute(elt1.sum());
-                            */
                         } else {
                             c2.insert(id, EltChange::insertion(elt1.clone()));
                             sum2.permute(elt1.sum());

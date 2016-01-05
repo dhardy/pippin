@@ -36,7 +36,9 @@ pub fn read_snapshot(reader: &mut Read) -> Result<PartitionState> {
     
     // #0016: here we set the "parent" sum to Sum::zero(). This isn't *correct*,
     // but since we won't be creating a commit from it it doesn't actually matter.
-    let mut state = PartitionState::new();
+    // TODO FIXME: we need to save and load partition identifiers
+    let part_id = 0;
+    let mut state = PartitionState::new(part_id);
     for _ in 0..num_elts {
         try!(fill(&mut r, &mut buf[0..32], pos));
         if buf[0..8] != *b"ELEMENT\x00" {
@@ -153,7 +155,8 @@ pub fn write_snapshot(state: &PartitionState, writer: &mut Write) -> Result<()>{
 
 #[test]
 fn snapshot_writing() {
-    let mut state = PartitionState::new();
+    let part_id = 1 << 24;
+    let mut state = PartitionState::new(part_id);
     let data = "But I must explain to you how all this \
         mistaken idea of denouncing pleasure and praising pain was born and I \
         will give you a complete account of the system, and expound the \
@@ -169,11 +172,11 @@ fn snapshot_writing() {
         advantage from it? But who has any right to find fault with a man who \
         chooses to enjoy a pleasure that has no annoying consequences, or one \
         who avoids a pain that produces no resultant pleasure?";
-    state.insert_elt(1, Element::from_str(data)).unwrap();
+    state.new_elt(Element::from_str(data)).unwrap();
     let data = "arstneio[()]123%αρστνειο\
         qwfpluy-QWFPLUY—<{}>456+5≤≥φπλθυ−\
         zxcvm,./ZXCVM;:?`\"ç$0,./ζχψωμ~·÷";
-    state.insert_elt(0xFEDCBA9876543210, Element::from_str(data)).unwrap();
+    state.new_elt(Element::from_str(data)).unwrap();
     
     let mut result = Vec::new();
     assert!(write_snapshot(&state, &mut result).is_ok());

@@ -5,6 +5,7 @@ use std::collections::hash_map::{Keys};
 use std::clone::Clone;
 use hashindexed::KeyComparator;
 use error::ElementOp;
+use rand::random;
 
 use detail::{Sum, Element};
 
@@ -25,6 +26,7 @@ pub type EltId = u64;
 /// supported.
 #[derive(PartialEq,Eq,Debug)]
 pub struct PartitionState {
+    part_id: u64,
     parent: Sum,
     statesum: Sum,
     elts: HashMap<EltId, Element>
@@ -33,15 +35,17 @@ pub struct PartitionState {
 impl PartitionState {
     /// Create a new state, with no elements or history.
     /// 
-    /// The parent's checksum must be specified.
-    pub fn new() -> PartitionState {
-        PartitionState { parent: Sum::zero(), statesum: Sum::zero(), elts: HashMap::new() }
+    /// The partition's identifier must be given; this is used to assign new
+    /// element identifiers.
+    pub fn new(part_id: u64) -> PartitionState {
+        PartitionState { part_id: part_id, parent: Sum::zero(),
+            statesum: Sum::zero(), elts: HashMap::new() }
     }
     /// Create from a map of elements
-    pub fn from_hash_map(parent: Sum,
+    pub fn from_hash_map(part_id: u64, parent: Sum,
         map: HashMap<EltId, Element>, statesum: Sum) -> PartitionState
     {
-        PartitionState { parent: parent, statesum: statesum, elts: map }
+        PartitionState { part_id: part_id, parent: parent, statesum: statesum, elts: map }
     }
     
     /// Get the state sum
@@ -58,7 +62,7 @@ impl PartitionState {
         self.elts
     }
     
-    /// Get a reference to some element.
+    /// Get a reference to some element (which can be cloned if required).
     /// 
     /// Note that elements can't be modified directly but must instead be
     /// replaced, hence there is no version of this function returning a
@@ -81,8 +85,38 @@ impl PartitionState {
         self.elts.keys()
     }
     
-    /// Insert an element and return (), unless the id is already used in
-    /// which case the function stops with an error.
+    /// Generate an element identifier.
+    pub fn gen_id(&self) -> Result<u64, ElementOp> {
+        // Generate an identifier: (1) use a random sample, (2) increment if
+        // taken, (3) add the partition identifier.
+        let initial = (random::<u32>() & 0xFF_FFFF) as u64;
+        let mut id = initial;
+        while self.elts.contains_key(&id) {
+            id += 1;
+            if id == 1 << 24 {
+                id = 0;
+            }
+            if id == initial {
+                return Err(ElementOp::id_gen_failure());
+            }
+        }
+        Ok(self.part_id + id)
+    }
+    
+    /// Insert an element, generating an identifier.
+    /// 
+    /// This is a convenience version of `self.insert_elt(try!(self.gen_id(), elt))`.
+    /// 
+    /// This function should succeed provided that not all usable identifiers
+    /// are taken (2^24), though when approaching full it may be slow.
+    pub fn new_elt(&mut self, elt: Element) -> Result<(), ElementOp> {
+        let id = try!(self.gen_id());
+        self.insert_elt(id, elt)
+    }
+    /// Insert an element and return (). Fails if the id does not have the
+    /// correct partition identifier part or if the id is already in use.
+    /// It is suggested to use new_elt() instead if you do not need to specify
+    /// the identifier.
     pub fn insert_elt(&mut self, id: EltId, elt: Element) -> Result<(), ElementOp> {
 //        TODO: elt.cache_classifiers(classifiers);
         if self.elts.contains_key(&id) { return Err(ElementOp::insertion_failure(id)); }
@@ -92,6 +126,9 @@ impl PartitionState {
     }
     /// Replace an existing element and return the replaced element, unless the
     /// id is not already used in which case the function stops with an error.
+    /// 
+    /// Since elements cannot be edited directly, this is the next best way of
+    /// changing an element's contents.
     pub fn replace_elt(&mut self, id: EltId, elt: Element) -> Result<Element, ElementOp> {
 //        TODO: elt.cache_classifiers(classifiers);
         self.statesum.permute(elt.sum());
@@ -128,6 +165,7 @@ impl PartitionState {
     /// state is not particularly expensive.
     pub fn clone_child(&self) -> Self {
         PartitionState {
+            part_id: self.part_id,
             parent: self.statesum.clone(),
             statesum: self.statesum.clone(),
             elts: self.elts.clone() }
@@ -139,7 +177,9 @@ impl PartitionState {
     /// Elements are considered Copy-On-Write so cloning the
     /// state is not particularly expensive.
     pub fn clone_exact(&self) -> Self {
-        PartitionState { parent: self.parent.clone(),
+        PartitionState {
+            part_id: self.part_id,
+            parent: self.parent.clone(),
             statesum: self.statesum.clone(),
             elts: self.elts.clone() }
     }

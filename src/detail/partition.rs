@@ -4,6 +4,7 @@ use std::io::{Read, Write, ErrorKind};
 use std::collections::{HashSet, VecDeque};
 use std::result;
 use std::any::Any;
+use std::u64;
 use hashindexed::HashIndexed;
 
 use super::{Sum, Commit, CommitQueue, LogReplay,
@@ -172,6 +173,8 @@ impl SnapshotPolicy {
 pub struct Partition {
     // IO provider
     io: Box<PartitionIO>,
+    // Range (inclusive) of partition identifiers; first is one in use
+    part_id0: u64, part_id1: u64,
     // Number of the current snapshot file
     ss_num: usize,
     // Determines when to write new snapshots
@@ -199,7 +202,8 @@ impl Partition {
     /// let partition = Partition::new(Box::new(PartitionDummyIO::new()), "example repo");
     /// ```
     pub fn new(mut io: Box<PartitionIO>, name: &str) -> Result<Partition> {
-        let state = PartitionState::new();
+        let (part_id0, part_id1) = (0, u64::MAX);
+        let state = PartitionState::new(part_id0);
         {
             let header = FileHeader {
                 ftype: FileType::Snapshot,
@@ -217,6 +221,8 @@ impl Partition {
         
         let mut part = Partition {
             io: io,
+            part_id0: part_id0,
+            part_id1: part_id1,
             ss_num: 0,
             ss_policy: SnapshotPolicy::new(),
             states: HashIndexed::new(),
@@ -248,6 +254,8 @@ impl Partition {
     pub fn create(io: Box<PartitionIO>) -> Partition {
         Partition {
             io: io,
+            part_id0: 0,
+            part_id1: 0,
             ss_num: 0,
             ss_policy: SnapshotPolicy::new(),
             states: HashIndexed::new(),
@@ -279,6 +287,7 @@ impl Partition {
         let ss_len = self.io.ss_len();
         let mut num = ss_len - 1;
         let mut num_commits = 0;
+        // TODO FIXME: set part_id0 and part_id1
         
         if all_history {
             for ss in 0..ss_len {
@@ -325,7 +334,7 @@ impl Partition {
                 }
                 if num == 0 {
                     // no more snapshot numbers to try; assume zero is empty state
-                    let state = PartitionState::new();
+                    let state = PartitionState::new(self.part_id0);
                     self.tips.insert(state.statesum().clone());
                     self.states.insert(state);
                     break;
