@@ -80,6 +80,9 @@ Should a partition run out of new numbers for partitioning, another strategy is
 possible: find a little-used partition with more numbers than it needs, and
 steal some of its range. The details for this are yet to be defined.
 
+The range (0, 0) is a special case used in the library when loading data. This
+range should never be used otherwise.
+
 
 ### Snapshot and commit log file names
 

@@ -59,7 +59,7 @@ NOTE: the `Bbbb` variant is not currently implemented and may be excluded.
 Header
 ----------
 
-*   `PIPPINSS20150929` (PIPPIN SnapShot, date of last format change)
+*   `PIPPINSS20160105` (PIPPIN SnapShot, date of last format change)
 *   16 bytes UTF-8 for name of repository; this string is identical for each
     partition and right-padded with zero (0x00) to make 16 bytes
 *   header content
@@ -127,6 +127,7 @@ Data is written as follows:
 *   `SNAPSHOT` (section identifier)
 *   (??) the date of creation of the snapshot as YYYYMMDD
 *   TBD: state/commit identifier and time stamp
+*   Partition identifier range (`PARTID...`)
 *   `ELEMENTS` (section identifier)
 *   number of elements as a u64 (binary, TBD endianness)
 
@@ -145,6 +146,15 @@ Finally:
 *   number of elements as u64 (again, mostly for alignment)
 *   state checksum (doubles as an identifier)
 *   checksum of data as written in file
+
+### Details
+
+#### Partition identifiers
+
+Block starts `PARTID` and is followed by two `u40` numbers (two five-byte
+big-endian numbers). The first number is the partition identifier lower bound
+(also the currently used partition identifier), and the second is the upper
+bound, both bounds inclusive.
 
 
 Log files

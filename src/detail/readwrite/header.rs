@@ -3,11 +3,13 @@
 use std::{io};
 use std::cmp::min;
 use std::result::Result as stdResult;
+
 use ::error::{Result, ArgError, ReadError, make_io_err};
 use ::util::rtrim;
 use super::{sum, fill};
 
-const HEAD_SNAPSHOT : [u8; 16] = *b"PIPPINSS20150929";
+const HEAD_SNAPSHOT : [[u8; 16]; 2] = [*b"PIPPINSS20150929",
+    *b"PIPPINSS20160105"];
 const HEAD_COMMITLOG : [u8; 16] = *b"PIPPINCL20150929";
 const SUM_SHA256 : [u8; 16] = *b"HSUM SHA-2 256\x00\x00";
 
@@ -41,7 +43,7 @@ pub fn read_head(r: &mut io::Read) -> Result<FileHeader> {
     let mut buf = vec![0; 16];
     
     try!(fill(&mut sum_reader, &mut buf[0..16], pos));
-    let ftype = if buf == HEAD_SNAPSHOT {
+    let ftype = if buf == HEAD_SNAPSHOT[0] || buf == HEAD_SNAPSHOT[1] {
         FileType::Snapshot
     } else if buf == HEAD_COMMITLOG {
         FileType::CommitLog
@@ -57,8 +59,12 @@ pub fn read_head(r: &mut io::Read) -> Result<FileHeader> {
     };
     pos += 16;
     
-    let mut remarks = Vec::new();
-    let mut user_fields = Vec::new();
+    let mut header = FileHeader{
+        ftype: ftype,
+        name: repo_name,
+        remarks: Vec::new(),
+        user_fields: Vec::new(),
+    };
     
     loop {
         try!(fill(&mut sum_reader, &mut buf[0..16], pos));
@@ -82,16 +88,16 @@ pub fn read_head(r: &mut io::Read) -> Result<FileHeader> {
         
         if block[0..3] == *b"SUM" {
             if block[3..] == SUM_SHA256[4..14] {
-                /* we don't support anything else yet, so don't need to
-                 * configure anything here */
+                /* we don't support any other checksum else yet, so don't need
+                 * to configure anything here */
             }else {
                 return ReadError::err("unknown checksum format", pos, (3+off, 13+off))
             };
             break;      // "HSUM" must be last item of header before final checksum
         } else if block[0] == b'R' {
-            remarks.push(try!(String::from_utf8(rtrim(&block, 0).to_vec())));
+            header.remarks.push(try!(String::from_utf8(rtrim(&block, 0).to_vec())));
         } else if block[0] == b'U' {
-            user_fields.push(rtrim(&block[1..], 0).to_vec());
+            header.user_fields.push(rtrim(&block[1..], 0).to_vec());
         } else if block[0] == b'O' {
             // Match optional extensions here; we currently have none
         } else if block[0] >= b'A' && block[0] <= b'Z' {
@@ -116,12 +122,7 @@ pub fn read_head(r: &mut io::Read) -> Result<FileHeader> {
         return ReadError::err("header checksum invalid", pos, (0, 32));
     }
     
-    Ok(FileHeader{
-        ftype: ftype,
-        name: repo_name,
-        remarks: remarks,
-        user_fields: user_fields
-    })
+    Ok(header)
 }
 
 /// Write a file header.
@@ -133,7 +134,7 @@ pub fn write_head(header: &FileHeader, w: &mut io::Write) -> Result<()> {
     
     match header.ftype {
         FileType::Snapshot => {
-            try!(sum_writer.write(&HEAD_SNAPSHOT));
+            try!(sum_writer.write(&HEAD_SNAPSHOT[1]));
         },
         FileType::CommitLog => {
             try!(sum_writer.write(&HEAD_COMMITLOG));
@@ -236,7 +237,7 @@ fn write_header() {
     };
     let mut buf = Vec::new();
     write_head(&header, &mut buf).unwrap();
-    let expected = b"PIPPINSS20150929\
+    let expected = b"PIPPINSS20160105\
             \xc3\x84hnliche Unsinn\
             HRemark \xcf\x89\x00\x00\x00\x00\x00\x00\
             Q2R Quatsch Quatsch \
@@ -244,7 +245,7 @@ fn write_header() {
             Q2U rsei noasr a\
             uyv 10()% xovn\x00\x00\
             HSUM SHA-2 256\x00\x00\
-            \xa4\xd5_\x7f\xe8\n\x8a\xb5\xf8\x02\x90\xba,p\xeeT\
-            H~\xf1^\xd8^B\xdbO\xc3\xf3\xdeSQ\\\xc1";
+            (q9\xff\xbb/\x8d\xd0\xfb\x9dDxys\xedw\
+            \x9c8\xfd\xba\x9f40\xdaK\xad\xcbm\xdf\x9cs\xbc";
     assert_eq!(&buf[..], &expected[..]);
 }

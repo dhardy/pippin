@@ -131,7 +131,7 @@ fn create_small() {
         // in which elements occur can and does vary (thanks to Rust's hash
         // function randomisation). Instead we compare file length here and
         // read the files back below.
-        assert_eq!(ss_data.len(), 192);
+        assert_eq!(ss_data.len(), 208);
         assert_eq!(log.len(), 1120);
     }
     

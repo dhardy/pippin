@@ -213,7 +213,7 @@ impl Partition {
             };
             if let Some(mut writer) = try!(io.new_ss(0)) {
                 try!(write_head(&header, &mut writer));
-                try!(write_snapshot(&state, &mut writer));
+                try!(write_snapshot(&state, (part_id0, part_id1), &mut writer));
             } else {
                 return make_io_err(ErrorKind::AlreadyExists, "snapshot already exists");
             }
@@ -293,7 +293,19 @@ impl Partition {
             for ss in 0..ss_len {
                 let result = if let Some(mut r) = try!(self.io.read_ss(ss)) {
                     let head = try!(read_head(&mut r));
-                    let snapshot = try!(read_snapshot(&mut r));
+                    let (snapshot, (p0, p1)) = try!(read_snapshot(&mut r));
+                    if self.part_id0 == 0 && self.part_id1 == 0 {
+                        // This should only be the case when loading the first snapshot
+                        // after `create()` is called. It should never be used otherwise.
+                        self.part_id0 = p0;
+                        self.part_id1 = p1;
+                    } else {
+                        // Presumably we read one snapshot already, and now found
+                        // another. Values should be equal.
+                        if self.part_id0 != p0 || self.part_id1 != p1 {
+                            return OtherError::err("partition identifier range differs from previous value");
+                        }
+                    }
                     Some((head, snapshot))
                 } else { None };
                 if let Some((head, state)) = result {
@@ -323,7 +335,19 @@ impl Partition {
             loop {
                 let result = if let Some(mut r) = try!(self.io.read_ss(num)) {
                     let head = try!(read_head(&mut r));
-                    let snapshot = try!(read_snapshot(&mut r));
+                    let (snapshot, (p0, p1)) = try!(read_snapshot(&mut r));
+                    if self.part_id0 == 0 && self.part_id1 == 0 {
+                        // This should only be the case when loading the first snapshot
+                        // after `create()` is called. It should never be used otherwise.
+                        self.part_id0 = p0;
+                        self.part_id1 = p1;
+                    } else {
+                        // Presumably we read one snapshot already, and now found
+                        // another. Values should be equal.
+                        if self.part_id0 != p0 || self.part_id1 != p1 {
+                            return OtherError::err("partition identifier range differs from previous value");
+                        }
+                    }
                     Some((head, snapshot))
                 } else { None };
                 if let Some((head, state)) = result {
@@ -397,10 +421,9 @@ impl Partition {
         self.tips.len() > 1
     }
     
-    /// Accept a header, and check that the file corresponds to this repository
-    /// and partition. If this `Partition` is new, it is instead assigned to
-    /// the repository and partition identified by the file. This function is
-    /// called for every file loaded.
+    /// Read and/or validate values in a header.
+    /// 
+    /// This function is called for every file loaded.
     pub fn validate_header(&mut self, _header: FileHeader) -> Result<()> {
         // #0016: I guess we need to assign repository and partition UUIDs or
         // something, and consider how to handle history across repartitioning.
@@ -682,7 +705,8 @@ impl Partition {
                     user_fields: Vec::new(),
                 };
                 try!(write_head(&header, &mut writer));
-                try!(write_snapshot(self.states.get(&tip_key).unwrap(), &mut writer));
+                try!(write_snapshot(self.states.get(&tip_key).unwrap(),
+                    (self.part_id0, self.part_id1), &mut writer));
                 self.ss_num = ss_num;
                 self.ss_policy.reset();
                 return Ok(())

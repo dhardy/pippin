@@ -14,7 +14,9 @@ use ::error::{Result, ReadError};
 /// This function reads to the end of the snapshot. It does not check whether
 /// this is in fact the end of the file (or other data stream), though
 /// according to the specified file format this should be the case.
-pub fn read_snapshot(reader: &mut Read) -> Result<PartitionState> {
+pub fn read_snapshot(reader: &mut Read) ->
+    Result<(PartitionState, (u64, u64))>
+{
     // A reader which calculates the checksum of what was read:
     let mut r = sum::HashReader::new256(reader);
     
@@ -28,6 +30,19 @@ pub fn read_snapshot(reader: &mut Read) -> Result<PartitionState> {
     }
     pos += 16;
     
+    let (mut part_id0, mut part_id1) = (0, 0);
+    if buf[16..22] == *b"PARTID" {
+        part_id0 = read_u40(&buf[22..27]) << 24;
+        part_id1 = read_u40(&buf[27..32]) << 24;
+        try!(fill(&mut r, &mut buf[16..32], pos));
+        pos += 8;
+    } else {
+        // #0017: warn about old file version
+        // #0016: eventually don't support this version
+        // Note that this *ought* to be checked with respect to the version
+        // string in the header.
+    }
+    
     if buf[16..24] != *b"ELEMENTS" {
         return ReadError::err("unexpected contents (expected ELEMENTS)", pos, (16, 24));
     }
@@ -36,9 +51,7 @@ pub fn read_snapshot(reader: &mut Read) -> Result<PartitionState> {
     
     // #0016: here we set the "parent" sum to Sum::zero(). This isn't *correct*,
     // but since we won't be creating a commit from it it doesn't actually matter.
-    // TODO FIXME: we need to save and load partition identifiers
-    let part_id = 0;
-    let mut state = PartitionState::new(part_id);
+    let mut state = PartitionState::new(part_id0);
     for _ in 0..num_elts {
         try!(fill(&mut r, &mut buf[0..32], pos));
         if buf[0..8] != *b"ELEMENT\x00" {
@@ -100,11 +113,14 @@ pub fn read_snapshot(reader: &mut Read) -> Result<PartitionState> {
         return ReadError::err("checksum mismatch", pos, (0, 32));
     }
     
-    Ok(state)
+    Ok((state, (part_id0, part_id1)))
 }
 
 /// Write a snapshot of a set of elements to a stream
-pub fn write_snapshot(state: &PartitionState, writer: &mut Write) -> Result<()>{
+/// 
+/// The snapshot is derived from a partition state, but also includes a
+/// partition identifier range.
+pub fn write_snapshot(state: &PartitionState, part_range: (u64, u64), writer: &mut Write) -> Result<()>{
     // A writer which calculates the checksum of what was written:
     let mut w = sum::HashWriter::new256(writer);
     
@@ -112,6 +128,11 @@ pub fn write_snapshot(state: &PartitionState, writer: &mut Write) -> Result<()>{
     
     // #0016: date shouldn't really be today but the time the snapshot was created
     try!(write!(&mut w, "SNAPSHOT{}", UTC::today().format("%Y%m%d")));
+    
+    let mut buf: [u8; 16] = *b"PARTID..........";
+    write_u40(&mut buf[6..11], part_range.0 >> 24);
+    write_u40(&mut buf[11..16], part_range.1 >> 24);
+    try!(w.write(&buf));
     
     try!(w.write(b"ELEMENTS"));
     let num_elts = elts.len() as u64;  // #0015
@@ -153,6 +174,21 @@ pub fn write_snapshot(state: &PartitionState, writer: &mut Write) -> Result<()>{
     Ok(())
 }
 
+fn read_u40(buf: &[u8]) -> u64 {
+    ((buf[0] as u64) << 32) +
+    ((buf[1] as u64) << 24) +
+    ((buf[2] as u64) << 16) +
+    ((buf[3] as u64) << 08) +
+    ((buf[4] as u64) << 00)
+}
+fn write_u40(buf: &mut[u8], val: u64) {
+    buf[0] = ((val >> 32) & 0xFF) as u8;
+    buf[1] = ((val >> 24) & 0xFF) as u8;
+    buf[2] = ((val >> 16) & 0xFF) as u8;
+    buf[3] = ((val >> 08) & 0xFF) as u8;
+    buf[4] = ((val >> 00) & 0xFF) as u8;
+}
+
 #[test]
 fn snapshot_writing() {
     let part_id = 1 << 24;
@@ -179,8 +215,9 @@ fn snapshot_writing() {
     state.new_elt(Element::from_str(data)).unwrap();
     
     let mut result = Vec::new();
-    assert!(write_snapshot(&state, &mut result).is_ok());
+    assert!(write_snapshot(&state, (part_id, 12 << 24), &mut result).is_ok());
     
-    let state2 = read_snapshot(&mut &result[..]).unwrap();
+    let (state2, part_range) = read_snapshot(&mut &result[..]).unwrap();
     assert_eq!(state, state2);
+    assert_eq!(part_id, part_range.0);
 }
