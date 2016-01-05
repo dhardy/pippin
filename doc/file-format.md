@@ -1,6 +1,25 @@
 File format
 ========
 
+Potential changes
+---------------
+
+These may or may not be acted upon.
+
+*   add a repository identifier to header (instead of 'name' field?)
+*   add a partition identifier to header (derived from classifier restrictions?)
+*   identify snapshot file in change logs (cannot do vice-versa since snapshot
+    is written first, except for guessing the file name, but we can already do that)
+*   identify previous snapshot(s) and possibly change logs leading up to a new
+    snapshot
+*   list classifiers by name and maybe output restrictions
+*   describe classifier restrictions for the current partition
+*   describe all classifier restrictions / other known partitions
+
+
+Terms
+-------
+
 TBD means To-Be-Defined. "Later" indicates sections which are not included in
 the current version but are planned (informally) for later versions. All parts
 of the format may change but this requires updating the header. The format is
@@ -9,7 +28,7 @@ not currently considered stable.
 Chunks are aligned on 16-byte boundaries. Note: this may waste a fair bit of
 space.
 
-Types: u8 refers to an unsigned eight-bit number (also a byte), u64 a 64-bit
+Types: u8 refers to an unsigned eight-bit number (a byte), u64 a 64-bit
 number, i8 a signed byte etc. (these are Rust types). These are written in
 binary big-endian format. (There is no strong reason for chosing big-endian.)
 
@@ -17,8 +36,8 @@ Text must be ASCII or UTF-8. User-defined data is binary (u8 sequence).
 
 Checksums are in whichever format is mentioned in the header. All options start
 `SUM` to be self-documenting. Currently available options: `SUM SHA-2 256 `.
-They are encoded as [bytes or single number?] TBD. Lots of checksums are
-written; this may waste space.
+They are encoded as unsigned bytes.
+#0016 Lots of checksums are written; this may waste space.
 
 ### Identifiers
 

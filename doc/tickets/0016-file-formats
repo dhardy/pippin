@@ -11,3 +11,6 @@ What should headers contain? Repository name or numeric identifier? Partition
 identifier?
 
 Store state's parent sum in snapshot (this isn't essential).
+
+Checksums use up a lot of space in files. Do we need to many? Should we use
+smaller sums?

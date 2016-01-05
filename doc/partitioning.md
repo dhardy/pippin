@@ -1,3 +1,132 @@
+Partitioning
+=======
+
+Starting point
+---------
+
+A *partition* is defined from the API point of view: a subset of elements which
+are loaded and unloaded simultaneously. The partition-file relationship is
+1-many: any particular state of the partition's history is fully encapsulated
+in a single file, but the full history may span multiple files. Any file will
+contain the entire state of some partition at some point in time, and likely
+multiple points in time via changesets and/or multiple snapshots.
+
+*Partitioning* of the repository into partitions is neither user-defined nor
+fixed. User-defined classifiers are used when designing new partitions in a
+user-defined order. A partition will be defined according to some range of
+allowable values from one or more classifiers. If insufficient classifiers are
+present to give desirable granularity of partitions, the library can do no more
+than warn of this.
+
+### When to partition
+
+The criteria for creating further partitions should be set by the user. Some
+use-cases might be happy with large data-sets which are slow to load and
+repartition but are still fast to read and fairly fast to write to; other cases
+might be happier with many small partitions which can be loaded or
+repartitioned nearly instantaneously.
+
+
+Classification of elements
+------------------
+
+Classifiers are user-defined functions mapping elements to a number, which is
+either a user defined enumeration or a user-defined range of integers (TBD:
+32-bit? signed?). Each function must have a name (TBD: allowable identifiers).
+
+The names of classifier functions and their domains (enumeration or integer
+range) are recorded in each snapshot and may not change. The functions
+themselves are provided by the user and *should* not change; if they do, the
+library will provide options for dealing with this (search by iteration over
+all elements of a partitioning, reclassification of all elements in a
+partition), but searching/filtering by classifiers may not return the correct
+elements until reclassification is complete.
+
+Classifier functions may not be removed (as a work-around, they can be changed
+to output only a single value and values reclassified). New classifier
+functions may be added with lowest priority but will only be recorded in new
+snapshots.
+
+Classifier functions must not change their domains (relative to what was
+recorded as being in use by previous snapshots).
+Classifier functions previously available (when previous snapshots were made)
+must continue to be available.
+
+Priority of the classifier functions is user defined. This is recorded in
+snapshots but may be changed; however partitioning will not be changed until
+either the user or the library decides to repartition.
+In the mean time, existing snapshots may or may not be updated
+with the new priorities while new snapshots will record the new priorities but
+continue to represent the old partition.
+
+### Partitioning from classifier values
+
+Desirable: partitioning happens at "sensible" boundaries, e.g. by year, then
+perhaps by month or quarter, not just some date or time during the year.
+Further, it should be possible to label partitions based on these values (e.g.
+year or month).
+
+This can be done by using multiple prioritised classifiers (e.g. "year",
+"quarter", "month", "week", "day-of-month"). This is however more to set up and
+more classifications to remember per-element than a single date/time-stamp.
+
+Alternatively, a single classifier might be used along with rules about where
+best to partition ranges. Perhaps most simply the function would take a range
+and return two or a small number of sub-ranges.
+
+The system might or might not also want to predict which new partitions might
+be needed in the future. For example, if elements are partitioned by date added
+with new elements continually being added, and recent elements have been
+partitioned by year then quarter, it might make sense to create new partitions
+by quarter proactively instead simply of when a partition gets too big.
+
+
+Partition identification
+--------------------
+
+TBD: how to identify a partition in memory.
+
+Standard file extensions are `.pip` for snapshot files (it's short, peppy, and
+self-contained), and `.piplog` for commit log files (which must correspond to a
+snapshot file).
+
+Given some `BASEPATH` (first part of the file name, potentially prefixed by a
+path), snapshot files are named `BASEPATH-ssN.pip` where `N` is the number of a
+snapshot. The first non-empty snapshot is usually numbered `1`; subsequent
+snapshots should be numbered one more than the largest number in use (not a
+hard requirement). The convention for new partitions is that an empty snapshot
+with number `0` be created.
+
+Commit log files correspond to a snapshot. A commit log file should be named
+`BASEPATH-ssN-clM.piplog` where `M` is the commit log file number. The first
+log file should have number `1` and subsequent files should be numbered one
+greater than the largest number previously in use.
+
+This `BASEPATH` is an arbitrary Unicode string except that (a) it may contain
+path separators (`/` on all operating systems), and (b) the part after the last
+separator must be a valid file name stem and the rest must either be empty or
+a valid (relative or absolute) path. To aid users, names may be suggested by
+the program using the library.
+
+For now, partition data files are restricted to names matching one of the 
+following regular expressions:
+
+    ([0-9a-zA-Z\-_]+)-ss([1-9][0-9]*).pip
+    ([0-9a-zA-Z\-_]+)-ss([1-9][0-9]*)-cl([1-9][0-9]*).piplog
+
+
+Problems
+=======
+
+Identifiers
+----------
+
+Details remain sketchy. See above.
+
+
+Repartioning
+---------------
+
 Problem: a repository is partitioned. Each partition is independent and may
 not have knowledge of other partitions.
 
