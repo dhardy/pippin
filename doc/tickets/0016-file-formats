@@ -1,13 +1,21 @@
 #0016 Pippin file formats
 ===========
 
-To finalise:
+Both formats
+----------------
 
 Include time-stamps of writing and/or commit creation in files?
 
-Do we need the "COMMIT LOG" line?
+Checksums use up a lot of space in files. Do we need to many? Should we use
+smaller sums?
+
+
+Snapshots
+-------------
 
 Store state's parent sum in snapshot (this isn't essential).
 
-Checksums use up a lot of space in files. Do we need to many? Should we use
-smaller sums?
+Commit logs
+--------------------
+
+Do we need the "COMMIT LOG" line?
