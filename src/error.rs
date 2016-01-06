@@ -138,6 +138,8 @@ impl ErrorTrait for ElementOp {
 /// Classification of element operation failure
 #[derive(PartialEq, Debug)]
 pub enum ElementOpClass {
+    /// Unable to find any new element identifier
+    IdGenFailure,
     /// Insertion failed due to identity clash (element identifier)
     InsertionFailure,
     /// Replacement failed due to missing element (element identifier)
@@ -149,10 +151,15 @@ impl ElementOp {
     /// Get the description string corresponding to the classification
     pub fn description(&self) -> &'static str {
         match self.class {
+            ElementOpClass::IdGenFailure => "id generation failed to find a free identifier",
             ElementOpClass::InsertionFailure => "insertion failed: identifier already in use",
             ElementOpClass::ReplacementFailure => "replacement failed: cannot find element to replace",
             ElementOpClass::DeletionFailure => "deletion failed: element not found",
         }
+    }
+    /// Create an instance
+    pub fn id_gen_failure() -> ElementOp {
+        ElementOp { id: 0, class: ElementOpClass::IdGenFailure }
     }
     /// Create an instance
     pub fn insertion_failure(id: u64) -> ElementOp {
@@ -169,7 +176,11 @@ impl ElementOp {
 }
 impl fmt::Display for ElementOp {
     fn fmt(&self, f: &mut fmt::Formatter) -> result::Result<(), fmt::Error> {
-        write!(f, "{}: {}", self.description(), self.id)
+        if self.class == ElementOpClass::IdGenFailure {
+            write!(f, "{}", self.description())
+        } else {
+            write!(f, "{}: {}", self.description(), self.id)
+        }
     }
 }
 

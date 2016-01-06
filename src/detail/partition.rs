@@ -4,6 +4,7 @@ use std::io::{Read, Write, ErrorKind};
 use std::collections::{HashSet, VecDeque};
 use std::result;
 use std::any::Any;
+use std::u64;
 use hashindexed::HashIndexed;
 
 use super::{Sum, Commit, CommitQueue, LogReplay,
@@ -172,6 +173,8 @@ impl SnapshotPolicy {
 pub struct Partition {
     // IO provider
     io: Box<PartitionIO>,
+    // Range (inclusive) of partition identifiers; first is one in use
+    part_id0: u64, part_id1: u64,
     // Number of the current snapshot file
     ss_num: usize,
     // Determines when to write new snapshots
@@ -199,7 +202,8 @@ impl Partition {
     /// let partition = Partition::new(Box::new(PartitionDummyIO::new()), "example repo");
     /// ```
     pub fn new(mut io: Box<PartitionIO>, name: &str) -> Result<Partition> {
-        let state = PartitionState::new();
+        let (part_id0, part_id1) = (0, u64::MAX);
+        let state = PartitionState::new(part_id0);
         {
             let header = FileHeader {
                 ftype: FileType::Snapshot,
@@ -209,7 +213,7 @@ impl Partition {
             };
             if let Some(mut writer) = try!(io.new_ss(0)) {
                 try!(write_head(&header, &mut writer));
-                try!(write_snapshot(&state, &mut writer));
+                try!(write_snapshot(&state, (part_id0, part_id1), &mut writer));
             } else {
                 return make_io_err(ErrorKind::AlreadyExists, "snapshot already exists");
             }
@@ -217,6 +221,8 @@ impl Partition {
         
         let mut part = Partition {
             io: io,
+            part_id0: part_id0,
+            part_id1: part_id1,
             ss_num: 0,
             ss_policy: SnapshotPolicy::new(),
             states: HashIndexed::new(),
@@ -248,6 +254,8 @@ impl Partition {
     pub fn create(io: Box<PartitionIO>) -> Partition {
         Partition {
             io: io,
+            part_id0: 0,
+            part_id1: 0,
             ss_num: 0,
             ss_policy: SnapshotPolicy::new(),
             states: HashIndexed::new(),
@@ -279,12 +287,25 @@ impl Partition {
         let ss_len = self.io.ss_len();
         let mut num = ss_len - 1;
         let mut num_commits = 0;
+        // TODO FIXME: set part_id0 and part_id1
         
         if all_history {
             for ss in 0..ss_len {
                 let result = if let Some(mut r) = try!(self.io.read_ss(ss)) {
                     let head = try!(read_head(&mut r));
-                    let snapshot = try!(read_snapshot(&mut r));
+                    let (snapshot, (p0, p1)) = try!(read_snapshot(&mut r));
+                    if self.part_id0 == 0 && self.part_id1 == 0 {
+                        // This should only be the case when loading the first snapshot
+                        // after `create()` is called. It should never be used otherwise.
+                        self.part_id0 = p0;
+                        self.part_id1 = p1;
+                    } else {
+                        // Presumably we read one snapshot already, and now found
+                        // another. Values should be equal.
+                        if self.part_id0 != p0 || self.part_id1 != p1 {
+                            return OtherError::err("partition identifier range differs from previous value");
+                        }
+                    }
                     Some((head, snapshot))
                 } else { None };
                 if let Some((head, state)) = result {
@@ -314,7 +335,19 @@ impl Partition {
             loop {
                 let result = if let Some(mut r) = try!(self.io.read_ss(num)) {
                     let head = try!(read_head(&mut r));
-                    let snapshot = try!(read_snapshot(&mut r));
+                    let (snapshot, (p0, p1)) = try!(read_snapshot(&mut r));
+                    if self.part_id0 == 0 && self.part_id1 == 0 {
+                        // This should only be the case when loading the first snapshot
+                        // after `create()` is called. It should never be used otherwise.
+                        self.part_id0 = p0;
+                        self.part_id1 = p1;
+                    } else {
+                        // Presumably we read one snapshot already, and now found
+                        // another. Values should be equal.
+                        if self.part_id0 != p0 || self.part_id1 != p1 {
+                            return OtherError::err("partition identifier range differs from previous value");
+                        }
+                    }
                     Some((head, snapshot))
                 } else { None };
                 if let Some((head, state)) = result {
@@ -325,7 +358,7 @@ impl Partition {
                 }
                 if num == 0 {
                     // no more snapshot numbers to try; assume zero is empty state
-                    let state = PartitionState::new();
+                    let state = PartitionState::new(self.part_id0);
                     self.tips.insert(state.statesum().clone());
                     self.states.insert(state);
                     break;
@@ -388,10 +421,9 @@ impl Partition {
         self.tips.len() > 1
     }
     
-    /// Accept a header, and check that the file corresponds to this repository
-    /// and partition. If this `Partition` is new, it is instead assigned to
-    /// the repository and partition identified by the file. This function is
-    /// called for every file loaded.
+    /// Read and/or validate values in a header.
+    /// 
+    /// This function is called for every file loaded.
     pub fn validate_header(&mut self, _header: FileHeader) -> Result<()> {
         // #0016: I guess we need to assign repository and partition UUIDs or
         // something, and consider how to handle history across repartitioning.
@@ -673,7 +705,8 @@ impl Partition {
                     user_fields: Vec::new(),
                 };
                 try!(write_head(&header, &mut writer));
-                try!(write_snapshot(self.states.get(&tip_key).unwrap(), &mut writer));
+                try!(write_snapshot(self.states.get(&tip_key).unwrap(),
+                    (self.part_id0, self.part_id1), &mut writer));
                 self.ss_num = ss_num;
                 self.ss_policy.reset();
                 return Ok(())

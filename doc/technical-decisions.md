@@ -42,14 +42,47 @@ to avoid confusion between zero (`0`) and upper-case `O`. A 256-bit number
 requires only 50 characters in base-36 (or 64 in base 16). Like git, accept
 abbreviated sums so long as these are unique within known history.
 
-### Element identifiers
+### Element and partition identifiers
 
-Element identifiers are a unique `u64` (unsigned 64-bit number). The first
-32 bits (high part) is fixed for the partition or some subset of the partition
-(TBD). The low 32 bits are simply a number unique within the subset using the
-high 32-bit number. (Example: a partition might use 123 as the high part. A new
-element can be assigned any 32-bit number unique within the partition, e.g. 5.
-The element identifier would then be 123 × (2^32) + 5.)
+Element identifiers are a unique `u64` (unsigned 64-bit number). We don't care
+much what they are so long as they are unique.
+
+The first 40 bits (high part) of the number is allocated to a partition
+identifier, and the low 24 bits (more than 16 million numbers) are allocated
+to an element identifier within the partition.
+
+(Example: a partition might use 123 as the high part. A new element can be
+assigned any 32-bit number unique within the partition, e.g. 5. The element
+identifier would then be 123 × (2^40) + 5.)
+
+#### Element identifier assignment
+
+The low 24 bits can be assigned in any way such that they are unique within the
+partition. A good strategy might be to randomly sample a number distributed
+evenly throughout the range, then increment by one until a unique number is
+found.
+
+#### Partition identifier assignment
+
+Each partition is assigned a range of partition identifiers; the initial
+"partition" in a repository gets the whole available range.
+
+The partition uses the smallest number within its range when assigning new
+element identifiers.
+
+When a partition is partitioned, the range is first adjusted to exclude the
+smallest number (which has already been used), then is divided equally between
+the new partitions, which get (roughly) equally-sized non-overlapping ranges.
+The old partition will not be used anymore (unless possibly the new partitions
+are merged back together).
+
+Should a partition run out of new numbers for partitioning, another strategy is
+possible: find a little-used partition with more numbers than it needs, and
+steal some of its range. The details for this are yet to be defined.
+
+The range (0, 0) is a special case used in the library when loading data. This
+range should never be used otherwise.
+
 
 ### Snapshot and commit log file names
 

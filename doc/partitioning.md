@@ -84,6 +84,8 @@ by quarter proactively instead simply of when a partition gets too big.
 Partition identification
 --------------------
 
+### Labels on the disk
+
 TBD: how to identify a partition in memory.
 
 Standard file extensions are `.pip` for snapshot files (it's short, peppy, and
@@ -113,6 +115,53 @@ following regular expressions:
 
     ([0-9a-zA-Z\-_]+)-ss([1-9][0-9]*).pip
     ([0-9a-zA-Z\-_]+)-ss([1-9][0-9]*)-cl([1-9][0-9]*).piplog
+
+### Unique partition numbers.
+
+How can we ensure that each partition gets a unique number?
+These are needed to ensure elements get unique numbers.
+
+Bifurcation
+------------
+
+Start at some number, e.g. 2^31 if we have a 32-bit unsigned int.
+
+Every time a partition is split, create two new identifiers by setting the
+most significant unset bit to 1 and in one case setting the next bit to 0.
+Remove the previous number from use so that it is not used to reproduce these
+numbers again.
+
+Disadvantage: only 31 levels of splitting possible with 32 bits; less if
+splitting into more than two new partitions at a time. Old numbers cannot be
+reused.
+
+Linear splitting
+------------
+
+Adaptation of above, where each partition *remembers* the range it has
+available, and divides this up among child partitions when partitioning. This
+is considerably more efficient when splitting to more than two child
+partitions.
+
+It does have one drawback: if elements are not relabelled, then checking
+uniqueness of new elements with the same partition number is not easy, so
+probably additionally partitions must *remember* which numbers within their
+range they are not able to use.
+
+Redistribution
+-------------
+
+This could be added to either of the above, presumably when new partitions are
+needed.
+
+The idea is simple: seek out partitions with more numbers available than they
+need, steal some (updating those partitions with their new number/range), and
+assign these to new partitions.
+
+There is some risk: if the program crashes at the wrong time, it might either
+lose some numbers or double-assign them. Further, another process using the
+library could *theoretically* divide the partition from which these numbers are
+stolen at the same time, causing more problems.
 
 
 Problems
