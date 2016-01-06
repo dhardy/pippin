@@ -4,8 +4,7 @@ use std::slice::{Iter, IterMut};
 use std::any::Any;
 
 use super::{Partition, PartitionIO};
-use super::readwrite::validate_repo_name;
-use ::Result;
+use ::error::{Result, OtherError};
 
 pub trait RepoIO {
     /// Convert self to a `&Any`
@@ -40,7 +39,7 @@ pub trait RepoIO {
 /// the copy may be merged back into the repository.
 pub struct Repo {
     io: Box<RepoIO>,
-    /// TODO: what is this for?
+    /// Descriptive identifier for the repository
     name: String,
     /// List of loaded partitions, by in-memory (temporary numeric) identifier.
     /// Identifier is TBD (TODO).
@@ -49,9 +48,17 @@ pub struct Repo {
 
 // Non-member functions on Repo
 impl Repo {
-    /// Create a new repository with the given name
+    /// Create a new repository with the given name.
+    /// 
+    /// The name must be UTF-8 and not more than 16 bytes long. It allows a
+    /// user-friendly description of the repository to appear in each data
+    /// file. It may also be useful for each repository to have a unique name
+    /// in order to differentiate files (this name is verified on each file
+    /// read).
+    /// 
+    /// This creates an initial 'partition' ready for use (all contents must
+    /// be kept within a `Partition`).
     pub fn new(mut io: Box<RepoIO>, name: String) -> Result<Repo> {
-        try!(validate_repo_name(&name));
         let n = io.add_partition();
         let part = try!(Partition::new(io.make_partition_io(n), &name));
         Ok(Repo{
@@ -63,17 +70,28 @@ impl Repo {
     
     /// Open an existing repository.
     /// 
-    /// This does not automatically load partition data.
+    /// This does not automatically load partition data, however it must load
+    /// at least one header in order to identify the repository.
     pub fn open(io: Box<RepoIO>) -> Result<Repo> {
         let n = io.num_partitions();
-        let mut parts = Vec::with_capacity(n);
-        for i in 0..n {
-            parts.push(Partition::create(io.make_partition_io(i)));
-            //TODO: should this read a header and verify a repository identifier and/or partition identifier?
+        if n < 1 {
+            return OtherError::err("No repository files found");
         }
+        
+        let mut part0 = Partition::create(io.make_partition_io(0));
+        let name = try!(part0.get_repo_name()).to_string();
+        
+        let mut parts = Vec::with_capacity(n);
+        parts.push(part0);
+        for i in 1..n {
+            let mut part = Partition::create(io.make_partition_io(i));
+            try!(part.set_repo_name(&name));
+            parts.push(part);
+        }
+        
         Ok(Repo{
             io: io,
-            name: "".to_string() /*TODO*/,
+            name: name,
             partitions: parts,
         })
     }

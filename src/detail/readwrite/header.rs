@@ -28,6 +28,9 @@ pub struct FileHeader {
 }
 
 pub fn validate_repo_name(name: &str) -> stdResult<(), ArgError> {
+    if name.len() == 0 {
+        return Err(ArgError::new("repo name missing (length 0)"));
+    }
     if name.as_bytes().len() > 16 {
         return Err(ArgError::new("repo name too long"));
     }

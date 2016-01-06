@@ -11,7 +11,8 @@ use super::{Sum, Commit, CommitQueue, LogReplay,
     PartitionState, PartitionStateSumComparator};
 use super::merge::{TwoWayMerge, TwoWaySolver};
 use super::readwrite::{FileHeader, FileType, read_head, write_head,
-    read_snapshot, write_snapshot, read_log, start_log, write_commit};
+    read_snapshot, write_snapshot, read_log, start_log, write_commit,
+    validate_repo_name};
 use error::{Result, ArgError, TipError, MatchError, OtherError, make_io_err};
 
 /// An interface providing read and/or write access to a suitable location.
@@ -173,8 +174,10 @@ impl SnapshotPolicy {
 pub struct Partition {
     // IO provider
     io: Box<PartitionIO>,
+    // Partition name. Used to identify loaded files.
+    repo_name: String,
     // Range (inclusive) of partition identifiers; first is one in use
-    part_id0: u64, part_id1: u64,
+    part_range: (u64, u64),
     // Number of the current snapshot file
     ss_num: usize,
     // Determines when to write new snapshots
@@ -202,27 +205,26 @@ impl Partition {
     /// let partition = Partition::new(Box::new(PartitionDummyIO::new()), "example repo");
     /// ```
     pub fn new(mut io: Box<PartitionIO>, name: &str) -> Result<Partition> {
-        let (part_id0, part_id1) = (0, u64::MAX);
-        let state = PartitionState::new(part_id0);
-        {
-            let header = FileHeader {
-                ftype: FileType::Snapshot,
-                name: name.to_string(),
-                remarks: Vec::new(),
-                user_fields: Vec::new(),
-            };
-            if let Some(mut writer) = try!(io.new_ss(0)) {
-                try!(write_head(&header, &mut writer));
-                try!(write_snapshot(&state, (part_id0, part_id1), &mut writer));
-            } else {
-                return make_io_err(ErrorKind::AlreadyExists, "snapshot already exists");
-            }
+        try!(validate_repo_name(name));
+        let range = (0, u64::MAX);
+        let state = PartitionState::new(range.0);
+        let header = FileHeader {
+            ftype: FileType::Snapshot,
+            name: name.to_string(),
+            remarks: Vec::new(),
+            user_fields: Vec::new(),
+        };
+        if let Some(mut writer) = try!(io.new_ss(0)) {
+            try!(write_head(&header, &mut writer));
+            try!(write_snapshot(&state, range, &mut writer));
+        } else {
+            return make_io_err(ErrorKind::AlreadyExists, "snapshot already exists");
         }
         
         let mut part = Partition {
             io: io,
-            part_id0: part_id0,
-            part_id1: part_id1,
+            repo_name: header.name,
+            part_range: range,
             ss_num: 0,
             ss_policy: SnapshotPolicy::new(),
             states: HashIndexed::new(),
@@ -241,6 +243,10 @@ impl Partition {
     /// The partition will not be *ready to use* until data is loaded with one
     /// of the load operations. Until then most operations will fail.
     /// 
+    /// If the repository name is known (e.g. from another partition), then
+    /// setting this with `set_repo_name()` will ensure that the value is
+    /// checked when loading files.
+    /// 
     /// Example:
     /// 
     /// ```no_run
@@ -254,14 +260,43 @@ impl Partition {
     pub fn create(io: Box<PartitionIO>) -> Partition {
         Partition {
             io: io,
-            part_id0: 0,
-            part_id1: 0,
+            repo_name: "".to_string() /*temporary value; checked before usage elsewhere*/,
+            part_range: (0, 0),
             ss_num: 0,
             ss_policy: SnapshotPolicy::new(),
             states: HashIndexed::new(),
             tips: HashSet::new(),
             unsaved: VecDeque::new(),
         }
+    }
+    
+    /// Set the repo name. This is left empty by `create()`. Once set,
+    /// partition operations will fail when loading a file with a different
+    /// name, or indeed if this function supplies a different name.
+    pub fn set_repo_name(&mut self, repo_name: &str) -> Result<()> {
+        try!(validate_repo_name(repo_name));
+        Self::verify_repo_name(repo_name, &mut self.repo_name)
+    }
+    
+    /// Get the repo name.
+    /// 
+    /// If this partition was created with `create()`, not `new()`, and no
+    /// partition has been loaded yet, then this function will read a snapshot
+    /// file header in order to find this name.
+    /// 
+    /// Returns the repo_name on success. Fails if it cannot read a header.
+    pub fn get_repo_name(&mut self) -> Result<&str> {
+        if self.repo_name.len() > 0 {
+            return Ok(&self.repo_name);
+        }
+        for ss in (0 .. self.io.ss_len()).rev() {
+            if let Some(mut ssf) = try!(self.io.read_ss(ss)) {
+                let header = try!(read_head(&mut *ssf));
+                try!(Self::verify_repo_name(&header.name, &mut self.repo_name));
+                return Ok(&self.repo_name);
+            }
+        }
+        return OtherError::err("no snapshot found for first partition");
     }
     
     /// Load either all history available or only that required to find the
@@ -287,44 +322,27 @@ impl Partition {
         let ss_len = self.io.ss_len();
         let mut num = ss_len - 1;
         let mut num_commits = 0;
-        // TODO FIXME: set part_id0 and part_id1
         
         if all_history {
             for ss in 0..ss_len {
-                let result = if let Some(mut r) = try!(self.io.read_ss(ss)) {
+                if let Some(mut r) = try!(self.io.read_ss(ss)) {
                     let head = try!(read_head(&mut r));
-                    let (snapshot, (p0, p1)) = try!(read_snapshot(&mut r));
-                    if self.part_id0 == 0 && self.part_id1 == 0 {
-                        // This should only be the case when loading the first snapshot
-                        // after `create()` is called. It should never be used otherwise.
-                        self.part_id0 = p0;
-                        self.part_id1 = p1;
-                    } else {
-                        // Presumably we read one snapshot already, and now found
-                        // another. Values should be equal.
-                        if self.part_id0 != p0 || self.part_id1 != p1 {
-                            return OtherError::err("partition identifier range differs from previous value");
-                        }
-                    }
-                    Some((head, snapshot))
-                } else { None };
-                if let Some((head, state)) = result {
-                    try!(self.validate_header(head));
+                    try!(Self::verify_repo_name(&head.name, &mut self.repo_name));
+                    
+                    let (state, range) = try!(read_snapshot(&mut r));
+                    try!(Self::verify_part_range(range, &mut self.part_range));
+                    
                     self.tips.insert(state.statesum().clone());
                     self.states.insert(state);
                 }
                 
                 let mut queue = CommitQueue::new();
                 for c in 0..self.io.ss_cl_len(ss) {
-                    let result = if let Some(mut r) = try!(self.io.read_ss_cl(ss, c)) {
+                    if let Some(mut r) = try!(self.io.read_ss_cl(ss, c)) {
                         let head = try!(read_head(&mut r));
+                        try!(Self::verify_repo_name(&head.name, &mut self.repo_name));
+                        
                         try!(read_log(&mut r, &mut queue));
-                        Some(head)
-                    } else { None };
-                    if let Some(head) = result {
-                        // Note: if this error becomes recoverable within load_latest(),
-                        // the header should be validated before updating `queue`.
-                        try!(self.validate_header(head));
                     }
                 }
                 num_commits = queue.len();  // final value is number of commits after last snapshot
@@ -333,32 +351,21 @@ impl Partition {
             }
         } else {
             loop {
-                let result = if let Some(mut r) = try!(self.io.read_ss(num)) {
+                if let Some(mut r) = try!(self.io.read_ss(num)) {
                     let head = try!(read_head(&mut r));
-                    let (snapshot, (p0, p1)) = try!(read_snapshot(&mut r));
-                    if self.part_id0 == 0 && self.part_id1 == 0 {
-                        // This should only be the case when loading the first snapshot
-                        // after `create()` is called. It should never be used otherwise.
-                        self.part_id0 = p0;
-                        self.part_id1 = p1;
-                    } else {
-                        // Presumably we read one snapshot already, and now found
-                        // another. Values should be equal.
-                        if self.part_id0 != p0 || self.part_id1 != p1 {
-                            return OtherError::err("partition identifier range differs from previous value");
-                        }
-                    }
-                    Some((head, snapshot))
-                } else { None };
-                if let Some((head, state)) = result {
-                    try!(self.validate_header(head));
+                    try!(Self::verify_repo_name(&head.name, &mut self.repo_name));
+                    
+                    let (state, range) = try!(read_snapshot(&mut r));
+                    try!(Self::verify_part_range(range, &mut self.part_range));
+                    
                     self.tips.insert(state.statesum().clone());
                     self.states.insert(state);
                     break;  // we stop at the most recent snapshot we find
                 }
+                
                 if num == 0 {
                     // no more snapshot numbers to try; assume zero is empty state
-                    let state = PartitionState::new(self.part_id0);
+                    let state = PartitionState::new(self.part_range.0);
                     self.tips.insert(state.statesum().clone());
                     self.states.insert(state);
                     break;
@@ -369,15 +376,11 @@ impl Partition {
             let mut queue = CommitQueue::new();
             for ss in num..ss_len {
                 for c in 0..self.io.ss_cl_len(ss) {
-                    let result = if let Some(mut r) = try!(self.io.read_ss_cl(ss, c)) {
+                    if let Some(mut r) = try!(self.io.read_ss_cl(ss, c)) {
                         let head = try!(read_head(&mut r));
+                        try!(Self::verify_repo_name(&head.name, &mut self.repo_name));
+                        
                         try!(read_log(&mut r, &mut queue));
-                        Some(head)
-                    } else { None };
-                    if let Some(head) = result {
-                        // Note: if this error becomes recoverable within load_latest(),
-                        // the header should be validated before updating `queue`.
-                        try!(self.validate_header(head));
                     }
                 }
             }
@@ -421,12 +424,32 @@ impl Partition {
         self.tips.len() > 1
     }
     
-    /// Read and/or validate values in a header.
+    /// Verify values in a header match those we expect.
     /// 
-    /// This function is called for every file loaded.
-    pub fn validate_header(&mut self, _header: FileHeader) -> Result<()> {
-        // #0016: I guess we need to assign repository and partition UUIDs or
-        // something, and consider how to handle history across repartitioning.
+    /// This function is called for every file loaded. It does not take self as
+    /// an argument, since it is called in situations where self.io is in use.
+    pub fn verify_repo_name(repo_name: &str, self_name: &mut String) -> Result<()> {
+        if self_name.len() == 0 {
+            *self_name = repo_name.to_string();
+        } else if repo_name != self_name {
+            return OtherError::err("repository name does not match when loading (wrong repo?)");
+        }
+        Ok(())
+    }
+    /// Verify or set the partition's identifier range
+    pub fn verify_part_range(range: (u64, u64), self_range: &mut (u64, u64)) -> Result<()> {
+        if self_range.0 == 0 && self_range.1 == 0 {
+            // This should only be the case when loading the first snapshot
+            // after `create()` is called. It should never be used otherwise.
+            self_range.0 = range.0;
+            self_range.1 = range.1;
+        } else {
+            // Presumably we read one snapshot already, and now found
+            // another. Values should be equal.
+            if self_range.0 != range.0 || self_range.1 != range.1 {
+                return OtherError::err("partition identifier range differs from previous value");
+            }
+        }
         Ok(())
     }
     
@@ -647,7 +670,7 @@ impl Partition {
                     // Write a header since this is a new file:
                     let header = FileHeader {
                         ftype: FileType::CommitLog,
-                        name: "".to_string() /* #0016: repo name?*/,
+                        name: self.repo_name.clone(),
                         remarks: Vec::new(),
                         user_fields: Vec::new(),
                     };
@@ -700,13 +723,13 @@ impl Partition {
             if let Some(mut writer) = try!(self.io.new_ss(ss_num)) {
                 let header = FileHeader {
                     ftype: FileType::Snapshot,
-                    name: "".to_string() /* #0016: repo name?*/,
+                    name: self.repo_name.clone(),
                     remarks: Vec::new(),
                     user_fields: Vec::new(),
                 };
                 try!(write_head(&header, &mut writer));
                 try!(write_snapshot(self.states.get(&tip_key).unwrap(),
-                    (self.part_id0, self.part_id1), &mut writer));
+                    self.part_range, &mut writer));
                 self.ss_num = ss_num;
                 self.ss_policy.reset();
                 return Ok(())

@@ -6,8 +6,6 @@ Potential changes
 
 These may or may not be acted upon.
 
-*   add a repository identifier to header (instead of 'name' field?)
-*   add a partition identifier to header (derived from classifier restrictions?)
 *   identify snapshot file in change logs (cannot do vice-versa since snapshot
     is written first, except for guessing the file name, but we can already do that)
 *   identify previous snapshot(s) and possibly change logs leading up to a new

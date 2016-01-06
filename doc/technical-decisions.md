@@ -88,6 +88,13 @@ range should never be used otherwise.
 
 See *identifiers* section under *partitions*, below.
 
+### Repository name
+
+A repository must have a name specified when created (UTF-8; not more than 16
+bytes long). This serves (1) as an identifier to check that partitions come
+from the same repo, and (2) as a user description of the repo. It is visible
+near the top of each repository file in plain text (assuming no compression).
+
 
 Checksums
 ----------------------
