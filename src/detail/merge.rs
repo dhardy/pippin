@@ -27,31 +27,34 @@
 //! solver must be used or a custom solver supplied.
 
 use std::collections::HashMap;
+use std::marker::PhantomData;
 
-use super::{PartitionState, EltId, Commit, EltChange, Element, Sum};
+use super::{PartitionState, EltId, Commit, EltChange, ElementT, Element, Sum};
 
 /// This struct controls the merging of two states into one.
 /// 
 /// It currently requires a common ancestor, but could be rewritten not to
 /// (by asking for help solving far more cases).
-pub struct TwoWayMerge<'a> {
+pub struct TwoWayMerge<'a, E: ElementT+'a> {
     // First tip
-    a: &'a PartitionState,
+    a: &'a PartitionState<E>,
     // Second tip
-    b: &'a PartitionState,
+    b: &'a PartitionState<E>,
     // Common ancestor
-    c: &'a PartitionState,
+    c: &'a PartitionState<E>,
     // List of conflicts
-    v: Vec<(EltId, EltMerge)>,
+    v: Vec<(EltId, EltMerge<E>)>,
 }
-impl<'a> TwoWayMerge<'a> {
+impl<'a, E: ElementT> TwoWayMerge<'a, E> {
     /// Create an instance. `c` should be a common ancestor state of `a` and `b`.
     /// 
     /// Operation is `O(A + B + X)` where `A` and `B` are the numbers of
     /// elements in states `a` and `b` respectively and `X` are the number of
     /// conflicts.
-    pub fn new<'b>(a: &'b PartitionState, b: &'b PartitionState, c: &'b PartitionState) -> TwoWayMerge<'b> {
-        let mut v: Vec<(EltId, EltMerge)> = Vec::new();
+    pub fn new<'b>(a: &'b PartitionState<E>, b: &'b PartitionState<E>,
+        c: &'b PartitionState<E>) -> TwoWayMerge<'b, E>
+    {
+        let mut v: Vec<(EltId, EltMerge<E>)> = Vec::new();
         let mut map_b = b.map().clone();
         for (id, elt1) in a.map() {
             if let Some(elt2) = map_b.remove(id) {
@@ -75,7 +78,7 @@ impl<'a> TwoWayMerge<'a> {
     /// of them.
     /// 
     /// Operation is `O(X)`.
-    pub fn solve<S>(&mut self, s: &S) where S: TwoWaySolver {
+    pub fn solve<S>(&mut self, s: &S) where S: TwoWaySolver<E> {
         for &mut (id, ref mut result) in self.v.iter_mut() {
             if *result == EltMerge::NoResult {
                 *result = s.solve(self.a.get_elt(id), self.b.get_elt(id), self.c.get_elt(id));
@@ -93,7 +96,7 @@ impl<'a> TwoWayMerge<'a> {
     /// also given, though these are expected to be meaningless to the user.
     /// 
     /// Operation is `O(1)`.
-    pub fn status(&self, i: usize) -> &(EltId, EltMerge) {
+    pub fn status(&self, i: usize) -> &(EltId, EltMerge<E>) {
         &self.v[i]
     }
     
@@ -103,7 +106,7 @@ impl<'a> TwoWayMerge<'a> {
     /// cases.
     /// 
     /// Operation is `O(1)`.
-    pub fn solve_one<S>(&mut self, i: usize, s: &S) where S: TwoWaySolver {
+    pub fn solve_one<S>(&mut self, i: usize, s: &S) where S: TwoWaySolver<E> {
         let id = self.v[i].0;
         self.v[i].1 = s.solve(self.a.get_elt(id), self.b.get_elt(id), self.c.get_elt(id));
     }
@@ -127,7 +130,7 @@ impl<'a> TwoWayMerge<'a> {
     /// This succeeds if and only if `is_solved()` returns true.
     /// 
     /// Operation is `O(X)`.
-    pub fn make_commit(self) -> Option<Commit> {
+    pub fn make_commit(self) -> Option<Commit<E>> {
         // We build change-lists from the perspective of state1 and state2, then
         // pick whichever is smaller.
         let mut c1 = HashMap::new();
@@ -144,16 +147,16 @@ impl<'a> TwoWayMerge<'a> {
                     if let Some(elt1) = a {
                         if let Some(elt2) = b {
                             c2.insert(id, EltChange::replacement(elt1.clone()));
-                            sum2.permute(elt2.sum());
-                            sum2.permute(elt1.sum());
+                            sum2.permute(&elt2.sum());
+                            sum2.permute(&elt1.sum());
                         } else {
                             c2.insert(id, EltChange::insertion(elt1.clone()));
-                            sum2.permute(elt1.sum());
+                            sum2.permute(&elt1.sum());
                         }
                     } else {
                         if let Some(elt2) = b {
                             c2.insert(id, EltChange::deletion());
-                            sum2.permute(elt2.sum());
+                            sum2.permute(&elt2.sum());
                         }
                     }
                 },
@@ -161,49 +164,49 @@ impl<'a> TwoWayMerge<'a> {
                     if let Some(elt1) = a {
                         if let Some(elt2) = b {
                             c1.insert(id, EltChange::replacement(elt2.clone()));
-                            sum1.permute(elt1.sum());
-                            sum1.permute(elt2.sum());
+                            sum1.permute(&elt1.sum());
+                            sum1.permute(&elt2.sum());
                         } else {
                             c1.insert(id, EltChange::deletion());
-                            sum1.permute(elt1.sum());
+                            sum1.permute(&elt1.sum());
                         }
                     } else {
                         if let Some(elt2) = b {
                             c1.insert(id, EltChange::insertion(elt2.clone()));
-                            sum1.permute(elt2.sum());
+                            sum1.permute(&elt2.sum());
                         }
                     }
                 },
                 EltMerge::Elt(elt) => {
                     if let Some(elt1) = a {
                         if *elt1 != elt {
-                            sum1.permute(elt1.sum());
-                            sum1.permute(elt.sum());
+                            sum1.permute(&elt1.sum());
+                            sum1.permute(&elt.sum());
                             c1.insert(id, EltChange::replacement(elt.clone()));
                         }
                     } else {
-                        sum1.permute(elt.sum());
+                        sum1.permute(&elt.sum());
                         c1.insert(id, EltChange::insertion(elt.clone()));
                     }
                     if let Some(elt2) = b {
                         if *elt2 != elt {
-                            sum2.permute(elt2.sum());
-                            sum2.permute(elt.sum());
+                            sum2.permute(&elt2.sum());
+                            sum2.permute(&elt.sum());
                             c2.insert(id, EltChange::replacement(elt));
                         }
                     } else {
-                        sum2.permute(elt.sum());
+                        sum2.permute(&elt.sum());
                         c2.insert(id, EltChange::insertion(elt));
                     }
                 },
                 EltMerge::NoElt => {
                     if let Some(elt1) = a {
                         c1.insert(id, EltChange::deletion());
-                        sum1.permute(elt1.sum());
+                        sum1.permute(&elt1.sum());
                     }
                     if let Some(elt2) = b {
                         c2.insert(id, EltChange::deletion());
-                        sum2.permute(elt2.sum());
+                        sum2.permute(&elt2.sum());
                     }
                 },
                 EltMerge::Rename => {
@@ -225,17 +228,17 @@ impl<'a> TwoWayMerge<'a> {
                             }
                             
                             c1.insert(new_id, EltChange::insertion(elt2.clone()));
-                            sum1.permute(elt2.sum());
+                            sum1.permute(&elt2.sum());
                             c2.insert(new_id, EltChange::insertion(elt1.clone()));
-                            sum2.permute(elt1.sum());
+                            sum2.permute(&elt1.sum());
                         } else {
                             c2.insert(id, EltChange::insertion(elt1.clone()));
-                            sum2.permute(elt1.sum());
+                            sum2.permute(&elt1.sum());
                         }
                     } else {
                         if let Some(elt2) = b {
                             c1.insert(id, EltChange::insertion(elt2.clone()));
-                            sum1.permute(elt2.sum());
+                            sum1.permute(&elt2.sum());
                         }
                     }
                 },
@@ -363,14 +366,14 @@ impl<'a> TwoWayMerge<'a> {
 /// Note that there is no direct way to specify the ancestor value, but this
 /// can be replicated via `Elt(...)` and `NoElt`. This significantly simplifies
 /// code in `TwoWayMerge::merge()`.
-#[derive(PartialEq, Eq, Debug)]
-pub enum EltMerge {
+#[derive(PartialEq)]
+pub enum EltMerge<E: ElementT> {
     /// Use the value from first state
     A,
     /// Use the value from the second state
     B,
     /// Use a custom value (specified in full)
-    Elt(Element),
+    Elt(Element<E>),
     /// Remove the element
     NoElt,
     /// Rename one element and include both; where only one element is present
@@ -381,29 +384,41 @@ pub enum EltMerge {
 }
 
 /// Implementations solve two-way merges on an element-by-element basis.
-pub trait TwoWaySolver {
-    fn solve<'a>(&self, a: Option<&'a Element>, b: Option<&'a Element>,
-        c: Option<&'a Element>) -> EltMerge;
+pub trait TwoWaySolver<E: ElementT> {
+    fn solve<'a>(&self, a: Option<&'a Element<E>>, b: Option<&'a Element<E>>,
+        c: Option<&'a Element<E>>) -> EltMerge<E>;
 }
 
 /// Implementation of TwoWaySolver which always selects state A.
-pub struct TwoWaySolveUseA;
-impl TwoWaySolver for TwoWaySolveUseA {
-    fn solve(&self, _: Option<&Element>, _: Option<&Element>, _: Option<&Element>) -> EltMerge {
+pub struct TwoWaySolveUseA<E: ElementT>{
+    p: PhantomData<E>
+}
+impl<E: ElementT> TwoWaySolver<E> for TwoWaySolveUseA<E> {
+    fn solve(&self, _: Option<&Element<E>>, _: Option<&Element<E>>,
+        _: Option<&Element<E>>) -> EltMerge<E>
+    {
         EltMerge::A
     }
 }
 /// Implementation of TwoWaySolver which always selects state B.
-pub struct TwoWaySolveUseB;
-impl TwoWaySolver for TwoWaySolveUseB {
-    fn solve(&self, _: Option<&Element>, _: Option<&Element>, _: Option<&Element>) -> EltMerge {
+pub struct TwoWaySolveUseB<E: ElementT>{
+    p: PhantomData<E>
+}
+impl<E: ElementT> TwoWaySolver<E> for TwoWaySolveUseB<E> {
+    fn solve(&self, _: Option<&Element<E>>, _: Option<&Element<E>>,
+        _: Option<&Element<E>>) -> EltMerge<E>
+    {
         EltMerge::B
     }
 }
 /// Implementation of TwoWaySolver which always selects state C.
-pub struct TwoWaySolveUseC;
-impl TwoWaySolver for TwoWaySolveUseC {
-    fn solve(&self, _: Option<&Element>, _: Option<&Element>, c: Option<&Element>) -> EltMerge {
+pub struct TwoWaySolveUseC<E: ElementT>{
+    p: PhantomData<E>
+}
+impl<E: ElementT> TwoWaySolver<E> for TwoWaySolveUseC<E> {
+    fn solve(&self, _: Option<&Element<E>>, _: Option<&Element<E>>,
+        c: Option<&Element<E>>) -> EltMerge<E>
+    {
         match c {
             Some(ref elt) => EltMerge::Elt((*elt).clone()),
             None => EltMerge::NoElt,
@@ -411,29 +426,40 @@ impl TwoWaySolver for TwoWaySolveUseC {
     }
 }
 /// Implementation of TwoWaySolver which always gives up.
-pub struct TwoWaySolveNoResult;
-impl TwoWaySolver for TwoWaySolveNoResult {
-    fn solve(&self, _: Option<&Element>, _: Option<&Element>, _: Option<&Element>) -> EltMerge {
+pub struct TwoWaySolveNoResult<E: ElementT>{
+    p: PhantomData<E>
+}
+impl<E: ElementT> TwoWaySolver<E> for TwoWaySolveNoResult<E> {
+    fn solve(&self, _: Option<&Element<E>>, _: Option<&Element<E>>,
+        _: Option<&Element<E>>) -> EltMerge<E>
+    {
         EltMerge::NoResult
     }
 }
 
 /// Chains two solvers. Calls the second if and only if the first returns
 /// `NoResult`.
-pub struct TwoWaySolverChain<'a, S: TwoWaySolver+'a, T: TwoWaySolver+'a> {
+pub struct TwoWaySolverChain<'a, E: ElementT,
+    S: TwoWaySolver<E>+'a, T: TwoWaySolver<E>+'a>
+{
     s: &'a S, t: &'a T,
+    p: PhantomData<E>
 }
-impl<'b, U: TwoWaySolver+'b, V: TwoWaySolver+'b> TwoWaySolverChain<'b, U, V> {
+impl<'b, E: ElementT, U: TwoWaySolver<E>+'b, V: TwoWaySolver<E>+'b>
+    TwoWaySolverChain<'b, E, U, V>
+{
     /// Create
-    pub fn new<'a, S: TwoWaySolver+'a, T: TwoWaySolver+'a>(s: &'a S, t: &'a T) ->
-        TwoWaySolverChain<'a, S, T>
+    pub fn new<'a, S: TwoWaySolver<E>+'a, T: TwoWaySolver<E>+'a>(s: &'a S, t: &'a T) ->
+        TwoWaySolverChain<'a, E, S, T>
     {
-        TwoWaySolverChain{ s: s, t: t }
+        TwoWaySolverChain{ s: s, t: t, p: PhantomData }
     }
 }
-impl<'a, S: TwoWaySolver+'a, T: TwoWaySolver+'a> TwoWaySolver for TwoWaySolverChain<'a, S, T> {
-    fn solve(&self, a: Option<&Element>, b: Option<&Element>,
-        c: Option<&Element>) -> EltMerge
+impl<'a, E: ElementT, S: TwoWaySolver<E>+'a, T: TwoWaySolver<E>+'a> TwoWaySolver<E>
+    for TwoWaySolverChain<'a, E, S, T>
+{
+    fn solve(&self, a: Option<&Element<E>>, b: Option<&Element<E>>,
+        c: Option<&Element<E>>) -> EltMerge<E>
     {
         let result = self.s.solve(a, b, c);
         if result != EltMerge::NoResult {
@@ -453,10 +479,12 @@ impl<'a, S: TwoWaySolver+'a, T: TwoWaySolver+'a> TwoWaySolver for TwoWaySolverCh
 /// independently, then one reverts, and then a merge is carried out, the
 /// merge will ignore the revert. Git and any other "3-way-merge" algorithms
 /// have the same defect.)
-pub struct AncestorSolver2W;
-impl TwoWaySolver for AncestorSolver2W {
-    fn solve<'a>(&self, a: Option<&'a Element>, b: Option<&'a Element>,
-        c: Option<&'a Element>) -> EltMerge
+pub struct AncestorSolver2W<E: ElementT>{
+    p: PhantomData<E>
+}
+impl<E: ElementT> TwoWaySolver<E> for AncestorSolver2W<E> {
+    fn solve<'a>(&self, a: Option<&'a Element<E>>, b: Option<&'a Element<E>>,
+        c: Option<&'a Element<E>>) -> EltMerge<E>
     {
         // Assumption: a != b
         if a == c {
@@ -472,10 +500,12 @@ impl TwoWaySolver for AncestorSolver2W {
 /// Solver which handles the case where there is no common ancestor element by
 /// renaming (or in the case that either `a` or `b` is `None`, choosing the
 /// other).
-pub struct RenamingSolver2W;
-impl TwoWaySolver for RenamingSolver2W {
-    fn solve(&self, _: Option<&Element>, _: Option<&Element>,
-        c: Option<&Element>) -> EltMerge
+pub struct RenamingSolver2W<E: ElementT>{
+    p: PhantomData<E>
+}
+impl<E: ElementT> TwoWaySolver<E> for RenamingSolver2W<E> {
+    fn solve(&self, _: Option<&Element<E>>, _: Option<&Element<E>>,
+        c: Option<&Element<E>>) -> EltMerge<E>
     {
         if c == None {
             EltMerge::Rename

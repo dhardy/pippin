@@ -7,8 +7,9 @@ use std::any::Any;
 use std::u64;
 use hashindexed::HashIndexed;
 
-use super::{Sum, Commit, CommitQueue, LogReplay,
-    PartitionState, PartitionStateSumComparator};
+use super::{Sum, Commit, CommitQueue, LogReplay};
+use super::{PartitionState, PartitionStateSumComparator};
+use super::{ElementT};
 use super::merge::{TwoWayMerge, TwoWaySolver};
 use super::readwrite::{FileHeader, FileType, read_head, write_head,
     read_snapshot, write_snapshot, read_log, start_log, write_commit,
@@ -171,7 +172,7 @@ impl SnapshotPolicy {
 /// 
 /// A partition is in one of three possible states: (1) unloaded, (2) loaded
 /// but requiring a merge (multiple tips), (3) ready for use.
-pub struct Partition {
+pub struct Partition<E: ElementT> {
     // IO provider
     io: Box<PartitionIO>,
     // Partition name. Used to identify loaded files.
@@ -183,15 +184,15 @@ pub struct Partition {
     // Determines when to write new snapshots
     ss_policy: SnapshotPolicy,
     // Known committed states indexed by statesum 
-    states: HashIndexed<PartitionState, Sum, PartitionStateSumComparator>,
+    states: HashIndexed<PartitionState<E>, Sum, PartitionStateSumComparator>,
     // All states without a known successor
     tips: HashSet<Sum>,
     // Commits created but not yet saved to disk. First in at front; use as queue.
-    unsaved: VecDeque<Commit>,
+    unsaved: VecDeque<Commit<E>>,
 }
 
 // Methods creating a partition and loading its data
-impl Partition {
+impl<E: ElementT> Partition<E> {
     /// Create a partition, assigning an IO provider (this can only be done at
     /// time of creation). Create a blank state in the partition, write an
     /// empty snapshot to the provided `PartitionIO`, and mark self as *ready
@@ -202,9 +203,10 @@ impl Partition {
     /// ```
     /// use pippin::{Partition, PartitionDummyIO};
     /// 
-    /// let partition = Partition::new(Box::new(PartitionDummyIO::new()), "example repo");
+    /// let io = Box::new(PartitionDummyIO::new());
+    /// let partition = Partition::<String>::new(io, "example repo");
     /// ```
-    pub fn new(mut io: Box<PartitionIO>, name: &str) -> Result<Partition> {
+    pub fn new(mut io: Box<PartitionIO>, name: &str) -> Result<Partition<E>> {
         try!(validate_repo_name(name));
         let range = (0, u64::MAX);
         let state = PartitionState::new(range.0);
@@ -255,9 +257,9 @@ impl Partition {
     /// 
     /// let path = Path::new(".");
     /// let io = DiscoverPartitionFiles::from_dir_basename(path, "my-partition").unwrap();
-    /// let partition = Partition::create(Box::new(io));
+    /// let partition = Partition::<String>::create(Box::new(io));
     /// ```
-    pub fn create(io: Box<PartitionIO>) -> Partition {
+    pub fn create(io: Box<PartitionIO>) -> Partition<E> {
         Partition {
             io: io,
             repo_name: "".to_string() /*temporary value; checked before usage elsewhere*/,
@@ -479,7 +481,7 @@ impl Partition {
 }
 
 // Methods saving a partition's data
-impl Partition {
+impl<E: ElementT> Partition<E> {
     /// Get the state-sum (key) of the tip. Fails when `tip()` fails.
     pub fn tip_key(&self) -> result::Result<&Sum, TipError> {
         if self.tips.len() == 1 {
@@ -500,21 +502,21 @@ impl Partition {
     /// The operation requires some copying but uses copy'c,d-on-write elements
     /// internally. This copy is needed to create a commit from the diff of the
     /// last committed state and the new state.
-    pub fn tip(&self) -> result::Result<&PartitionState, TipError> {
+    pub fn tip(&self) -> result::Result<&PartitionState<E>, TipError> {
         Ok(&self.states.get(try!(self.tip_key())).unwrap())
     }
     
     /// Get a read-only reference to a state by its statesum, if found.
     /// 
     /// If you want to keep a copy, clone it.
-    pub fn state(&self, key: &Sum) -> Option<&PartitionState> {
+    pub fn state(&self, key: &Sum) -> Option<&PartitionState<E>> {
         self.states.get(key)
     }
     
     /// Try to find a state given a string representation of the key (as a byte array).
     /// 
     /// Like git, we accept partial keys (so long as they uniquely resolve a key).
-    pub fn state_from_string(&self, string: String) -> Result<&PartitionState, MatchError> {
+    pub fn state_from_string(&self, string: String) -> Result<&PartitionState<E>, MatchError> {
         let string = string.to_uppercase().replace(" ", "");
         let mut matching = Vec::new();
         for state in self.states.iter() {
@@ -541,7 +543,7 @@ impl Partition {
     /// could take place, or one could in theory merge more than two tips at
     /// once. This function simply selects any two tips and merges, then
     /// repeats until done.
-    pub fn merge<S: TwoWaySolver>(&mut self, solver: &S) -> Result<()> {
+    pub fn merge<S: TwoWaySolver<E>>(&mut self, solver: &S) -> Result<()> {
         while self.tips.len() > 1 {
             let c = {
                 let (tip1, tip2) = {
@@ -573,7 +575,7 @@ impl Partition {
     /// 
     /// This is not eligant, but provides the user full control over the merge.
     /// Alternatively, use `self.merge(solver)`.
-    pub fn merge_two(&mut self) -> Result<TwoWayMerge> {
+    pub fn merge_two(&mut self) -> Result<TwoWayMerge<E>> {
         if self.tips.len() < 2 {
             return OtherError::err("merge_two() called when no states need merging");
         }
@@ -597,7 +599,7 @@ impl Partition {
     /// the states and 'tips' stored internally by creating a new state from
     /// the commit, and returns true, unless the commit's state is already
     /// known, in which case this does nothing and returns false.
-    pub fn push_commit(&mut self, commit: Commit) -> Result<bool> {
+    pub fn push_commit(&mut self, commit: Commit<E>) -> Result<bool> {
         if self.states.contains(commit.statesum()) {
             return Ok(false);
         }
@@ -619,7 +621,7 @@ impl Partition {
     /// The commit is created from the state passed by finding the state's
     /// parent and comparing. If there are no changes, nothing happens and
     /// this function returns false, otherwise the function returns true.
-    pub fn push_state(&mut self, state: PartitionState) -> Result<bool> {
+    pub fn push_state(&mut self, state: PartitionState<E>) -> Result<bool> {
         // #0019: Commit::from_diff compares old and new states and code be slow.
         // #0019: Instead, we could record each alteration as it happens.
         let c = if state.statesum() == state.parent() {
@@ -640,7 +642,7 @@ impl Partition {
     
     // Add a paired commit and state.
     // Assumptions: checksums match and parent state is present.
-    fn add_pair(&mut self, commit: Commit, state: PartitionState) {
+    fn add_pair(&mut self, commit: Commit<E>, state: PartitionState<E>) {
         self.unsaved.push_back(commit);
         // This might fail (if the parent was not a tip), but it doesn't matter:
         self.tips.remove(state.parent());
@@ -746,7 +748,7 @@ impl Partition {
 }
 
 // Support functions
-impl Partition {
+impl<E: ElementT> Partition<E> {
     // Take self and two sums. Return a copy of a key to avoid lifetime issues.
     // 
     // TODO: enable loading of additional history on demand. Or do we not need
@@ -793,7 +795,7 @@ fn on_new_partition() {
     use super::Element;
     
     let io = box PartitionDummyIO::new();
-    let mut part = Partition::new(io, "on_new_partition").expect("partition creation");
+    let mut part = Partition::<String>::new(io, "on_new_partition").expect("partition creation");
     assert_eq!(part.tips.len(), 1);
     
     let state = part.tip().expect("getting tip").clone_child();
@@ -804,10 +806,10 @@ fn on_new_partition() {
     assert!(state.is_empty());
     assert_eq!(state.statesum(), &Sum::zero());
     
-    let elt1 = Element::from_str("This is element one.");
-    let elt2 = Element::from_str("Element two data.");
+    let elt1 = Element::new("This is element one.".to_string());
+    let elt2 = Element::new("Element two data.".to_string());
     let mut key = elt1.sum().clone();
-    key.permute(elt2.sum());
+    key.permute(&elt2.sum());
     assert!(state.insert_elt(1, elt1).is_ok());
     assert!(state.insert_elt(2, elt2).is_ok());
     assert_eq!(state.statesum(), &key);
@@ -818,7 +820,7 @@ fn on_new_partition() {
     {
         let state = part.state(&key).expect("getting state by key");
         assert!(state.has_elt(1));
-        assert_eq!(state.get_elt(2), Some(&Element::from_str("Element two data.")));
+        assert_eq!(state.get_elt(2), Some(&Element::new("Element two data.".to_string())));
     }   // `state` goes out of scope
     assert_eq!(part.tips.len(), 1);
     let state = part.tip().expect("getting tip").clone_child();

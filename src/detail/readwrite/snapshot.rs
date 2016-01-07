@@ -6,7 +6,8 @@ use crypto::digest::Digest;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
 use super::{sum, fill};
-use detail::{Sum, Element, PartitionState};
+use detail::{Sum, PartitionState};
+use detail::{ElementT, Element};
 use ::error::{Result, ReadError};
 
 /// Read a snapshot of a set of elements from a stream.
@@ -14,8 +15,8 @@ use ::error::{Result, ReadError};
 /// This function reads to the end of the snapshot. It does not check whether
 /// this is in fact the end of the file (or other data stream), though
 /// according to the specified file format this should be the case.
-pub fn read_snapshot(reader: &mut Read) ->
-    Result<(PartitionState, (u64, u64))>
+pub fn read_snapshot<T: ElementT>(reader: &mut Read) ->
+    Result<(PartitionState<T>, (u64, u64))>
 {
     // A reader which calculates the checksum of what was read:
     let mut r = sum::HashReader::new256(reader);
@@ -84,7 +85,8 @@ pub fn read_snapshot(reader: &mut Read) ->
         }
         pos += 32;
         
-        try!(state.insert_elt(ident, Element::new(data, elt_sum)));
+        let elt = try!(Element::from_vec(data));
+        try!(state.insert_elt(ident, elt));
     }
     
     try!(fill(&mut r, &mut buf[0..16], pos));
@@ -120,7 +122,9 @@ pub fn read_snapshot(reader: &mut Read) ->
 /// 
 /// The snapshot is derived from a partition state, but also includes a
 /// partition identifier range.
-pub fn write_snapshot(state: &PartitionState, part_range: (u64, u64), writer: &mut Write) -> Result<()>{
+pub fn write_snapshot<T: ElementT>(state: &PartitionState<T>,
+    part_range: (u64, u64), writer: &mut Write) -> Result<()>
+{
     // A writer which calculates the checksum of what was written:
     let mut w = sum::HashWriter::new256(writer);
     
@@ -138,23 +142,25 @@ pub fn write_snapshot(state: &PartitionState, part_range: (u64, u64), writer: &m
     let num_elts = elts.len() as u64;  // #0015
     try!(w.write_u64::<BigEndian>(num_elts));
     
+    let mut elt_buf = Vec::new();
+    
     for (ident, elt) in elts {
         try!(w.write(b"ELEMENT\x00"));
         try!(w.write_u64::<BigEndian>(*ident));
         
         try!(w.write(b"BYTES\x00\x00\x00"));
-        try!(w.write_u64::<BigEndian>(elt.data_len() as u64 /* #0015 */));
+        elt_buf.clear();
+        try!(elt.write_buf(&mut &mut elt_buf));
+        try!(w.write_u64::<BigEndian>(elt_buf.len() as u64 /* #0015 */));
         
-        try!(w.write(&elt.data()));
-        let pad_len = 16 * ((elt.data_len() + 15) / 16) - elt.data_len();
+        try!(w.write(&elt_buf));
+        let pad_len = 16 * ((elt_buf.len() + 15) / 16) - elt_buf.len();
         if pad_len > 0 {
             let padding = [0u8; 15];
             try!(w.write(&padding[0..pad_len]));
         }
         
-        // #0010: Now we store the checksum, should we use it here? Should we
-        // #0010: rely on it or check and stop if it's wrong?
-        let elt_sum = Sum::calculate(&elt.data());
+        let elt_sum = Sum::calculate(&elt_buf);
         try!(elt_sum.write(&mut w));
     }
     
@@ -192,7 +198,7 @@ fn write_u40(buf: &mut[u8], val: u64) {
 #[test]
 fn snapshot_writing() {
     let part_id = 1 << 24;
-    let mut state = PartitionState::new(part_id);
+    let mut state = PartitionState::<String>::new(part_id);
     let data = "But I must explain to you how all this \
         mistaken idea of denouncing pleasure and praising pain was born and I \
         will give you a complete account of the system, and expound the \
@@ -208,11 +214,11 @@ fn snapshot_writing() {
         advantage from it? But who has any right to find fault with a man who \
         chooses to enjoy a pleasure that has no annoying consequences, or one \
         who avoids a pain that produces no resultant pleasure?";
-    state.new_elt(Element::from_str(data)).unwrap();
+    state.new_elt(Element::new(data.to_string())).unwrap();
     let data = "arstneio[()]123%αρστνειο\
         qwfpluy-QWFPLUY—<{}>456+5≤≥φπλθυ−\
         zxcvm,./ZXCVM;:?`\"ç$0,./ζχψωμ~·÷";
-    state.new_elt(Element::from_str(data)).unwrap();
+    state.new_elt(Element::new(data.to_string())).unwrap();
     
     let mut result = Vec::new();
     assert!(write_snapshot(&state, (part_id, 12 << 24), &mut result).is_ok());

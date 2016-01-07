@@ -78,3 +78,7 @@ Compression
 
 Encryption
 
+### Custom element types
+
+Currently, only the default `String` implementation is used. Add a test using
+something like `struct Pair { x: i32, y: i32 }`.

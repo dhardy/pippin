@@ -3,7 +3,7 @@
 use std::slice::{Iter, IterMut};
 use std::any::Any;
 
-use super::{Partition, PartitionIO};
+use super::{Partition, PartitionIO, ElementT};
 use ::error::{Result, OtherError};
 
 pub trait RepoIO {
@@ -37,17 +37,17 @@ pub trait RepoIO {
 /// and used to read and write elements. The copy may be accessed without
 /// blocking other operations on the underlying repository. Changes made to
 /// the copy may be merged back into the repository.
-pub struct Repo {
+pub struct Repo<E: ElementT> {
     io: Box<RepoIO>,
     /// Descriptive identifier for the repository
     name: String,
     /// List of loaded partitions, by in-memory (temporary numeric) identifier.
     /// Identifier is TBD (TODO).
-    partitions: Vec<Partition>,
+    partitions: Vec<Partition<E>>,
 }
 
 // Non-member functions on Repo
-impl Repo {
+impl<E: ElementT> Repo<E> {
     /// Create a new repository with the given name.
     /// 
     /// The name must be UTF-8 and not more than 16 bytes long. It allows a
@@ -58,7 +58,7 @@ impl Repo {
     /// 
     /// This creates an initial 'partition' ready for use (all contents must
     /// be kept within a `Partition`).
-    pub fn new(mut io: Box<RepoIO>, name: String) -> Result<Repo> {
+    pub fn new(mut io: Box<RepoIO>, name: String) -> Result<Repo<E>> {
         let n = io.add_partition();
         let part = try!(Partition::new(io.make_partition_io(n), &name));
         Ok(Repo{
@@ -72,7 +72,7 @@ impl Repo {
     /// 
     /// This does not automatically load partition data, however it must load
     /// at least one header in order to identify the repository.
-    pub fn open(io: Box<RepoIO>) -> Result<Repo> {
+    pub fn open(io: Box<RepoIO>) -> Result<Repo<E>> {
         let n = io.num_partitions();
         if n < 1 {
             return OtherError::err("No repository files found");
@@ -98,17 +98,17 @@ impl Repo {
 }
 
 // Member functions on Repo — a set of elements.
-impl Repo {
+impl<E: ElementT> Repo<E> {
     /// Get the repo name
     pub fn name(&self) -> &str { &self.name }
     
     /// Get an iterator over partitions
-    pub fn partitions(&self) -> Iter<Partition> {
+    pub fn partitions(&self) -> Iter<Partition<E>> {
         self.partitions.iter()
     }
     
     /// Get a mutable iterator over partitions
-    pub fn partitions_mut(&mut self) -> IterMut<Partition> {
+    pub fn partitions_mut(&mut self) -> IterMut<Partition<E>> {
         self.partitions.iter_mut()
     }
     

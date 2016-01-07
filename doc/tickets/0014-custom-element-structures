@@ -17,3 +17,12 @@ A polymorphic approach using a trait would:
 *   require a run-time-checked downcast or unsafe cast to access members
 *   still allow better access to user-defined details than the current approach
 *   allow direct support for polymorphic elements via a trait
+
+------------
+
+2016-01-07 : I (dhardy) have implemented a templated approach. So far it looks
+okay (other than lots more template parameters), so it will probably stay.
+
+New question: do we still need `Element`? Can we at least make `get_elt` in
+`PartitionState` return a reference to the underlying type, not the `Element`
+wrapper?

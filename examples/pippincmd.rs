@@ -13,7 +13,7 @@ use std::ffi::OsStr;
 use std::os::unix::ffi::OsStrExt;
 use docopt::Docopt;
 use pippin::error::{Result, make_io_err};
-use pippin::{DiscoverPartitionFiles, Partition, PartitionIO, Element};
+use pippin::{DiscoverPartitionFiles, Partition, PartitionIO, Element, ElementT};
 use pippin::util::rtrim;
 
 const USAGE: &'static str = "
@@ -194,7 +194,7 @@ fn inner(files: Vec<String>, op: Operation, args: Rest) -> Result<()>
                 }
                 Ok(())
             } else {
-                let mut part = Partition::create(box discover);
+                let mut part = Partition::<DataElt>::create(box discover);
                 {
                     let mut state = if let Some(ss) = args.commit {
                         try!(part.load(true));
@@ -218,7 +218,7 @@ fn inner(files: Vec<String>, op: Operation, args: Rest) -> Result<()>
                                 None => { println!("No element {}", id); },
                                 Some(d) => {
                                     println!("Element {}:", id);
-                                    println!("{}", String::from_utf8_lossy(d.data()));
+                                    println!("{}", **d);
                                 }
                             }
                         },
@@ -239,13 +239,13 @@ fn inner(files: Vec<String>, op: Operation, args: Rest) -> Result<()>
                             
                             let id: u64 = try!(elt.parse());
                             {
-                                let elt_data = if let Some(d) = state.get_elt(id) {
-                                    d.data()
+                                let elt_data: &DataElt = if let Some(d) = state.get_elt(id) {
+                                    &**d
                                 } else {
                                     panic!("element not found");
                                 };
                                 let mut file = try!(fs::OpenOptions::new().write(true).open(&tmp_path));
-                                try!(file.write(elt_data));
+                                try!(file.write(elt_data.bytes()));
                             }
                             println!("Written to temporary file: {}", tmp_path.display());
                             
@@ -260,7 +260,7 @@ fn inner(files: Vec<String>, op: Operation, args: Rest) -> Result<()>
                             let mut file = try!(fs::File::open(&tmp_path));
                             let mut buf = Vec::new();
                             try!(file.read_to_end(&mut buf));
-                            let new_elt = Element::from_vec(buf);
+                            let new_elt = Element::new(DataElt::from(buf));
                             try!(state.replace_elt(id, new_elt));
                             try!(fs::remove_file(tmp_path));
                         },
@@ -295,6 +295,50 @@ fn inner(files: Vec<String>, op: Operation, args: Rest) -> Result<()>
                 discover.num_cl_files());
             Ok(())
         },
+    }
+}
+
+#[derive(PartialEq, Debug)]
+enum DataElt {
+    Str(String),
+    Bin(Vec<u8>),
+}
+impl DataElt {
+    fn bytes(&self) -> &[u8] {
+        match self {
+            &DataElt::Str(ref s) => s.as_bytes(),
+            &DataElt::Bin(ref v) => &v,
+        }
+    }
+}
+impl<'a> From<&'a [u8]> for DataElt {
+    fn from(buf: &[u8]) -> DataElt {
+        DataElt::from(Vec::from(buf))
+    }
+}
+impl From<Vec<u8>> for DataElt {
+    fn from(v: Vec<u8>) -> DataElt {
+        match String::from_utf8(v) {
+            Ok(s) => DataElt::Str(s),
+            Err(e) => DataElt::Bin(e.into_bytes()),
+        }
+    }
+}
+impl ElementT for DataElt {
+    fn write_buf(&self, writer: &mut Write) -> Result<()> {
+        try!(writer.write(self.bytes()));
+        Ok(())
+    }
+    fn read_buf(buf: &[u8]) -> Result<Self> {
+        Ok(DataElt::from(buf))
+    }
+}
+impl fmt::Display for DataElt {
+    fn fmt(&self, f: &mut fmt::Formatter) -> result::Result<(), fmt::Error> {
+        match self {
+            &DataElt::Str(ref s) => write!(f, "String, {} bytes: {}", s.len(), s),
+            &DataElt::Bin(ref v) => write!(f, "Binary, {} bytes: {}", String::from_utf8_lossy(v), v.len()),
+        }
     }
 }
 

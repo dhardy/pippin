@@ -1,6 +1,6 @@
 //! In-memory representations of Pippin data
 
-pub use self::element::Element;
+pub use self::element::{ElementT, Element};
 pub use self::states::{EltId, PartitionState, PartitionStateSumComparator};
 pub use self::partition::{Partition, PartitionIO, PartitionDummyIO};
 pub use self::discover::DiscoverPartitionFiles;

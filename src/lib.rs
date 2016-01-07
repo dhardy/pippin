@@ -19,7 +19,7 @@ extern crate vec_map;
 extern crate rand;
 
 pub use detail::Repo;
-pub use detail::{Element};
+pub use detail::{ElementT, Element};
 pub use detail::{PartitionState};
 pub use detail::{Partition, PartitionIO, PartitionDummyIO};
 pub use detail::DiscoverPartitionFiles;

@@ -7,21 +7,21 @@ use std::collections::HashMap;
 use crypto::digest::Digest;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
-use ::{Element};
+use ::{ElementT, Element};
 use super::{sum, fill};
 use detail::{Sum, Commit};
 use detail::commits::EltChange;
 use ::error::{Result, ReadError};
 
 /// Implement this to use read_log().
-pub trait CommitReceiver {
+pub trait CommitReceiver<E: ElementT> {
     /// Implement to receive a commit once it has been read. Return true to
     /// continue reading or false to stop reading more commits.
-    fn receive(&mut self, commit: Commit) -> bool;
+    fn receive(&mut self, commit: Commit<E>) -> bool;
 }
 
 /// Read a commit log from a stream
-pub fn read_log(reader_: &mut Read, receiver: &mut CommitReceiver) -> Result<()> {
+pub fn read_log<E: ElementT>(reader_: &mut Read, receiver: &mut CommitReceiver<E>) -> Result<()> {
     let mut reader = reader_;
     let mut pos: usize = 0;
     let mut buf = vec![0; 32];
@@ -107,7 +107,7 @@ pub fn read_log(reader_: &mut Read, receiver: &mut CommitReceiver) -> Result<()>
                     }
                     pos += 32;
                     
-                    let elt = Element::new(data, data_sum);
+                    let elt = try!(Element::from_vec(data));
                     match change_t {
                         Change::Insert => EltChange::insertion(elt),
                         Change::Replace => EltChange::replacement(elt),
@@ -150,7 +150,7 @@ pub fn start_log(writer: &mut Write) -> Result<()> {
 }
 
 /// Write a single commit to a stream
-pub fn write_commit(commit: &Commit, writer: &mut Write) -> Result<()> {
+pub fn write_commit<E: ElementT>(commit: &Commit<E>, writer: &mut Write) -> Result<()> {
     // A writer which calculates the checksum of what was written:
     let mut w = sum::HashWriter::new256(writer);
     
@@ -163,6 +163,8 @@ pub fn write_commit(commit: &Commit, writer: &mut Write) -> Result<()> {
     try!(w.write(b"ELEMENTS"));
     try!(w.write_u64::<BigEndian>(commit.num_changes() as u64));       // #0015
     
+    let mut elt_buf = Vec::new();
+    
     for (elt_id,change) in commit.changes_iter() {
         let marker = match change {
             &EltChange::Deletion => b"ELT DEL\x00",
@@ -173,10 +175,12 @@ pub fn write_commit(commit: &Commit, writer: &mut Write) -> Result<()> {
         try!(w.write_u64::<BigEndian>(*elt_id));
         if let Some(elt) = change.element() {
             try!(w.write(b"ELT DATA"));
-            try!(w.write_u64::<BigEndian>(elt.data_len() as u64));      // #0015
+            elt_buf.clear();
+            try!(elt.write_buf(&mut &mut elt_buf));
+            try!(w.write_u64::<BigEndian>(elt_buf.len() as u64));      // #0015
             
-            try!(w.write(&elt.data()));
-            let pad_len = 16 * ((elt.data_len() + 15) / 16) - elt.data_len();
+            try!(w.write(&elt_buf));
+            let pad_len = 16 * ((elt_buf.len() + 15) / 16) - elt_buf.len();
             if pad_len > 0 {
                 let padding = [0u8; 15];
                 try!(w.write(&padding[0..pad_len]));
@@ -212,15 +216,15 @@ fn commit_write_read(){
     let quadr = Sum::load(&v);
     
     let mut changes = HashMap::new();
-    changes.insert(3, EltChange::insertion(Element::from_str("three")));
-    changes.insert(4, EltChange::insertion(Element::from_str("four")));
-    changes.insert(5, EltChange::insertion(Element::from_str("five")));
+    changes.insert(3, EltChange::insertion(Element::new("three".to_string())));
+    changes.insert(4, EltChange::insertion(Element::new("four".to_string())));
+    changes.insert(5, EltChange::insertion(Element::new("five".to_string())));
     let commit_1 = Commit::new(seq, vec![squares], changes);
     
     changes = HashMap::new();
     changes.insert(1, EltChange::deletion());
-    changes.insert(9, EltChange::replacement(Element::from_str("NINE!")));
-    changes.insert(5, EltChange::insertion(Element::from_str("five again?")));
+    changes.insert(9, EltChange::replacement(Element::new("NINE!".to_string())));
+    changes.insert(5, EltChange::insertion(Element::new("five again?".to_string())));
     let commit_2 = Commit::new(nonsense, vec![quadr], changes);
     
     let mut obj = Vec::new();
@@ -228,8 +232,8 @@ fn commit_write_read(){
     assert!(write_commit(&commit_1, &mut obj).is_ok());
     assert!(write_commit(&commit_2, &mut obj).is_ok());
     
-    impl CommitReceiver for Vec<Commit> {
-        fn receive(&mut self, commit: Commit) -> bool { self.push(commit); true }
+    impl CommitReceiver<String> for Vec<Commit<String>> {
+        fn receive(&mut self, commit: Commit<String>) -> bool { self.push(commit); true }
     }
     let mut commits = Vec::new();
     match read_log(&mut &obj[..], &mut commits) {
