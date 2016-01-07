@@ -2,10 +2,8 @@
 
 use std::fmt::Debug;
 use std::rc::Rc;
-use std::clone::Clone;
 use std::io::{/*Read,*/ Write};
 use std::str::from_utf8;
-use std::ops::Deref;
 // use vec_map::VecMap;
 
 use super::sum::Sum;
@@ -46,12 +44,18 @@ pub trait ElementT where Self: Sized+PartialEq+Debug {
 //     /// Read from a data stream. The implementation *must* read `len` bytes!
 //     fn read<R: Read>(reader: R) -> Result<Self>;
     
+    /// Create an instance from a buffer. This implementation wraps `read_buf`;
+    /// write your own for more efficiency.
+    fn from_vec(vec: Vec<u8>) -> Result<Self>{
+        Self::read_buf(&vec)
+    }
+    
     /// This can either return a copy of an internally stored sum or calculate
     /// one on the fly. It is used when inserting, removing or replacing an
     /// element in a state, and when merging states where the element differs.
     /// 
     /// Warning: this implementation panics if `write_buf` has an error!
-    fn get_sum(&self) -> Sum {
+    fn sum(&self) -> Sum {
         let mut buf = Vec::new();
         self.write_buf(&mut &mut buf).expect("write_buf does not fail in get_sum");
         Sum::calculate(&buf)
@@ -67,67 +71,13 @@ impl ElementT for String {
         let s = try!(from_utf8(buf));
         Ok(s.to_string())
     }
+    fn from_vec(vec: Vec<u8>) -> Result<Self>{
+        Ok(try!(String::from_utf8(vec)))
+    }
 }
 
 
-/// Holds an element's data in memory.
-/// 
 /// This is a wrapper around a user-defined type implementing the trait
 /// `ElementT`, such that instances are read-only and reference counted (to
 /// support the database's copy-on-write policy).
-#[derive(PartialEq, Debug)]
-pub struct Element<E: ElementT> {
-    /// Element details are reference counted to make cloning cheap
-    r: Rc<E>,
-}
-
-impl<E: ElementT> Element<E> {
-    /// Create, consuming an element of user-defined type
-    pub fn new(elt: E) -> Element<E> {
-        Element { r: Rc::new(elt) }
-    }
-    
-    /// Convenience function to create from a Vec of the data
-    /// 
-    /// TODO: remove?
-    pub fn from_vec(data: Vec<u8>) -> Result<Element<E>> {
-        let user_elt = try!(E::read_buf(&data));
-        Ok(Element { r: Rc::new(user_elt) })
-    }
-    
-    /// Get a reference to the checksum
-    pub fn sum(&self) -> Sum { self.r.get_sum() }
-    
-//     /// Get the cached value of a classifier, or 0 if no value was cached.
-//     pub fn cached_classifier(&self, classifier: u32) -> u32 {
-//         if classifier < self.r.csfs.len() {
-//             self.r.csfs[classifier]
-//         } else { 0 }
-//     }
-    
-    //TODO: access only within library
-//     /// For use only within the library.
-//     fn cache_classifiers(&mut self, classifiers: &VecMap<Classifier>) {
-//         self.r.csfs.reset();
-//         let end = classifiers.iter().filter(|c| c.use_caching()).next_back().map(|i| i+1).unwrap_or(0);
-//         self.r.csfs.resize(end);
-//         for i in 0..end {
-//             self.r.csfs[i] = classifiers[i].map(|c| c.classify(self)).unwrap_or(0);
-//         }
-//     }
-}
-
-impl<E: ElementT> Clone for Element<E> {
-    /// Elements are Copy-On-Write, so cloning is cheap
-    fn clone(&self) -> Element<E> {
-        Element { r: self.r.clone() }
-    }
-}
-
-impl<E: ElementT> Deref for Element<E> {
-    type Target = E;
-
-    fn deref(&self) -> &E {
-        &*self.r
-    }
-}
+pub type Element<E> = Rc<E>;

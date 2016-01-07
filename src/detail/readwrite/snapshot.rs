@@ -85,7 +85,7 @@ pub fn read_snapshot<T: ElementT>(reader: &mut Read) ->
         }
         pos += 32;
         
-        let elt = try!(Element::from_vec(data));
+        let elt = Element::new(try!(T::from_vec(data)));
         try!(state.insert_elt(ident, elt));
     }
     

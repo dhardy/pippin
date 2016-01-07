@@ -107,7 +107,7 @@ pub fn read_log<E: ElementT>(reader_: &mut Read, receiver: &mut CommitReceiver<E
                     }
                     pos += 32;
                     
-                    let elt = try!(Element::from_vec(data));
+                    let elt = Element::new(try!(E::from_vec(data)));
                     match change_t {
                         Change::Insert => EltChange::insertion(elt),
                         Change::Replace => EltChange::replacement(elt),
