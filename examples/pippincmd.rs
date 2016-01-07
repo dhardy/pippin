@@ -218,7 +218,7 @@ fn inner(files: Vec<String>, op: Operation, args: Rest) -> Result<()>
                                 None => { println!("No element {}", id); },
                                 Some(d) => {
                                     println!("Element {}:", id);
-                                    println!("{}", **d);
+                                    println!("{}", d);
                                 }
                             }
                         },
@@ -240,7 +240,7 @@ fn inner(files: Vec<String>, op: Operation, args: Rest) -> Result<()>
                             let id: u64 = try!(elt.parse());
                             {
                                 let elt_data: &DataElt = if let Some(d) = state.get_elt(id) {
-                                    &**d
+                                    &d
                                 } else {
                                     panic!("element not found");
                                 };

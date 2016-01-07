@@ -62,13 +62,21 @@ impl<E: ElementT> PartitionState<E> {
         self.elts
     }
     
+    /// Get some element, still in its Element wrapper (which can be cloned if required).
+    /// 
+    /// Note that elements can't be modified directly but must instead be
+    /// replaced, hence there is no version of this function returning a
+    /// mutable reference.
+    pub fn get_rc(&self, id: EltId) -> Option<&Element<E>> {
+        self.elts.get(&id)
+    }
     /// Get a reference to some element (which can be cloned if required).
     /// 
     /// Note that elements can't be modified directly but must instead be
     /// replaced, hence there is no version of this function returning a
     /// mutable reference.
-    pub fn get_elt(&self, id: EltId) -> Option<&Element<E>> {
-        self.elts.get(&id)
+    pub fn get_elt(&self, id: EltId) -> Option<&E> {
+        self.elts.get(&id).map(|rc| &**rc)
     }
     /// True if there are no elements
     pub fn is_empty(&self) -> bool { self.elts.is_empty() }

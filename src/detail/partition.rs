@@ -820,7 +820,7 @@ fn on_new_partition() {
     {
         let state = part.state(&key).expect("getting state by key");
         assert!(state.has_elt(1));
-        assert_eq!(state.get_elt(2), Some(&Element::new("Element two data.".to_string())));
+        assert_eq!(state.get_elt(2), Some(&"Element two data.".to_string()));
     }   // `state` goes out of scope
     assert_eq!(part.tips.len(), 1);
     let state = part.tip().expect("getting tip").clone_child();

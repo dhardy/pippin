@@ -81,7 +81,7 @@ impl<'a, E: ElementT> TwoWayMerge<'a, E> {
     pub fn solve<S>(&mut self, s: &S) where S: TwoWaySolver<E> {
         for &mut (id, ref mut result) in self.v.iter_mut() {
             if *result == EltMerge::NoResult {
-                *result = s.solve(self.a.get_elt(id), self.b.get_elt(id), self.c.get_elt(id));
+                *result = s.solve(self.a.get_rc(id), self.b.get_rc(id), self.c.get_rc(id));
             }
         }
     }
@@ -108,7 +108,7 @@ impl<'a, E: ElementT> TwoWayMerge<'a, E> {
     /// Operation is `O(1)`.
     pub fn solve_one<S>(&mut self, i: usize, s: &S) where S: TwoWaySolver<E> {
         let id = self.v[i].0;
-        self.v[i].1 = s.solve(self.a.get_elt(id), self.b.get_elt(id), self.c.get_elt(id));
+        self.v[i].1 = s.solve(self.a.get_rc(id), self.b.get_rc(id), self.c.get_rc(id));
     }
     
     /// Get the number of unsolved conflicts.
@@ -140,8 +140,8 @@ impl<'a, E: ElementT> TwoWayMerge<'a, E> {
         let mut sum2: Sum = self.b.statesum().clone();
         
         for (id, result) in self.v.into_iter() {
-            let a = self.a.get_elt(id);
-            let b = self.b.get_elt(id);
+            let a = self.a.get_rc(id);
+            let b = self.b.get_rc(id);
             match result {
                 EltMerge::A => {
                     if let Some(elt1) = a {
