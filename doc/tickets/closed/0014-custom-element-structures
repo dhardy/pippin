@@ -26,3 +26,7 @@ okay (other than lots more template parameters), so it will probably stay.
 New question: do we still need `Element`? Can we at least make `get_elt` in
 `PartitionState` return a reference to the underlying type, not the `Element`
 wrapper?
+
+---
+
+Same day, later: `Element` type removed. Surprisingly it is not missed at all.
