@@ -3,15 +3,19 @@
 use std::collections::{HashMap};
 use std::collections::hash_map::{Keys};
 use std::clone::Clone;
+use std::rc::Rc;
 use hashindexed::KeyComparator;
 use error::ElementOp;
 use rand::random;
 
-use detail::{Sum, ElementT, Element};
+use detail::{Sum, ElementT};
 
 
 /// Type of an element identifier within a partition.
 pub type EltId = u64;
+
+/// Type of map used internally
+pub type EltMap<E> = HashMap<EltId, Rc<E>>;
 
 /// A state of elements within a partition.
 /// 
@@ -29,7 +33,7 @@ pub struct PartitionState<E: ElementT> {
     part_id: u64,
     parent: Sum,
     statesum: Sum,
-    elts: HashMap<EltId, Element<E>>
+    elts: EltMap<E>
 }
 
 impl<E: ElementT> PartitionState<E> {
@@ -43,7 +47,7 @@ impl<E: ElementT> PartitionState<E> {
     }
     /// Create from a map of elements
     pub fn from_hash_map(part_id: u64, parent: Sum,
-        map: HashMap<EltId, Element<E>>, statesum: Sum) -> PartitionState<E>
+        map: EltMap<E>, statesum: Sum) -> PartitionState<E>
     {
         PartitionState { part_id: part_id, parent: parent, statesum: statesum, elts: map }
     }
@@ -54,11 +58,11 @@ impl<E: ElementT> PartitionState<E> {
     pub fn parent(&self) -> &Sum { &self.parent }
     
     /// Get access to the map holding elements
-    pub fn map(&self) -> &HashMap<EltId, Element<E>> {
+    pub fn map(&self) -> &EltMap<E> {
         &self.elts
     }
     /// Destroy the PartitionState, extracting its map of elements
-    pub fn into_map(self) -> HashMap<EltId, Element<E>> {
+    pub fn into_map(self) -> EltMap<E> {
         self.elts
     }
     
@@ -67,7 +71,7 @@ impl<E: ElementT> PartitionState<E> {
     /// Note that elements can't be modified directly but must instead be
     /// replaced, hence there is no version of this function returning a
     /// mutable reference.
-    pub fn get_rc(&self, id: EltId) -> Option<&Element<E>> {
+    pub fn get_rc(&self, id: EltId) -> Option<&Rc<E>> {
         self.elts.get(&id)
     }
     /// Get a reference to some element (which can be cloned if required).
@@ -89,7 +93,7 @@ impl<E: ElementT> PartitionState<E> {
         self.elts.contains_key(&id)
     }
     /// Get the element keys
-    pub fn elt_ids(&self) -> Keys<EltId, Element<E>> {
+    pub fn elt_ids(&self) -> Keys<EltId, Rc<E>> {
         self.elts.keys()
     }
     
@@ -117,16 +121,23 @@ impl<E: ElementT> PartitionState<E> {
     /// 
     /// This function should succeed provided that not all usable identifiers
     /// are taken (2^24), though when approaching full it may be slow.
-    pub fn new_elt(&mut self, elt: Element<E>) -> Result<(), ElementOp> {
+    pub fn new_elt(&mut self, elt: E) -> Result<(), ElementOp> {
+        self.new_rc(Rc::new(elt))
+    }
+    /// As `new_elt()`, but accept an Rc-wrapped element.
+    pub fn new_rc(&mut self, elt: Rc<E>) -> Result<(), ElementOp> {
         let id = try!(self.gen_id());
-        self.insert_elt(id, elt)
+        self.insert_rc(id, elt)
     }
     /// Insert an element and return (). Fails if the id does not have the
     /// correct partition identifier part or if the id is already in use.
     /// It is suggested to use new_elt() instead if you do not need to specify
     /// the identifier.
-    pub fn insert_elt(&mut self, id: EltId, elt: Element<E>) -> Result<(), ElementOp> {
-//        TODO: elt.cache_classifiers(classifiers);
+    pub fn insert_elt(&mut self, id: EltId, elt: E) -> Result<(), ElementOp> {
+        self.insert_rc(id, Rc::new(elt))
+    }
+    /// As `insert_elt()`, but accept an Rc-wrapped element.
+    pub fn insert_rc(&mut self, id: EltId, elt: Rc<E>) -> Result<(), ElementOp> {
         if self.elts.contains_key(&id) { return Err(ElementOp::insertion_failure(id)); }
         self.statesum.permute(&elt.sum());
         self.elts.insert(id, elt);
@@ -137,8 +148,14 @@ impl<E: ElementT> PartitionState<E> {
     /// 
     /// Since elements cannot be edited directly, this is the next best way of
     /// changing an element's contents.
-    pub fn replace_elt(&mut self, id: EltId, elt: Element<E>) -> Result<Element<E>, ElementOp> {
-//        TODO: elt.cache_classifiers(classifiers);
+    /// 
+    /// Note that the returned `Rc<E>` cannot be unwrapped automatically since
+    /// we do not know that we have the only reference.
+    pub fn replace_elt(&mut self, id: EltId, elt: E) -> Result<Rc<E>, ElementOp> {
+        self.replace_rc(id, Rc::new(elt))
+    }
+    /// As `replace_elt()`, but accept an Rc-wrapped element.
+    pub fn replace_rc(&mut self, id: EltId, elt: Rc<E>) -> Result<Rc<E>, ElementOp> {
         self.statesum.permute(&elt.sum());
         match self.elts.insert(id, elt) {
             None => Err(ElementOp::replacement_failure(id)),
@@ -150,7 +167,11 @@ impl<E: ElementT> PartitionState<E> {
     }
     /// Remove an element, returning the element removed. If no element is
     /// found with the `id` given, `None` is returned.
-    pub fn remove_elt(&mut self, id: EltId) -> Result<Element<E>, ElementOp> {
+    pub fn remove_elt(&mut self, id: EltId) -> Result<Rc<E>, ElementOp> {
+        self.remove_rc(id)
+    }
+    /// As `remove_elt()`, but return an Rc-wrapped element.
+    pub fn remove_rc(&mut self, id: EltId) -> Result<Rc<E>, ElementOp> {
         match self.elts.remove(&id) {
             None => Err(ElementOp::deletion_failure(id)),
             Some(removed) => {

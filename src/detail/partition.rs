@@ -792,8 +792,6 @@ impl<E: ElementT> Partition<E> {
 
 #[test]
 fn on_new_partition() {
-    use super::Element;
-    
     let io = box PartitionDummyIO::new();
     let mut part = Partition::<String>::new(io, "on_new_partition").expect("partition creation");
     assert_eq!(part.tips.len(), 1);
@@ -806,8 +804,8 @@ fn on_new_partition() {
     assert!(state.is_empty());
     assert_eq!(state.statesum(), &Sum::zero());
     
-    let elt1 = Element::new("This is element one.".to_string());
-    let elt2 = Element::new("Element two data.".to_string());
+    let elt1 = "This is element one.".to_string();
+    let elt2 = "Element two data.".to_string();
     let mut key = elt1.sum().clone();
     key.permute(&elt2.sum());
     assert!(state.insert_elt(1, elt1).is_ok());

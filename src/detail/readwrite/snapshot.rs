@@ -7,7 +7,7 @@ use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
 use super::{sum, fill};
 use detail::{Sum, PartitionState};
-use detail::{ElementT, Element};
+use detail::{ElementT};
 use ::error::{Result, ReadError};
 
 /// Read a snapshot of a set of elements from a stream.
@@ -85,7 +85,7 @@ pub fn read_snapshot<T: ElementT>(reader: &mut Read) ->
         }
         pos += 32;
         
-        let elt = Element::new(try!(T::from_vec(data)));
+        let elt = try!(T::from_vec(data));
         try!(state.insert_elt(ident, elt));
     }
     
@@ -214,11 +214,11 @@ fn snapshot_writing() {
         advantage from it? But who has any right to find fault with a man who \
         chooses to enjoy a pleasure that has no annoying consequences, or one \
         who avoids a pain that produces no resultant pleasure?";
-    state.new_elt(Element::new(data.to_string())).unwrap();
+    state.new_elt(data.to_string()).unwrap();
     let data = "arstneio[()]123%αρστνειο\
         qwfpluy-QWFPLUY—<{}>456+5≤≥φπλθυ−\
         zxcvm,./ZXCVM;:?`\"ç$0,./ζχψωμ~·÷";
-    state.new_elt(Element::new(data.to_string())).unwrap();
+    state.new_elt(data.to_string()).unwrap();
     
     let mut result = Vec::new();
     assert!(write_snapshot(&state, (part_id, 12 << 24), &mut result).is_ok());

@@ -28,8 +28,9 @@
 
 use std::collections::HashMap;
 use std::marker::PhantomData;
+use std::rc::Rc;
 
-use super::{PartitionState, EltId, Commit, EltChange, ElementT, Element, Sum};
+use super::{PartitionState, EltId, Commit, EltChange, ElementT, Sum};
 
 /// This struct controls the merging of two states into one.
 /// 
@@ -373,7 +374,7 @@ pub enum EltMerge<E: ElementT> {
     /// Use the value from the second state
     B,
     /// Use a custom value (specified in full)
-    Elt(Element<E>),
+    Elt(Rc<E>),
     /// Remove the element
     NoElt,
     /// Rename one element and include both; where only one element is present
@@ -385,8 +386,8 @@ pub enum EltMerge<E: ElementT> {
 
 /// Implementations solve two-way merges on an element-by-element basis.
 pub trait TwoWaySolver<E: ElementT> {
-    fn solve<'a>(&self, a: Option<&'a Element<E>>, b: Option<&'a Element<E>>,
-        c: Option<&'a Element<E>>) -> EltMerge<E>;
+    fn solve<'a>(&self, a: Option<&'a Rc<E>>, b: Option<&'a Rc<E>>,
+        c: Option<&'a Rc<E>>) -> EltMerge<E>;
 }
 
 /// Implementation of TwoWaySolver which always selects state A.
@@ -394,8 +395,8 @@ pub struct TwoWaySolveUseA<E: ElementT>{
     p: PhantomData<E>
 }
 impl<E: ElementT> TwoWaySolver<E> for TwoWaySolveUseA<E> {
-    fn solve(&self, _: Option<&Element<E>>, _: Option<&Element<E>>,
-        _: Option<&Element<E>>) -> EltMerge<E>
+    fn solve(&self, _: Option<&Rc<E>>, _: Option<&Rc<E>>,
+        _: Option<&Rc<E>>) -> EltMerge<E>
     {
         EltMerge::A
     }
@@ -405,8 +406,8 @@ pub struct TwoWaySolveUseB<E: ElementT>{
     p: PhantomData<E>
 }
 impl<E: ElementT> TwoWaySolver<E> for TwoWaySolveUseB<E> {
-    fn solve(&self, _: Option<&Element<E>>, _: Option<&Element<E>>,
-        _: Option<&Element<E>>) -> EltMerge<E>
+    fn solve(&self, _: Option<&Rc<E>>, _: Option<&Rc<E>>,
+        _: Option<&Rc<E>>) -> EltMerge<E>
     {
         EltMerge::B
     }
@@ -416,8 +417,8 @@ pub struct TwoWaySolveUseC<E: ElementT>{
     p: PhantomData<E>
 }
 impl<E: ElementT> TwoWaySolver<E> for TwoWaySolveUseC<E> {
-    fn solve(&self, _: Option<&Element<E>>, _: Option<&Element<E>>,
-        c: Option<&Element<E>>) -> EltMerge<E>
+    fn solve(&self, _: Option<&Rc<E>>, _: Option<&Rc<E>>,
+        c: Option<&Rc<E>>) -> EltMerge<E>
     {
         match c {
             Some(ref elt) => EltMerge::Elt((*elt).clone()),
@@ -430,8 +431,8 @@ pub struct TwoWaySolveNoResult<E: ElementT>{
     p: PhantomData<E>
 }
 impl<E: ElementT> TwoWaySolver<E> for TwoWaySolveNoResult<E> {
-    fn solve(&self, _: Option<&Element<E>>, _: Option<&Element<E>>,
-        _: Option<&Element<E>>) -> EltMerge<E>
+    fn solve(&self, _: Option<&Rc<E>>, _: Option<&Rc<E>>,
+        _: Option<&Rc<E>>) -> EltMerge<E>
     {
         EltMerge::NoResult
     }
@@ -458,8 +459,8 @@ impl<'b, E: ElementT, U: TwoWaySolver<E>+'b, V: TwoWaySolver<E>+'b>
 impl<'a, E: ElementT, S: TwoWaySolver<E>+'a, T: TwoWaySolver<E>+'a> TwoWaySolver<E>
     for TwoWaySolverChain<'a, E, S, T>
 {
-    fn solve(&self, a: Option<&Element<E>>, b: Option<&Element<E>>,
-        c: Option<&Element<E>>) -> EltMerge<E>
+    fn solve(&self, a: Option<&Rc<E>>, b: Option<&Rc<E>>,
+        c: Option<&Rc<E>>) -> EltMerge<E>
     {
         let result = self.s.solve(a, b, c);
         if result != EltMerge::NoResult {
@@ -483,8 +484,8 @@ pub struct AncestorSolver2W<E: ElementT>{
     p: PhantomData<E>
 }
 impl<E: ElementT> TwoWaySolver<E> for AncestorSolver2W<E> {
-    fn solve<'a>(&self, a: Option<&'a Element<E>>, b: Option<&'a Element<E>>,
-        c: Option<&'a Element<E>>) -> EltMerge<E>
+    fn solve<'a>(&self, a: Option<&'a Rc<E>>, b: Option<&'a Rc<E>>,
+        c: Option<&'a Rc<E>>) -> EltMerge<E>
     {
         // Assumption: a != b
         if a == c {
@@ -504,8 +505,8 @@ pub struct RenamingSolver2W<E: ElementT>{
     p: PhantomData<E>
 }
 impl<E: ElementT> TwoWaySolver<E> for RenamingSolver2W<E> {
-    fn solve(&self, _: Option<&Element<E>>, _: Option<&Element<E>>,
-        c: Option<&Element<E>>) -> EltMerge<E>
+    fn solve(&self, _: Option<&Rc<E>>, _: Option<&Rc<E>>,
+        c: Option<&Rc<E>>) -> EltMerge<E>
     {
         if c == None {
             EltMerge::Rename

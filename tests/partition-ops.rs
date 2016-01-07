@@ -10,7 +10,7 @@ use std::any::Any;
 // use std::io::stderr;
 // use std::path::Path;
 // use std::fs::{File, create_dir_all};
-use pippin::{Partition, PartitionIO, Element};
+use pippin::{Partition, PartitionIO};
 use pippin::error::{make_io_err, Result};
 use vec_map::VecMap;
 
@@ -78,24 +78,24 @@ fn create_small() {
     
     // 2 Add a few elements over multiple commits
     let mut state = part.tip().expect("has tip").clone_child();
-    state.insert_elt(35, Element::new("thirty five".to_string())).expect("getting elt 35");
-    state.insert_elt(6513, Element::new(
-            "six thousand, five hundred and thirteen".to_string())).expect("getting elt 6513");
-    state.insert_elt(5698131, Element::new(
-            "five million, six hundred and ninety eight thousand, one hundred and thirty one".to_string()
-            )).expect("getting elt 5698131");
+    state.insert_elt(35, "thirty five".to_string()).expect("getting elt 35");
+    state.insert_elt(6513, "six thousand, five hundred and thirteen"
+            .to_string()).expect("getting elt 6513");
+    state.insert_elt(5698131, "five million, six hundred and ninety eight \
+            thousand, one hundred and thirty one".to_string())
+            .expect("getting elt 5698131");
     part.push_state(state).expect("committing");
     let state1 = part.tip().expect("has tip").clone_exact();
     
     let mut state = part.tip().expect("getting tip").clone_child();
-    state.insert_elt(68168, Element::new(
-            "sixty eight thousand, one hundred and sixty eight".to_string())).expect("getting elt 68168");
+    state.insert_elt(68168, "sixty eight thousand, one hundred and sixty eight"
+            .to_string()).expect("getting elt 68168");
     part.push_state(state).expect("committing");
     
     let mut state = part.tip().expect("getting tip").clone_child();
-    state.insert_elt(89, Element::new("eighty nine".to_string())).expect("getting elt 89");
-    state.insert_elt(1063, Element::new(
-            "one thousand and sixty three".to_string())).expect("getting elt 1063");
+    state.insert_elt(89, "eighty nine".to_string()).expect("getting elt 89");
+    state.insert_elt(1063, "one thousand and sixty three".to_string())
+            .expect("getting elt 1063");
     part.push_state(state).expect("committing");
     let state3 = part.tip().expect("has tip").clone_exact();
     

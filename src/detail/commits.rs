@@ -2,9 +2,10 @@
 
 use std::collections::{HashSet, HashMap, hash_map};
 use std::clone::Clone;
+use std::rc::Rc;
 use hashindexed::HashIndexed;
 
-use detail::{ElementT, Element};
+use detail::{ElementT};
 use detail::{Sum, PartitionState, PartitionStateSumComparator};
 use detail::readwrite::CommitReceiver;
 use error::{Result, ReplayError, ElementOp};
@@ -63,17 +64,17 @@ pub enum EltChange<E: ElementT> {
     /// Element was deleted
     Deletion,
     /// Element was added (full data)
-    Insertion(Element<E>),
+    Insertion(Rc<E>),
     /// Element was replaced (full data)
-    Replacement(Element<E>),
+    Replacement(Rc<E>),
 }
 impl<E: ElementT> EltChange<E> {
     /// Create an `Insertion`
-    pub fn insertion(elt: Element<E>) -> EltChange<E> {
+    pub fn insertion(elt: Rc<E>) -> EltChange<E> {
         EltChange::Insertion(elt)
     }
     /// Create a `Replacement`
-    pub fn replacement(elt: Element<E>) -> EltChange<E> {
+    pub fn replacement(elt: Rc<E>) -> EltChange<E> {
         EltChange::Replacement(elt)
     }
     /// Create a `Deletion`
@@ -81,7 +82,7 @@ impl<E: ElementT> EltChange<E> {
         EltChange::Deletion
     }
     /// Get `Some(elt)` or `None`
-    pub fn element(&self) -> Option<&Element<E>> {
+    pub fn element(&self) -> Option<&Rc<E>> {
         match self {
             &EltChange::Deletion => None,
             &EltChange::Insertion(ref elt) => Some(elt),
@@ -112,7 +113,7 @@ impl<E: ElementT> Commit<E> {
         let mut state = new_state.clone_exact();
         let mut changes = HashMap::new();
         for (id, old_elt) in old_state.map() {
-            match state.remove_elt(*id) {
+            match state.remove_rc(*id) {
                 Ok(new_elt) => {
                     if new_elt == *old_elt {
                         /* no change */
@@ -152,13 +153,13 @@ impl<E: ElementT> Commit<E> {
         for (id, ref change) in self.changes.iter() {
             match *change {
                 &EltChange::Deletion => {
-                    try!(state.remove_elt(*id));
+                    try!(state.remove_rc(*id));
                 },
                 &EltChange::Insertion(ref elt) => {
-                    try!(state.insert_elt(*id, elt.clone()));
+                    try!(state.insert_rc(*id, elt.clone()));
                 }
                 &EltChange::Replacement(ref elt) => {
-                    try!(state.replace_elt(*id, elt.clone()));
+                    try!(state.replace_rc(*id, elt.clone()));
                 }
             }
         }
@@ -256,25 +257,25 @@ fn commit_creation_and_replay(){
     let mut commits = CommitQueue::<String>::new();
     
     let mut state_a = PartitionState::new(part_id);
-    state_a.insert_elt(1, Element::new("one".to_string())).unwrap();
-    state_a.insert_elt(2, Element::new("two".to_string())).unwrap();
+    state_a.insert_elt(1, "one".to_string()).unwrap();
+    state_a.insert_elt(2, "two".to_string()).unwrap();
     
     let mut state_b = state_a.clone_child();
-    state_b.insert_elt(3, Element::new("three".to_string())).unwrap();
-    state_b.insert_elt(4, Element::new("four".to_string())).unwrap();
-    state_b.insert_elt(5, Element::new("five".to_string())).unwrap();
+    state_b.insert_elt(3, "three".to_string()).unwrap();
+    state_b.insert_elt(4, "four".to_string()).unwrap();
+    state_b.insert_elt(5, "five".to_string()).unwrap();
     commits.push(Commit::from_diff(&state_a, &state_b).unwrap());
     
     let mut state_c = state_b.clone_child();
-    state_c.insert_elt(6, Element::new("six".to_string())).unwrap();
-    state_c.insert_elt(7, Element::new("seven".to_string())).unwrap();
+    state_c.insert_elt(6, "six".to_string()).unwrap();
+    state_c.insert_elt(7, "seven".to_string()).unwrap();
     state_c.remove_elt(4).unwrap();
-    state_c.replace_elt(3, Element::new("half six".to_string())).unwrap();
+    state_c.replace_elt(3, "half six".to_string()).unwrap();
     commits.push(Commit::from_diff(&state_b, &state_c).unwrap());
     
     let mut state_d = state_c.clone_child();
-    state_d.insert_elt(8, Element::new("eight".to_string())).unwrap();
-    state_d.insert_elt(4, Element::new("half eight".to_string())).unwrap();
+    state_d.insert_elt(8, "eight".to_string()).unwrap();
+    state_d.insert_elt(4, "half eight".to_string()).unwrap();
     commits.push(Commit::from_diff(&state_c, &state_d).unwrap());
     
     let (mut states, mut tips) = (HashIndexed::new(), HashSet::new());

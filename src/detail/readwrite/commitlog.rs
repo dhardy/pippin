@@ -4,10 +4,11 @@
 
 use std::io::{Read, Write};
 use std::collections::HashMap;
+use std::rc::Rc;
 use crypto::digest::Digest;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
-use ::{ElementT, Element};
+use ::{ElementT};
 use super::{sum, fill};
 use detail::{Sum, Commit};
 use detail::commits::EltChange;
@@ -107,7 +108,7 @@ pub fn read_log<E: ElementT>(reader_: &mut Read, receiver: &mut CommitReceiver<E
                     }
                     pos += 32;
                     
-                    let elt = Element::new(try!(E::from_vec(data)));
+                    let elt = Rc::new(try!(E::from_vec(data)));
                     match change_t {
                         Change::Insert => EltChange::insertion(elt),
                         Change::Replace => EltChange::replacement(elt),
@@ -216,15 +217,15 @@ fn commit_write_read(){
     let quadr = Sum::load(&v);
     
     let mut changes = HashMap::new();
-    changes.insert(3, EltChange::insertion(Element::new("three".to_string())));
-    changes.insert(4, EltChange::insertion(Element::new("four".to_string())));
-    changes.insert(5, EltChange::insertion(Element::new("five".to_string())));
+    changes.insert(3, EltChange::insertion(Rc::new("three".to_string())));
+    changes.insert(4, EltChange::insertion(Rc::new("four".to_string())));
+    changes.insert(5, EltChange::insertion(Rc::new("five".to_string())));
     let commit_1 = Commit::new(seq, vec![squares], changes);
     
     changes = HashMap::new();
     changes.insert(1, EltChange::deletion());
-    changes.insert(9, EltChange::replacement(Element::new("NINE!".to_string())));
-    changes.insert(5, EltChange::insertion(Element::new("five again?".to_string())));
+    changes.insert(9, EltChange::replacement(Rc::new("NINE!".to_string())));
+    changes.insert(5, EltChange::insertion(Rc::new("five again?".to_string())));
     let commit_2 = Commit::new(nonsense, vec![quadr], changes);
     
     let mut obj = Vec::new();

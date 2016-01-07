@@ -13,7 +13,7 @@ use std::ffi::OsStr;
 use std::os::unix::ffi::OsStrExt;
 use docopt::Docopt;
 use pippin::error::{Result, make_io_err};
-use pippin::{DiscoverPartitionFiles, Partition, PartitionIO, Element, ElementT};
+use pippin::{DiscoverPartitionFiles, Partition, PartitionIO, ElementT};
 use pippin::util::rtrim;
 
 const USAGE: &'static str = "
@@ -260,8 +260,7 @@ fn inner(files: Vec<String>, op: Operation, args: Rest) -> Result<()>
                             let mut file = try!(fs::File::open(&tmp_path));
                             let mut buf = Vec::new();
                             try!(file.read_to_end(&mut buf));
-                            let new_elt = Element::new(DataElt::from(buf));
-                            try!(state.replace_elt(id, new_elt));
+                            try!(state.replace_elt(id, DataElt::from(buf)));
                             try!(fs::remove_file(tmp_path));
                         },
                         PartitionOp::EltDelete(elt) => {

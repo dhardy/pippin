@@ -1,7 +1,6 @@
 //! Base type of elements stored in Pippin repositories
 
 use std::fmt::Debug;
-use std::rc::Rc;
 use std::io::{/*Read,*/ Write};
 use std::str::from_utf8;
 // use vec_map::VecMap;
@@ -75,9 +74,3 @@ impl ElementT for String {
         Ok(try!(String::from_utf8(vec)))
     }
 }
-
-
-/// This is a wrapper around a user-defined type implementing the trait
-/// `ElementT`, such that instances are read-only and reference counted (to
-/// support the database's copy-on-write policy).
-pub type Element<E> = Rc<E>;
