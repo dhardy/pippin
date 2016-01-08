@@ -11,7 +11,55 @@ use ::error::{Result};
 
 /// Whatever element type the user wishes to store must implement this trait.
 /// 
-/// There is a default implementation for `String`.
+/// ### Serialisation
+/// 
+/// Elements must be serialisable as a data stream, and deserialisable from a
+/// data stream. The `read...`, `write...` and `from...` functions deal with
+/// this.
+/// 
+/// ### Checksumming
+/// 
+/// A checksum of the serialised version of the element's data is required in
+/// order (a) to validate data read from external sources (files) and (b) to
+/// verify correct reconstruction of states of repository partitions.
+/// 
+/// This checksum can be calculated on the fly or could be cached.
+/// 
+/// ### Implementations
+/// 
+/// It is recommended that an implementation is written specific to each
+/// use-case (using an enum if variadic data typing is needed). There is
+/// however a default implementation for `String`.
+/// 
+/// A trivial example:
+/// 
+/// ```no_use
+/// extern crate byteorder;
+/// extern crate pippin;
+/// 
+/// use std::io::Write;
+/// 
+/// use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
+/// use pippin::{ElementT, Result};
+/// 
+/// #[derive(PartialEq, Debug)]
+/// struct Point { x: f64, y: f64 }
+/// 
+/// impl ElementT for Point {
+///     fn write_buf(&self, writer: &mut Write) -> Result<()> {
+///         try!(writer.write_f64::<LittleEndian>(self.x));
+///         try!(writer.write_f64::<LittleEndian>(self.y));
+///         Ok(())
+///     }
+///     fn read_buf(buf: &[u8]) -> Result<Self> {
+///         let mut r: &mut &[u8] = &mut &buf[..];
+///         Ok(Point {
+///             x: try!(r.read_f64::<LittleEndian>()),
+///             y: try!(r.read_f64::<LittleEndian>()),
+///         })
+///     }
+/// }
+/// ```
 pub trait ElementT where Self: Sized+PartialEq+Debug {
     // TODO: provide a choice of how to implement IO using a const?
     // associated constants are experimental (see issue #29646)
