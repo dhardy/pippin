@@ -113,6 +113,7 @@ Options:
   -h --help             Show this message.
   -d --directory DIR    Specify the directory to read/write the repository
   -c --create           Create a new repo
+  -s --snapshot         Force creation of snapshot at end
   -g --generate NUM     Generate NUM new sequences and add to the repo.
   -R --repeat N         Repeat N times.
 ";
@@ -123,6 +124,7 @@ struct Args {
     flag_directory: Option<String>,
     flag_generate: Option<usize>,
     flag_create: bool,
+    flag_snapshot: bool,
     flag_repeat: Option<usize>,
 }
 
@@ -144,16 +146,15 @@ fn main() {
     } else {
         Mode::None
     };
-    let create = args.flag_create;
     let repetitions = args.flag_repeat.unwrap_or(1);
     
-    if let Err(e) = run(&dir, mode, create, repetitions) {
+    if let Err(e) = run(&dir, mode, args.flag_create, args.flag_snapshot, repetitions) {
         println!("Error: {}", e);
         exit(1);
     }
 }
 
-fn run(dir: &Path, mode: Mode, create: bool, repetitions: usize) -> Result<()> {
+fn run(dir: &Path, mode: Mode, create: bool, snapshot: bool, repetitions: usize) -> Result<()> {
     let io = Box::new(try!(DiscoverPartitionFiles::from_dir_basename(dir, "seqdb")));
 //     println!("Discovered: {:?}", *io);
     
@@ -208,6 +209,10 @@ fn run(dir: &Path, mode: Mode, create: bool, repetitions: usize) -> Result<()> {
         println!("Done modifying state");
         try!(part.push_state(state));
         try!(part.write(false));
+    }
+    
+    if snapshot {
+        try!(part.write_snapshot());
     }
     
     Ok(())
