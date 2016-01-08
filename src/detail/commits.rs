@@ -210,10 +210,13 @@ impl<'a, E: ElementT> LogReplay<'a, E> {
         self.states.insert(state);
     }
     
-    /// Recreate all known states from a set of commits. On success, return a
-    /// reference to self. Will fail if a commit applies to an unknown state or
+    /// Recreate all known states from a set of commits. On success, return the
+    /// number of edits (insertions, deletions or replacements).
+    /// 
+    /// Will fail if a commit applies to an unknown state or
     /// any checksum is incorrect.
-    pub fn replay(&mut self, commits: CommitQueue<E>) -> Result<&Self> {
+    pub fn replay(&mut self, commits: CommitQueue<E>) -> Result<usize> {
+        let mut edits = 0;
         for commit in commits.commits {
             let mut state = try!(self.states.get(&commit.parent())
                 .ok_or(ReplayError::new("parent state of commit not found")))
@@ -245,8 +248,9 @@ impl<'a, E: ElementT> LogReplay<'a, E> {
             
             self.tips.remove(&commit.parent());
             self.tips.insert(commit.statesum);
+            edits += commit.changes.len();
         }
-        Ok(self)
+        Ok(edits)
     }
 }
 

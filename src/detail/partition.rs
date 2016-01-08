@@ -145,19 +145,29 @@ impl PartitionIO for PartitionDummyIO {
 
 /// Determines when to write a new snapshot automatically.
 struct SnapshotPolicy {
-    counter: usize,
+    commits: usize,
+    edits: usize,
 }
 impl SnapshotPolicy {
     /// Create a new instance. Assume we have a fresh snapshot.
-    fn new() -> SnapshotPolicy { SnapshotPolicy { counter: 0 } }
+    fn new() -> SnapshotPolicy { SnapshotPolicy {
+            commits: 0,
+            edits: 0
+        }
+    }
     /// Report that we definitely need a new snapshot
-    fn require(&mut self) { self.counter = 1000; }
+    fn require(&mut self) { self.commits = 1000; }
     /// Report `n_commits` commits since last event.
-    fn add_commits(&mut self, n_commits: usize) { self.counter += n_commits; }
+    fn add_commits(&mut self, n_commits: usize) { self.commits += n_commits; }
+    /// Report `n_edits` edits since last event.
+    fn add_edits(&mut self, n_edits: usize) { self.edits += n_edits; }
     /// Report that we have a fresh snapshot
-    fn reset(&mut self) { self.counter = 0; }
+    fn reset(&mut self) {
+        self.commits = 0;
+        self.edits = 0;
+    }
     /// Return true when we should write a snapshot
-    fn snapshot(&self) -> bool { self.counter > 100 }
+    fn snapshot(&self) -> bool { self.commits * 5 + self.edits > 150 }
 }
 
 /// A *partition* is a sub-set of the entire set such that (a) each element is
@@ -326,9 +336,10 @@ impl<E: ElementT> Partition<E> {
             return make_io_err(ErrorKind::NotFound, "no snapshot files found");
         }
         let mut num = ss_len - 1;
-        let mut num_commits = 0;
         
         if all_history {
+            let mut num_commits = 0;
+            let mut num_edits = 0;
             for ss in 0..ss_len {
                 if let Some(mut r) = try!(self.io.read_ss(ss)) {
                     let head = try!(read_head(&mut r));
@@ -352,8 +363,10 @@ impl<E: ElementT> Partition<E> {
                 }
                 num_commits = queue.len();  // final value is number of commits after last snapshot
                 let mut replayer = LogReplay::from_sets(&mut self.states, &mut self.tips);
-                try!(replayer.replay(queue));
+                num_edits = try!(replayer.replay(queue));
             }
+            self.ss_policy.add_commits(num_commits);
+            self.ss_policy.add_edits(num_edits);
         } else {
             loop {
                 if let Some(mut r) = try!(self.io.read_ss(num)) {
@@ -389,16 +402,15 @@ impl<E: ElementT> Partition<E> {
                     }
                 }
             }
-            num_commits = queue.len();
+            self.ss_policy.add_commits(queue.len());
             let mut replayer = LogReplay::from_sets(&mut self.states, &mut self.tips);
-            try!(replayer.replay(queue));
+            self.ss_policy.add_edits(try!(replayer.replay(queue)));
         }
         
         self.ss_num = ss_len - 1;
         if num < ss_len -1 {
             self.ss_policy.require();
         } else {
-            self.ss_policy.add_commits(num_commits);
         }
         
         if self.tips.is_empty() {
@@ -646,6 +658,8 @@ impl<E: ElementT> Partition<E> {
     // Add a paired commit and state.
     // Assumptions: checksums match and parent state is present.
     fn add_pair(&mut self, commit: Commit<E>, state: PartitionState<E>) {
+        self.ss_policy.add_commits(1);
+        self.ss_policy.add_edits(commit.num_changes());
         self.unsaved.push_back(commit);
         // This might fail (if the parent was not a tip), but it doesn't matter:
         self.tips.remove(state.parent());
@@ -688,7 +702,6 @@ impl<E: ElementT> Partition<E> {
                         // from the list of 'unsaved' commits.
                         try!(write_commit(&self.unsaved.front().unwrap(), &mut writer));
                         self.unsaved.pop_front().expect("pop_front");
-                        self.ss_policy.add_commits(1);
                     }
                     break;
                 } else {
