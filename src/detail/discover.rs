@@ -39,8 +39,9 @@ impl DiscoverPartitionFiles {
             return ArgError::err("basename must not contain any path separators");
         }
         
-        let ss_pat = try!(Regex::new("-ss([0-9]+).pip"));
-        let cl_pat = try!(Regex::new("-ss([0-9]+)-cl([0-9]+).pipl"));
+        // FIXME: check for match against *whole* file name, not just *in* the file name
+        let ss_pat = try!(Regex::new("-ss(0|[1-9][0-9]*).pip"));
+        let cl_pat = try!(Regex::new("-ss(0|[1-9][0-9]*)-cl(0|[1-9][0-9]*).piplog"));
         let blen = basename.len();
         
         let mut snapshots = VecMap::new();
@@ -91,8 +92,9 @@ impl DiscoverPartitionFiles {
     pub fn from_paths(paths: Vec<PathBuf>) -> Result<DiscoverPartitionFiles> {
         // Note: there are no defined rules about which characters are allowed
         // in the basename, so just match anything.
-        let ss_pat = try!(Regex::new(r"(.+)-ss(0|[1-9][0-9]*).pip"));
-        let cl_pat = try!(Regex::new(r"(.+)-ss(0|[1-9][0-9]*)-cl(0|[1-9][0-9]*).pipl"));
+        // FIXME: check for match against *whole* file name, not just *in* the file name
+        let ss_pat = try!(Regex::new(r"(.+)-ss(0|[1-9][0-9]*).pip$"));
+        let cl_pat = try!(Regex::new(r"(.+)-ss(0|[1-9][0-9]*)-cl(0|[1-9][0-9]*).piplog"));
         
         let mut snapshots = VecMap::new();
         let mut dir_path = None;
@@ -130,10 +132,10 @@ impl DiscoverPartitionFiles {
                     } else {
                         if fname.ends_with(".pip") {
                             FileIs::BadFileName("Snapshot file names should have form BASENAME-ssNUM.pip")
-                        } else if fname.ends_with(".pipl") {
-                            FileIs::BadFileName("Commit log file names should have form BASENAME-ssNUM-clNUM.pipl")
+                        } else if fname.ends_with(".piplog") {
+                            FileIs::BadFileName("Commit log file names should have form BASENAME-ssNUM-clNUM.piplog")
                         } else {
-                            FileIs::BadFileName("Not a Pippin file (name doesn't end .pip or .pipl")
+                            FileIs::BadFileName("Not a Pippin file (name doesn't end .pip or .piplog")
                         }
                     }
                 } else {
@@ -252,7 +254,7 @@ impl PartitionIO for DiscoverPartitionFiles {
         if logs.contains_key(&cl_num) {
             return Ok(None);
         }
-        let p = self.dir.join(PathBuf::from(format!("{}-ss{}-cl{}.pipl", self.basename, ss_num, cl_num)));
+        let p = self.dir.join(PathBuf::from(format!("{}-ss{}-cl{}.piplog", self.basename, ss_num, cl_num)));
         let stream = try!(OpenOptions::new().create(true).write(true).append(true).open(&p));
         logs.insert(cl_num, p);
         Ok(Some(box stream))
