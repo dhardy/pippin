@@ -203,10 +203,10 @@ impl<E: ElementT> Partition<E> {
     /// ```
     /// use pippin::{Partition, PartitionDummyIO};
     /// 
-    /// let io = Box::new(PartitionDummyIO::new());
+    /// let io = Box::create(PartitionDummyIO::new());
     /// let partition = Partition::<String>::new(io, "example repo");
     /// ```
-    pub fn new(mut io: Box<PartitionIO>, name: &str) -> Result<Partition<E>> {
+    pub fn create(mut io: Box<PartitionIO>, name: &str) -> Result<Partition<E>> {
         try!(validate_repo_name(name));
         let range = (0, u64::MAX);
         let state = PartitionState::new(range.0);
@@ -239,7 +239,7 @@ impl<E: ElementT> Partition<E> {
         Ok(part)
     }
     
-    /// Create a partition, assigning an IO provider (this can only be done at
+    /// Open a partition, assigning an IO provider (this can only be done at
     /// time of creation).
     /// 
     /// The partition will not be *ready to use* until data is loaded with one
@@ -257,9 +257,9 @@ impl<E: ElementT> Partition<E> {
     /// 
     /// let path = Path::new(".");
     /// let io = DiscoverPartitionFiles::from_dir_basename(path, "my-partition").unwrap();
-    /// let partition = Partition::<String>::create(Box::new(io));
+    /// let partition = Partition::<String>::open(Box::new(io));
     /// ```
-    pub fn create(io: Box<PartitionIO>) -> Partition<E> {
+    pub fn open(io: Box<PartitionIO>) -> Partition<E> {
         Partition {
             io: io,
             repo_name: "".to_string() /*temporary value; checked before usage elsewhere*/,
@@ -322,6 +322,9 @@ impl<E: ElementT> Partition<E> {
     /// operation).
     pub fn load(&mut self, all_history: bool) -> Result<()> {
         let ss_len = self.io.ss_len();
+        if ss_len == 0 {
+            return make_io_err(ErrorKind::NotFound, "no snapshot files found");
+        }
         let mut num = ss_len - 1;
         let mut num_commits = 0;
         

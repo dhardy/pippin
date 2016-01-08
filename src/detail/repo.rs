@@ -58,9 +58,9 @@ impl<E: ElementT> Repo<E> {
     /// 
     /// This creates an initial 'partition' ready for use (all contents must
     /// be kept within a `Partition`).
-    pub fn new(mut io: Box<RepoIO>, name: String) -> Result<Repo<E>> {
+    pub fn create(mut io: Box<RepoIO>, name: String) -> Result<Repo<E>> {
         let n = io.add_partition();
-        let part = try!(Partition::new(io.make_partition_io(n), &name));
+        let part = try!(Partition::create(io.make_partition_io(n), &name));
         Ok(Repo{
             io: io,
             name: name,
@@ -78,13 +78,13 @@ impl<E: ElementT> Repo<E> {
             return OtherError::err("No repository files found");
         }
         
-        let mut part0 = Partition::create(io.make_partition_io(0));
+        let mut part0 = Partition::open(io.make_partition_io(0));
         let name = try!(part0.get_repo_name()).to_string();
         
         let mut parts = Vec::with_capacity(n);
         parts.push(part0);
         for i in 1..n {
-            let mut part = Partition::create(io.make_partition_io(i));
+            let mut part = Partition::open(io.make_partition_io(i));
             try!(part.set_repo_name(&name));
             parts.push(part);
         }

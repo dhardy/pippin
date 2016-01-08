@@ -16,6 +16,7 @@ use error::{Result, PathError, ArgError, make_io_err};
 /// 
 /// As an alternative, users could provide their own implementations of
 /// PartitionIO.
+#[derive(Debug)]
 pub struct DiscoverPartitionFiles {
     dir: PathBuf,
     basename: String,  // first part of file name
@@ -38,8 +39,8 @@ impl DiscoverPartitionFiles {
             return ArgError::err("basename must not contain any path separators");
         }
         
-        let ss_pat = try!(Regex::new("-ss([1-9][0-9]*).pip"));
-        let cl_pat = try!(Regex::new("-ss([1-9][0-9]*)-cl([1-9][0-9]*).pipl"));
+        let ss_pat = try!(Regex::new("-ss([0-9]+).pip"));
+        let cl_pat = try!(Regex::new("-ss([0-9]+)-cl([0-9]+).pipl"));
         let blen = basename.len();
         
         let mut snapshots = VecMap::new();
@@ -51,10 +52,12 @@ impl DiscoverPartitionFiles {
                 Some(s) => s,
                 None => {
                     // #0017: warn that name was unmappable
+//                     println!("ignoring (not unicode)");
                     continue;
                 }
             };
             if fname[0..blen] != *basename {
+//                 println!("ignoring (does not match basename): {}", fname);
                 continue;   // no match
             }
             if let Some(caps) = ss_pat.captures(&fname[blen..]) {
@@ -69,7 +72,10 @@ impl DiscoverPartitionFiles {
                 if let Some(_replaced) = s_vec.1.insert(cl, entry.path()) {
                     panic!("multiple files map to same basname/number");
                 }
-            } // else: no match; ignore
+            } else {
+//                 println!("ignoring (does not match regex): {}", fname);
+                // no match; ignore
+            }
         }
         
         Ok(DiscoverPartitionFiles {
