@@ -19,6 +19,7 @@ use pippin::error::{Result, OtherError};
 
 // —————  Sequence type  —————
 type R = f64;
+const R_SIZE: usize = 8;
 #[derive(PartialEq, Debug)]
 struct Sequence { v: Vec<R> }
 
@@ -30,11 +31,11 @@ impl ElementT for Sequence {
         Ok(())
     }
     fn read_buf(buf: &[u8]) -> Result<Self> {
-        if buf.len() % 4 != 0 {
+        if buf.len() % R_SIZE != 0 {
             return OtherError::err("invalid data length for a Sequence");
         }
         let mut r: &mut &[u8] = &mut &buf[..];
-        let n = buf.len() / 4;
+        let n = buf.len() / R_SIZE;
         let mut v = Vec::with_capacity(n);
         for _ in 0..n {
             v.push(try!(r.read_f64::<LittleEndian>()));
