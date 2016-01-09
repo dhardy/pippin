@@ -9,29 +9,11 @@ for now implemented tests will simply be removed from the list.
 
 *   lists of elements
 *   contents of some elements
-*   reading elements from snapshots and from commit logs
 *   reading from historical (not latest) states
 *   (TBD) partitions
 *   Discovery of partition files
 
-### New repositories
-
-*   creating an empty repo
-
-### Modifying in memory
-
-*   inserting, deleting and modifying elements
-*   forming new commits
-*   getting element data
-*   recovering element data from a previous version
-
 ### Modifying repos (on disk)
-
-Element insertion, deletion and modification.
-
-Commit creation.
-
-Snapshot creation.
 
 Repartitioning
 
@@ -77,8 +59,3 @@ Dealing with corruption of one or multiple files as best as possible
 Compression
 
 Encryption
-
-### Custom element types
-
-Currently, only the default `String` implementation is used. Add a test using
-something like `struct Pair { x: i32, y: i32 }`.
