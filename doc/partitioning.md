@@ -1,42 +1,44 @@
 Partitioning
 =======
 
-Starting point
+Introduction
 ---------
 
 A *partition* is defined from the API point of view: a subset of elements which
-are loaded and unloaded simultaneously. The partition-file relationship is
-1-many: any particular state of the partition's history is fully encapsulated
-in a single file, but the full history may span multiple files. Any file will
-contain the entire state of some partition at some point in time, and likely
-multiple points in time via changesets and/or multiple snapshots.
+are loaded and unloaded simultaneously. For ease of notation, the 'container'
+storing all data in an undivided repository is also considered a 'partition'.
+The partition-file relationship is 1-many: a partition uses multiple files to
+store the history of its data.
 
 *Partitioning* of the repository into partitions is neither user-defined nor
-fixed. User-defined classifiers are used when designing new partitions in a
-user-defined order. A partition will be defined according to some range of
-allowable values from one or more classifiers. If insufficient classifiers are
-present to give desirable granularity of partitions, the library can do no more
-than warn of this.
+fixed for the lifespan of the repository, but the user does get a lot of
+control over how data is partitioned.
 
-### When to partition
+When a partition is large, it may be split into multiple child partitions by
+(a) creating the "child" partitions and copying element data there, and (b)
+marking the original partition as closed. In theory, the reverse is also
+possible: moving data back to a "parent" partition and closing the children.
+These processes are known as *repartitioning*.
 
-The criteria for creating further partitions should be set by the user. Some
-use-cases might be happy with large data-sets which are slow to load and
-repartition but are still fast to read and fairly fast to write to; other cases
-might be happier with many small partitions which can be loaded or
-repartitioned nearly instantaneously.
+Each partition is separate to the degree that it is not guaranteed to know the
+details of other partitions — it stores some details, but these may be
+obsolete. There is no *master index* and there is no requirement for such a
+thing.
+
+Each partition has a number and a *base-name* (the common path relative to the
+partition root and file-name prefix of all its files).
 
 
 Meta-data
 ---------------
 
 We can store some data about partitioning in the partitions themselves. For
-all known partitions:
+all known partitions, we can store:
 
-*   classification data for the partition
-*   classification enumeration and/or partition number for element identifiers
-*   base-name of partition files on disk
-*   status (whether closed or not)
+*   the classification data for the partition
+*   the "partition number"
+*   the base-name of partition files on disk
+*   the status (whether still active or split into child partitions)
 
 This information may be out-of-date for some partitions, but provided we never
 *change* a partition but only sub-divide into *new* partitions, it's quite easy
@@ -49,58 +51,40 @@ received from loading other partitions, e.g. using a version number attached to
 the partition info). When creating new partitions, we write all we know.
 
 
+When to partition
+-------------------
+
+The criteria for creating further partitions should be set by the user. Some
+use-cases might be happy with large data-sets which are slow to load and
+repartition but are still fast to read and fairly fast to write to; other cases
+might be happier with many small partitions which can be loaded or
+repartitioned nearly instantaneously.
+
+The exact time of partitioning will likely still be determined by the library.
+
+
 Classification of elements
 ------------------
 
-### Use-cases
+User-defined classifiers are used to determine how to partition data.
 
-Partitioning of emails by (a) date-of-sending, (b) organisation of sender
-(match email to glob or regex, match to a list, or leave in the "default"
-category), (c) by size.
+The same classifiers can be used in some cases to search/filter elements.
 
-### Possible solutions
+Classification information is not required to always be available (in order to
+support partial encryption of elements and server operations in the face of
+incomplete information). If classification is not possible on an element, then
+the server should not move it or sub-divide its partition. It will however need
+a classification in order to support an insertion of a new element, so for some
+usages of the library it might be sensible to have a designated "in-box"
+partition or similar.
 
-#### Numeric property functions
+### Target use-cases
 
-Classifiers are user-defined functions mapping elements to a number, which is
-either a user defined enumeration or a user-defined range of integers (TBD:
-32-bit? signed?).
+Partitioning of emails by (a) status (inbox, outbox, archived), (b) date of
+sending, (c) group of sender (by matching the from address against a glob, or
+regex or list), (d) by size.
 
-Problem: doesn't work for *string* properties (like an email's sender).
-
-#### Polymorphic property functions
-
-Classifiers are user-defined functions mapping elements to either a number or a
-string (as an enum), which can then be matched against a classifier externally.
-
-Advantages:
-
-*   actual classification can be done externally from the element
-*   a custom classifier can be implemented for searches using any desired
-    operations on these properties
-
-Disadvanatages:
-
-*   properties must be fixed
-*   for any property not either a number or a slice of existing element data
-    this is inefficient
-
-#### Internal classification
-
-Classifications are rule-sets which either match or don't match some given
-property, or logical combinations of such matchers. Classifiers are sets of
-prioritised (or exclusive) classifications.
-
-Advantages:
-
-*   properties can be provided on-demand, but must still be fixed
-
-Disadvantages:
-
-*   matching logic must be internal to element type
-*   logic available must be fixed?
-
-#### External classifiers
+### Chosen solution: External classifiers
 
 We use compile-time polymorphism (otherwise known as templating or "generics")
 to support custom *element* types. This means that it is trivial to extract the
@@ -111,123 +95,35 @@ elements in whichever way the user of the library sees fit and returns a
 classification into categories, whether the properties involved are integers,
 strings or whatever else.
 
-To allow the Pippin library to determine when to sub-divide a category but
-leave the user the rest of the control, all we need is that the classifier
-enumerates categories and, on request, will subdivide one category into two or
-more sub-categories (or fail, if no more classification is possible).
+To allow the Pippin library to request sub-division of a category, all we need
+is a classifier which returns the *enumeration* of an element's category and,
+on request, can subdivide a designated category into two or more sub-categories
+(or fail, if no more classification is possible).
 
 This leaves two problems: (1) the user must write quite a bit of code to deal
 with classification, and (2) the user-defined categories must be preserved. We
 cannot completely solve (1) while leaving the user in control, but can provide
 templates, and besides, classification is of little importance for small
-databases. For (2), one solution would be to make the user provide a "matcher"
-object tied to each output enumeration, in order of matching priority, with
-serialisation and deserialisation support. Unfortunately matching against a
-long list of classifiers until a match is found is not very efficient. Another
-option might be to use a single "classifier" object and serialise the whole
-thing in one go.
-
-The next problem is where to put the "classifier" once it's been serialised. It
-might be better to leave this up to the user? Except that (a) it should be
-synchronised simultaneously with other repo data and (b) it wouldn't be good to
-reclassify only to have details of the new classifier forgotten. Maybe a better
-approach would be to let the user save, in each partition, details of that
-partition's classification (in whatever form it wishes)?
-
---------------
-
-Each function must have a name (TBD: allowable identifiers).
-
-The names of classifier functions and their domains (enumeration or integer
-range) are recorded in each snapshot and may not change. The functions
-themselves are provided by the user and *should* not change; if they do, the
-library will provide options for dealing with this (search by iteration over
-all elements of a partitioning, reclassification of all elements in a
-partition), but searching/filtering by classifiers may not return the correct
-elements until reclassification is complete.
-
-Classifier functions may not be removed (as a work-around, they can be changed
-to output only a single value and values reclassified). New classifier
-functions may be added with lowest priority but will only be recorded in new
-snapshots.
-
-Classifier functions must not change their domains (relative to what was
-recorded as being in use by previous snapshots).
-Classifier functions previously available (when previous snapshots were made)
-must continue to be available.
-
-Priority of the classifier functions is user defined. This is recorded in
-snapshots but may be changed; however partitioning will not be changed until
-either the user or the library decides to repartition.
-In the mean time, existing snapshots may or may not be updated
-with the new priorities while new snapshots will record the new priorities but
-continue to represent the old partition.
-
-### Partitioning from classifier values
-
-Desirable: partitioning happens at "sensible" boundaries, e.g. by year, then
-perhaps by month or quarter, not just some date or time during the year.
-Further, it should be possible to label partitions based on these values (e.g.
-year or month).
-
-This can be done by using multiple prioritised classifiers (e.g. "year",
-"quarter", "month", "week", "day-of-month"). This is however more to set up and
-more classifications to remember per-element than a single date/time-stamp.
-
-Alternatively, a single classifier might be used along with rules about where
-best to partition ranges. Perhaps most simply the function would take a range
-and return two or a small number of sub-ranges.
-
-The system might or might not also want to predict which new partitions might
-be needed in the future. For example, if elements are partitioned by date added
-with new elements continually being added, and recent elements have been
-partitioned by year then quarter, it might make sense to create new partitions
-by quarter proactively instead simply of when a partition gets too big.
+databases. To solve (2), the provided classifier should be able to serialise
+required details of its decision logic for each partition, so that this can be
+stored in partition meta-data and be updated, should more up-to-date
+information on some partition be found.
 
 
 Partition identification
 --------------------
 
-### Labels on the disk
-
-TBD: how to identify a partition in memory.
-
-Standard file extensions are `.pip` for snapshot files (it's short, peppy, and
-self-contained), and `.piplog` for commit log files (which must correspond to a
-snapshot file).
-
-Given some `BASEPATH` (first part of the file name, potentially prefixed by a
-path), snapshot files are named `BASEPATH-ssN.pip` where `N` is the number of a
-snapshot. The first non-empty snapshot is usually numbered `1`; subsequent
-snapshots should be numbered one more than the largest number in use (not a
-hard requirement). The convention for new partitions is that an empty snapshot
-with number `0` be created.
-
-Commit log files correspond to a snapshot. A commit log file should be named
-`BASEPATH-ssN-clM.piplog` where `M` is the commit log file number. The first
-log file should have number `1` and subsequent files should be numbered one
-greater than the largest number previously in use.
-
-This `BASEPATH` is an arbitrary Unicode string except that (a) it may contain
-path separators (`/` on all operating systems), and (b) the part after the last
-separator must be a valid file name stem and the rest must either be empty or
-a valid (relative or absolute) path. To aid users, names may be suggested by
-the program using the library.
-
-For now, partition data files are restricted to names matching one of the 
-following regular expressions:
-
-    ([0-9a-zA-Z\-_]+)-ss([1-9][0-9]*).pip
-    ([0-9a-zA-Z\-_]+)-ss([1-9][0-9]*)-cl([1-9][0-9]*).piplog
+A unique number is needed for each partition, as well as some *base-name* for
+naming of its files on disk.
 
 ### Unique partition numbers.
 
 How can we ensure that each partition gets a unique number?
 These are needed to ensure elements get unique numbers.
 
-Note: an enumeration is needed for classification. It would probably be a good
-idea either to use that enumeration here or to use these numbers for the
-enumeration.
+This number should probably be assigned by the user-specified classifier as
+the enumeration for the partition. This considers possible stragies which the
+classifier might wish to use.
 
 Bifurcation
 ------------
@@ -271,15 +167,47 @@ lose some numbers or double-assign them. Further, another process using the
 library could *theoretically* divide the partition from which these numbers are
 stolen at the same time, causing more problems.
 
+### Base-name for partition files
+
+The base-name could simply be the partition number formatted as a decimal. But
+it could instead be provided by the user to allow more meaningful names for
+partitions.
+
+This base-name is an arbitrary Unicode string except that (a) it may contain
+path separators (`/` on all operating systems), and (b) the part after the last
+separator must be a valid file name stem and the rest must either be empty or
+a valid (relative or absolute) path.
+
+Sub-directories are allowed via `/` separators in paths, so for example a
+base-name could be `archives/2013-2014`.
+
+### File-names and base-name
+
+Standard file extensions are `.pip` for snapshot files (it's short, peppy, and
+self-contained), and `.piplog` for commit log files (which must correspond to a
+snapshot file).
+
+Given some `BASENAME` (see above),
+snapshot files are named `BASENAME-ssN.pip` where `N` is the number of a
+snapshot. The first non-empty snapshot is usually numbered `1`; subsequent
+snapshots should be numbered one more than the largest number in use (not a
+hard requirement). The convention for new partitions is that an empty snapshot
+with number `0` be created.
+
+Commit log files correspond to a snapshot. A commit log file should be named
+`BASENAME-ssN-clM.piplog` where `M` is the commit log file number. The first
+log file should have number `1` and subsequent files should be numbered one
+greater than the largest number previously in use.
+
+For now, partition data files are restricted to names matching one of the 
+following regular expressions:
+
+    ([0-9a-zA-Z\-_]+)-ss(0|[1-9][0-9]*).pip
+    ([0-9a-zA-Z\-_]+)-ss(0|[1-9][0-9]*)-cl(0|[1-9][0-9]*).piplog
+
 
 Problems
 =======
-
-Identifiers
-----------
-
-Details remain sketchy. See above.
-
 
 Repartioning
 ---------------
