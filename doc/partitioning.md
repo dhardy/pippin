@@ -27,12 +27,116 @@ might be happier with many small partitions which can be loaded or
 repartitioned nearly instantaneously.
 
 
+Meta-data
+---------------
+
+We can store some data about partitioning in the partitions themselves. For
+all known partitions:
+
+*   classification data for the partition
+*   classification enumeration and/or partition number for element identifiers
+*   base-name of partition files on disk
+*   status (whether closed or not)
+
+This information may be out-of-date for some partitions, but provided we never
+*change* a partition but only sub-divide into *new* partitions, it's quite easy
+to spot what is out of date: either there will be no files on disk, or when
+loaded, the files for that partition will say that it has been closed.
+
+In memory, we use the most up-to-date information available (with some simple
+mechanism for solving conflicts about information on unloaded partitions
+received from loading other partitions, e.g. using a version number attached to
+the partition info). When creating new partitions, we write all we know.
+
+
 Classification of elements
 ------------------
 
+### Use-cases
+
+Partitioning of emails by (a) date-of-sending, (b) organisation of sender
+(match email to glob or regex, match to a list, or leave in the "default"
+category), (c) by size.
+
+### Possible solutions
+
+#### Numeric property functions
+
 Classifiers are user-defined functions mapping elements to a number, which is
 either a user defined enumeration or a user-defined range of integers (TBD:
-32-bit? signed?). Each function must have a name (TBD: allowable identifiers).
+32-bit? signed?).
+
+Problem: doesn't work for *string* properties (like an email's sender).
+
+#### Polymorphic property functions
+
+Classifiers are user-defined functions mapping elements to either a number or a
+string (as an enum), which can then be matched against a classifier externally.
+
+Advantages:
+
+*   actual classification can be done externally from the element
+*   a custom classifier can be implemented for searches using any desired
+    operations on these properties
+
+Disadvanatages:
+
+*   properties must be fixed
+*   for any property not either a number or a slice of existing element data
+    this is inefficient
+
+#### Internal classification
+
+Classifications are rule-sets which either match or don't match some given
+property, or logical combinations of such matchers. Classifiers are sets of
+prioritised (or exclusive) classifications.
+
+Advantages:
+
+*   properties can be provided on-demand, but must still be fixed
+
+Disadvantages:
+
+*   matching logic must be internal to element type
+*   logic available must be fixed?
+
+#### External classifiers
+
+We use compile-time polymorphism (otherwise known as templating or "generics")
+to support custom *element* types. This means that it is trivial to extract the
+underlying element type for use with a custom *classifier*.
+
+Our classifier can thus be an external entity which can access details of
+elements in whichever way the user of the library sees fit and returns a
+classification into categories, whether the properties involved are integers,
+strings or whatever else.
+
+To allow the Pippin library to determine when to sub-divide a category but
+leave the user the rest of the control, all we need is that the classifier
+enumerates categories and, on request, will subdivide one category into two or
+more sub-categories (or fail, if no more classification is possible).
+
+This leaves two problems: (1) the user must write quite a bit of code to deal
+with classification, and (2) the user-defined categories must be preserved. We
+cannot completely solve (1) while leaving the user in control, but can provide
+templates, and besides, classification is of little importance for small
+databases. For (2), one solution would be to make the user provide a "matcher"
+object tied to each output enumeration, in order of matching priority, with
+serialisation and deserialisation support. Unfortunately matching against a
+long list of classifiers until a match is found is not very efficient. Another
+option might be to use a single "classifier" object and serialise the whole
+thing in one go.
+
+The next problem is where to put the "classifier" once it's been serialised. It
+might be better to leave this up to the user? Except that (a) it should be
+synchronised simultaneously with other repo data and (b) it wouldn't be good to
+reclassify only to have details of the new classifier forgotten. Maybe a better
+approach would be to let the user save, in each partition, details of that
+partition's classification (in whatever form it wishes)?
+
+--------------
+
+Each function must have a name (TBD: allowable identifiers).
 
 The names of classifier functions and their domains (enumeration or integer
 range) are recorded in each snapshot and may not change. The functions
@@ -120,6 +224,10 @@ following regular expressions:
 
 How can we ensure that each partition gets a unique number?
 These are needed to ensure elements get unique numbers.
+
+Note: an enumeration is needed for classification. It would probably be a good
+idea either to use that enumeration here or to use these numbers for the
+enumeration.
 
 Bifurcation
 ------------
