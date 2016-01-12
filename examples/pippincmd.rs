@@ -194,7 +194,7 @@ fn inner(files: Vec<String>, op: Operation, args: Rest) -> Result<()>
                 }
                 Ok(())
             } else {
-                let mut part = Partition::<DataElt>::create(box discover);
+                let mut part = Partition::<DataElt>::open(box discover);
                 {
                     let mut state = if let Some(ss) = args.commit {
                         try!(part.load(true));

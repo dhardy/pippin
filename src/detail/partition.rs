@@ -213,8 +213,8 @@ impl<E: ElementT> Partition<E> {
     /// ```
     /// use pippin::{Partition, PartitionDummyIO};
     /// 
-    /// let io = Box::create(PartitionDummyIO::new());
-    /// let partition = Partition::<String>::new(io, "example repo");
+    /// let io = Box::new(PartitionDummyIO::new());
+    /// let partition = Partition::<String>::create(io, "example repo");
     /// ```
     pub fn create(mut io: Box<PartitionIO>, name: &str) -> Result<Partition<E>> {
         try!(validate_repo_name(name));
@@ -809,7 +809,7 @@ impl<E: ElementT> Partition<E> {
 #[test]
 fn on_new_partition() {
     let io = box PartitionDummyIO::new();
-    let mut part = Partition::<String>::new(io, "on_new_partition").expect("partition creation");
+    let mut part = Partition::<String>::create(io, "on_new_partition").expect("partition creation");
     assert_eq!(part.tips.len(), 1);
     
     let state = part.tip().expect("getting tip").clone_child();

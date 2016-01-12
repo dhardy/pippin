@@ -73,7 +73,7 @@ impl PartitionIO for PartitionStreams {
 #[test]
 fn create_small() {
     let part_streams = PartitionStreams { ss: VecMap::new() };
-    let mut part = Partition::<String>::new(box part_streams,
+    let mut part = Partition::<String>::create(box part_streams,
         "create_small").expect("creating partition");
     
     // 2 Add a few elements over multiple commits
@@ -138,7 +138,7 @@ fn create_small() {
     }
     
     // 5 Read streams back again and compare
-    let mut part2 = Partition::create(boxed_io);
+    let mut part2 = Partition::open(boxed_io);
     part2.load(true).expect("part2.load");
     // The "parent" field is not saved and so unequal in the reloaded state.
     // As a work-around, we use clone_child() which updates the "parent" field.
