@@ -1,93 +1,194 @@
 //! Classification of Pippin elements
 
-use super::Element;
-use pippin::Result;
+use std::convert::From;
+use std::io::Write;
+use std::marker::PhantomData;
 
-/// A classifier should implement this trait.
+use super::ElementT;
+use ::error::{Result, Error};
+
+/// A classification / partition number
 /// 
-/// Classifiers serve two purposes: they can be used as filters when searching
-/// or listing elements, and they allow elements to be partitioned in a useful
-/// manner.
+/// This number must not be zero and the high 24 bits must be zero (it must be
+/// less than 2^40).
 /// 
-/// Each classifier is allocated a 32-bit number as identifier within a
-/// repository which never changes. It is desirable that this number stay
-/// reasonably small, so do not continually add new classifiers.
-trait Classifier {
-    /// Return an identifier for the classifier. This should be reasonably short
-    /// (ideally <= 8 bytes UTF-8, though not required) and not ever change.
-    fn name(&self) -> &'static str;
-    
-    /// Run the classifier on an element and get an output value. The function
-    /// should satisfy the following properties:
-    /// 
-    /// *   Be fixed. That is, for a given element which does not change, the
-    ///     output should not vary (including on a new program load).
-    /// *   Normally return a number of at least 1.
-    /// *   As an exception, the special value 0 may be used. This indicates
-    ///     a classification failure. The function may later return a non-zero
-    ///     value, or return a non-zero value then later return 0 (but not any
-    ///     other values).
-    /// 
-    /// Classifiers may be fine- or coarse-grained with any distribution.
-    fn classify(&self, elt: &Element) -> u32;
-    
-    /// For elements where a classifier returns 0, a value may still be needed;
-    /// this value gets used. For example, if a classifier returns the date at
-    /// which elements are added, it may be useful to assume a future date for
-    /// unclassified elements.
-    /// 
-    /// This value *shouldn't* change. If it does, elements may need to be
-    /// moved to different partitions (increasing commit log size) and searches
-    /// for "unclassified" elements may miss elements (since the wrong
-    /// partitions may be checked).
-    fn default_value(&self) -> u32;
-    
-    //TODO: is there any point allowing per-classifier control of caching?
-    /// Control caching of the classifier value.
-    /// 
-    /// If true, the classifier value will be added at the time of element
-    /// creation and added. Elements without classifier may or may not be
-    /// updated with it. The `classify` function will not be used on elements
-    /// with a cached value, e.g. when searching and repartitioning, excepting
-    /// if the cached value is 0.
-    /// 
-    /// TODO: add a way to force updating of cached values (though in theory
-    /// it should not be needed).
-    /// 
-    /// If false, the `classify` function will be called whenever the value is
-    /// needed. If elements have a cached value this will be ignored (normally
-    /// it will not be removed, though this is not guaranteed).
-    /// 
-    /// It is allowable to turn caching on or off. It is not recommended to
-    /// turn caching off except where the `classify` function is quite fast
-    /// (mostly due to the performance of searches).
-    fn use_caching(&self) -> bool;
+/// Create via `From`: `Class::from(n)`, which introduces a bounds
+/// check.
+/// 
+/// The same numbers are used for classification as for partitions: the numbers
+/// returned by `initial()` and `classify()` are also partition identifiers.
+/// 
+/// These numbers can never be zero. Additionally, they are restricted to 40
+/// bits; the high 24 bits must be zero. Element identifiers are take the form
+/// `(part_num << 24) + gen_id()` where `part_num` is the partition number and
+/// `gen_id()` returns a 24-bit number unique within the partition.
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+pub struct Class {
+    // #0018: optimise usage as Option with NonZero?
+    num: u64,
 }
-
-/// Type used to represent a set of classifiers used in a repository.
-pub struct Classifiers {
-    unnumbered_classifiers: Vec<&'static Classifier>,
-    classifiers: VecMap<&'static Classifier>,
-};
-
-impl Classifiers {
-    /// Classify an element.
-    fn classify(&self, elt: &Element, classifier: u32) -> Result<u32> {
-        if !self.classifiers.has_key(classifier) {
-            return Err("invalid classifier");
-        }
-        let cached = elt.cached_classification(classifier);
-        if cached == 0 {
-            let classifier = self.classifiers.get(classifier).unwrap();
-            let csf = classifier.classify(elt);
-            if csf == 0 {
-                classifier.default_value()
-            } else {
-                //TODO: update cache in element? Or maybe only when snapshotting?
-                csf
-            }
-        } else {
-            cached
+impl From<u64> for Class {
+    fn from(n: u64) -> Class {
+        assert!(n != 0 && n < (1<<40), "check bounds on classification / partition number");
+        Class {
+            num: n
         }
     }
+}
+
+
+/// A classifier is a device taking an element and returning a numeric code
+/// classifying that element. See notes on partitioning and classification.
+/// 
+/// The user must supply an implementation of this trait in order to use the
+/// `Repo` type (repository). The user-defined *element* type must be specified
+/// within objects implementing this trait in order to tie the two
+/// user-specified types together.
+/// 
+/// Implementations must provide at least `Element`, `initial`, `classify`,
+/// `divide`, `read_buf` and `write_buf`.
+pub trait ClassifierT {
+    /// The user-specified element type.
+    type Element: ElementT;
+    
+    /// Initially there should only be one partition and one classification.
+    /// This function gets the number of this classification.
+    /// 
+    /// The return value must not be zero (see `ClassifierT` documentation on
+    /// numbers). One is a perfectly decent initial value.
+    /// 
+    /// It is allowed for this function to panic once there is more than one
+    /// classification available.
+    fn initial(&self) -> Class;
+    
+    /// Get the classification of an element.
+    /// 
+    /// If this returns `None`, the library assumes classification of the
+    /// element is temporarily unavailable. In this case it might call
+    /// `fallback`.
+    /// 
+    /// The return value must not be zero (see `ClassifierT` documentation on
+    /// numbers).
+    /// 
+    /// This function is only called when inserting/replacing an element and
+    /// when repartitioning, so it doesn't need to be super fast.
+    fn classify(&self, elt: &Self::Element) -> Option<Class>;
+    
+    /// This is used only when `classify` returns `None` for an element.
+    /// 
+    /// This is only needed for cases where some operations should be supported
+    /// despite classification not being available in all cases. The default
+    /// implementation returns `ClassifyFallback::Fail`.
+    fn fallback(&self) -> ClassifyFallback { ClassifyFallback::Fail }
+    
+    /// This function is called when too many elements correspond to the given
+    /// classification. The function should divide this classification into two
+    /// or more new classifications with new numbers; the number of the old
+    /// classification should not be used again (unless somehow the new
+    /// classifications were to recombined into the old).
+    /// 
+    /// The function should return the numbers of the new classifications.
+    /// 
+    /// If this fails with `ReclassifyError::OutOfNumbers`, the "number
+    /// stealing" logic will be activated (see `steal_target()` and
+    /// `steal_from()`). This allows numbers to be redistributed, and on
+    /// success, `divide()` will be called again.
+    fn divide(&mut self, class: Class) ->
+        Result<Vec<Class>, ReclassifyError>;
+    
+    /// In case `ReclassifyError::OutOfNumbers` is returned, this function is
+    /// called. It is used to suggest a partition to steal numbers from.
+    /// 
+    /// It is an error if `divide` returns `Err(ReclassifyError::OutOfNumbers)`
+    /// *and* this function returns `None`. The default implementation returns
+    /// `None`, on the assumption that many implementations will not need this
+    /// logic.
+    fn steal_target(&self) -> Option<Class> { None }
+    
+    /// After `steal_target()` is called, the partition in question is loaded,
+    /// the classifier updated, then this function called.
+    /// 
+    /// This should attempt to steal numbers from the target for the second
+    /// classification, to allow its subdivision. On success, it should update
+    /// internal information and return the numbers of the partitions which
+    /// need to have their headers updated with new info (as supplied by
+    /// `write`). On failure, its internal state should be updated such that
+    /// `steal_target` returns a new number.
+    /// 
+    /// The default implementation returns `Err(StealError::GiveUp)`.
+    fn steal_from(&mut self, _target_id: Class,
+        _for_id: Class) -> Result<Vec<Class>, StealError>
+    {
+        Err(StealError::GiveUp)
+    }
+    
+    /// This function lets a classifier write out whatever it knows about
+    /// partitions to some piece of data, stored in a partition header.
+    fn write_buf(&self, writer: &mut Write) -> Result<()>;
+    
+    /// This function is called whenever a partition header is loaded with
+    /// information about classifications. If there are multiple partitions in
+    /// the repository, it may well be called multiple times at program
+    /// start-up, and also later. The classifier should use per-partition
+    /// versioning to decide which information is more up-to-date than the
+    /// currently stored information.
+    fn read_buf(&mut self, buf: &[u8]) -> Result<()>;
+}
+
+/// Failures allowed for `ClassifierT::divide`.
+pub enum ReclassifyError {
+    /// No logic is available allowing subdivision of the category.
+    NotSubdivisible,
+    /// Activates "number stealing" logic.
+    OutOfNumbers,
+    /// Any other error.
+    Other(Error),
+}
+
+/// Failures allowed for `ClassifierT::steal_from`.
+pub enum StealError {
+    /// Switch to another target.
+    SwitchTarget,
+    /// Give up. Really not ideal if it comes to this.
+    GiveUp,
+    /// Any other error (assumed to be temporary).
+    Other(Error),
+}
+
+/// Specifies what to do when classification fails and an element is to be
+/// inserted or replaced.
+pub enum ClassifyFallback {
+    /// Use the given classification for an insertion or replacement.
+    Default(Class),
+    /// In the case of a replacement, assume the replacing element has the
+    /// same classification as the element being replaced. If not a
+    /// replacement, use the default specified.
+    ReplacedOrDefault(Class),
+    /// In the case of a replacement, assume the replacing element has the
+    /// same classification as the element being replaced. If not a
+    /// replacement, fail.
+    ReplacedOrFail,
+    /// Fail the operation. The insertion or replacement operation will fail
+    /// with an error.
+    Fail,
+}
+
+/// Trivial implementation for testing purposes. Always returns the same value,
+/// 1, thus there will only ever be a single 'partition'.
+pub struct DummyClassifier<E: ElementT> {
+    p: PhantomData<E>,
+}
+impl<E: ElementT> ClassifierT for DummyClassifier<E> {
+    type Element = E;
+    fn initial(&self) -> Class { Class::from(1) }
+    fn classify(&self, _elt: &Self::Element) -> Option<Class> {
+        Some(Class::from(1))
+    }
+    fn divide(&mut self, _class: Class) ->
+        Result<Vec<Class>, ReclassifyError>
+    {
+        Err(ReclassifyError::NotSubdivisible)
+    }
+    fn write_buf(&self, _writer: &mut Write) -> Result<()> { Ok(()) }
+    fn read_buf(&mut self, _buf: &[u8]) -> Result<()> { Ok(()) }
 }

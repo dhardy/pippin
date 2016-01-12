@@ -11,6 +11,14 @@ use ::error::{Result};
 
 /// Whatever element type the user wishes to store must implement this trait.
 /// 
+/// ### Read-only
+/// 
+/// Elements are not usually modifiable. The database only allows elements to
+/// be updated by "replacing" them in the DB. If you attempt to get around this
+/// by use of `std::cell` or similar, your changes will not be saved and may
+/// affect historical states of the repository stored in memory, possibly even
+/// affecting commit creation. Not recommended.
+/// 
 /// ### Serialisation
 /// 
 /// Elements must be serialisable as a data stream, and deserialisable from a

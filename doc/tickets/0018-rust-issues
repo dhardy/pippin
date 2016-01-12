@@ -10,3 +10,6 @@ How to copy data from one fixed-size array to another?
 How to simultaneously XOR all entries?
 
 Use SIMD library?
+
+Use NonZero optimisation?
+https://github.com/rust-lang/rust/issues/27730

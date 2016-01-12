@@ -3,7 +3,7 @@
 use std::slice::{Iter, IterMut};
 use std::any::Any;
 
-use super::{Partition, PartitionIO, ElementT};
+use super::{Partition, PartitionIO, ClassifierT};
 use ::error::{Result, OtherError};
 
 pub trait RepoIO {
@@ -37,17 +37,17 @@ pub trait RepoIO {
 /// and used to read and write elements. The copy may be accessed without
 /// blocking other operations on the underlying repository. Changes made to
 /// the copy may be merged back into the repository.
-pub struct Repo<E: ElementT> {
+pub struct Repo<C: ClassifierT> {
     io: Box<RepoIO>,
     /// Descriptive identifier for the repository
     name: String,
     /// List of loaded partitions, by in-memory (temporary numeric) identifier.
     /// Identifier is TBD (TODO).
-    partitions: Vec<Partition<E>>,
+    partitions: Vec<Partition<C::Element>>,
 }
 
 // Non-member functions on Repo
-impl<E: ElementT> Repo<E> {
+impl<C: ClassifierT> Repo<C> {
     /// Create a new repository with the given name.
     /// 
     /// The name must be UTF-8 and not more than 16 bytes long. It allows a
@@ -58,7 +58,7 @@ impl<E: ElementT> Repo<E> {
     /// 
     /// This creates an initial 'partition' ready for use (all contents must
     /// be kept within a `Partition`).
-    pub fn create(mut io: Box<RepoIO>, name: String) -> Result<Repo<E>> {
+    pub fn create(mut io: Box<RepoIO>, name: String) -> Result<Repo<C>> {
         let n = io.add_partition();
         let part = try!(Partition::create(io.make_partition_io(n), &name));
         Ok(Repo{
@@ -72,7 +72,7 @@ impl<E: ElementT> Repo<E> {
     /// 
     /// This does not automatically load partition data, however it must load
     /// at least one header in order to identify the repository.
-    pub fn open(io: Box<RepoIO>) -> Result<Repo<E>> {
+    pub fn open(io: Box<RepoIO>) -> Result<Repo<C>> {
         let n = io.num_partitions();
         if n < 1 {
             return OtherError::err("No repository files found");
@@ -98,17 +98,17 @@ impl<E: ElementT> Repo<E> {
 }
 
 // Member functions on Repo — a set of elements.
-impl<E: ElementT> Repo<E> {
+impl<C: ClassifierT> Repo<C> {
     /// Get the repo name
     pub fn name(&self) -> &str { &self.name }
     
     /// Get an iterator over partitions
-    pub fn partitions(&self) -> Iter<Partition<E>> {
+    pub fn partitions(&self) -> Iter<Partition<C::Element>> {
         self.partitions.iter()
     }
     
     /// Get a mutable iterator over partitions
-    pub fn partitions_mut(&mut self) -> IterMut<Partition<E>> {
+    pub fn partitions_mut(&mut self) -> IterMut<Partition<C::Element>> {
         self.partitions.iter_mut()
     }
     
