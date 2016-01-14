@@ -38,6 +38,11 @@ pub trait RepoIO {
 /// blocking other operations on the underlying repository. Changes made to
 /// the copy may be merged back into the repository.
 pub struct Repo<C: ClassifierT> {
+    /// Classifier. This must use compile-time polymorphism since it gives us
+    /// the element type, and we do not want element look-ups to involve a
+    /// run-time conversion.
+    classifier: C,
+    /// I/O provider. In theory this could be changed during usage.
     io: Box<RepoIO>,
     /// Descriptive identifier for the repository
     name: String,
@@ -58,10 +63,12 @@ impl<C: ClassifierT> Repo<C> {
     /// 
     /// This creates an initial 'partition' ready for use (all contents must
     /// be kept within a `Partition`).
-    pub fn create(mut io: Box<RepoIO>, name: String) -> Result<Repo<C>> {
+    pub fn create(classifier: C, mut io: Box<RepoIO>, name: String) -> Result<Repo<C>> {
         let n = io.add_partition();
-        let part = try!(Partition::create(io.make_partition_io(n), &name));
+        let num = classifier.initial();
+        let part = try!(Partition::create_part(io.make_partition_io(n), &name, num));
         Ok(Repo{
+            classifier: classifier,
             io: io,
             name: name,
             partitions: vec![part],
@@ -72,7 +79,7 @@ impl<C: ClassifierT> Repo<C> {
     /// 
     /// This does not automatically load partition data, however it must load
     /// at least one header in order to identify the repository.
-    pub fn open(io: Box<RepoIO>) -> Result<Repo<C>> {
+    pub fn open(classifier: C, io: Box<RepoIO>) -> Result<Repo<C>> {
         let n = io.num_partitions();
         if n < 1 {
             return OtherError::err("No repository files found");
@@ -90,6 +97,7 @@ impl<C: ClassifierT> Repo<C> {
         }
         
         Ok(Repo{
+            classifier: classifier,
             io: io,
             name: name,
             partitions: parts,

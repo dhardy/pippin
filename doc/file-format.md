@@ -112,6 +112,15 @@ bytes (32 in the case of SHA-256) are the checksum and terminate the header.
 
 Currently only `SUM SHA-2 256` is supported.
 
+#### Partition number
+
+Each partition has a unique 40-bit number, called the partition number. It is
+stored in the high 40 bits of a `u64` (where the low 24-bits are zero), and
+called a "partition identifier".
+
+This is stored in a header block starting `PARTID ` then continuing with a
+`u64`.
+
 #### Other
 
 TBD: information on partition, parent, etc.
@@ -125,7 +134,6 @@ Data is written as follows:
 *   `SNAPSHOT` (section identifier)
 *   (??) the date of creation of the snapshot as YYYYMMDD
 *   TBD: state/commit identifier and time stamp
-*   Partition identifier range (`PARTID...`)
 *   `ELEMENTS` (section identifier)
 *   number of elements as a u64 (binary, TBD endianness)
 
@@ -144,15 +152,6 @@ Finally:
 *   number of elements as u64 (again, mostly for alignment)
 *   state checksum (doubles as an identifier)
 *   checksum of data as written in file
-
-### Details
-
-#### Partition identifiers
-
-Block starts `PARTID` and is followed by two `u40` numbers (two five-byte
-big-endian numbers). The first number is the partition identifier lower bound
-(also the currently used partition identifier), and the second is the upper
-bound, both bounds inclusive.
 
 
 Log files

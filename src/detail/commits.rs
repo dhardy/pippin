@@ -257,7 +257,7 @@ impl<'a, E: ElementT> LogReplay<'a, E> {
 
 #[test]
 fn commit_creation_and_replay(){
-    let part_id = 0;
+    let part_id = 1 << 24;
     let mut commits = CommitQueue::<String>::new();
     
     let mut state_a = PartitionState::new(part_id);

@@ -134,7 +134,7 @@ fn create_small() {
         // function randomisation). Instead we compare file length here and
         // read the files back below.
         assert_eq!(ss_data.len(), 208);
-        assert_eq!(log.len(), 1120);
+        assert_eq!(log.len(), 1136);
     }
     
     // 5 Read streams back again and compare

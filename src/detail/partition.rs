@@ -4,16 +4,15 @@ use std::io::{Read, Write, ErrorKind};
 use std::collections::{HashSet, VecDeque};
 use std::result;
 use std::any::Any;
-use std::u64;
 use hashindexed::HashIndexed;
 
 use super::{Sum, Commit, CommitQueue, LogReplay};
 use super::{PartitionState, PartitionStateSumComparator};
-use super::{ElementT};
+use super::{ElementT, PartNum};
 use super::merge::{TwoWayMerge, TwoWaySolver};
-use super::readwrite::{FileHeader, FileType, read_head, write_head,
-    read_snapshot, write_snapshot, read_log, start_log, write_commit,
-    validate_repo_name};
+use super::readwrite::{FileHeader, FileType, read_head, write_head, validate_repo_name};
+use super::readwrite::{read_snapshot, write_snapshot};
+use super::readwrite::{read_log, start_log, write_commit};
 use error::{Result, ArgError, TipError, MatchError, OtherError, make_io_err};
 
 /// An interface providing read and/or write access to a suitable location.
@@ -187,8 +186,9 @@ pub struct Partition<E: ElementT> {
     io: Box<PartitionIO>,
     // Partition name. Used to identify loaded files.
     repo_name: String,
-    // Range (inclusive) of partition identifiers; first is one in use
-    part_range: (u64, u64),
+    // Partition identifier. This is the number << 24. Initially set to 0 which
+    // is not valid for creating element ids.
+    part_id: u64,
     // Number of the current snapshot file
     ss_num: usize,
     // Determines when to write new snapshots
@@ -216,19 +216,29 @@ impl<E: ElementT> Partition<E> {
     /// let io = Box::new(PartitionDummyIO::new());
     /// let partition = Partition::<String>::create(io, "example repo");
     /// ```
-    pub fn create(mut io: Box<PartitionIO>, name: &str) -> Result<Partition<E>> {
+    pub fn create(io: Box<PartitionIO>, name: &str) -> Result<Partition<E>> {
+        Self::create_part(io, name, PartNum::from(1))
+    }
+    
+    /// As `create(io, name)` but with a specified partition number. For
+    /// single-partition usage the number isn't important; for multiple
+    /// partitions it is handled by the classifier and forwarded by `Repo`.
+    pub fn create_part(mut io: Box<PartitionIO>, name: &str,
+        part_num: PartNum) -> Result<Partition<E>>
+    {
         try!(validate_repo_name(name));
-        let range = (0, u64::MAX);
-        let state = PartitionState::new(range.0);
+        let part_id = part_num.as_id();
+        let state = PartitionState::new(part_id);
         let header = FileHeader {
             ftype: FileType::Snapshot,
             name: name.to_string(),
+            part_id: part_id,
             remarks: Vec::new(),
             user_fields: Vec::new(),
         };
         if let Some(mut writer) = try!(io.new_ss(0)) {
             try!(write_head(&header, &mut writer));
-            try!(write_snapshot(&state, range, &mut writer));
+            try!(write_snapshot(&state, &mut writer));
         } else {
             return make_io_err(ErrorKind::AlreadyExists, "snapshot already exists");
         }
@@ -236,7 +246,7 @@ impl<E: ElementT> Partition<E> {
         let mut part = Partition {
             io: io,
             repo_name: header.name,
-            part_range: range,
+            part_id: part_id,
             ss_num: 0,
             ss_policy: SnapshotPolicy::new(),
             states: HashIndexed::new(),
@@ -273,7 +283,7 @@ impl<E: ElementT> Partition<E> {
         Partition {
             io: io,
             repo_name: "".to_string() /*temporary value; checked before usage elsewhere*/,
-            part_range: (0, 0),
+            part_id: 0,
             ss_num: 0,
             ss_policy: SnapshotPolicy::new(),
             states: HashIndexed::new(),
@@ -282,12 +292,19 @@ impl<E: ElementT> Partition<E> {
         }
     }
     
-    /// Set the repo name. This is left empty by `create()`. Once set,
+    /// Set the repo name. This is left empty by `open()`. Once set,
     /// partition operations will fail when loading a file with a different
-    /// name, or indeed if this function supplies a different name.
+    /// name.
+    /// 
+    /// This will fail if the repo name has already been set *and* is not
+    /// equal to the `repo_name` parameter.
     pub fn set_repo_name(&mut self, repo_name: &str) -> Result<()> {
-        try!(validate_repo_name(repo_name));
-        Self::verify_repo_name(repo_name, &mut self.repo_name)
+        if self.repo_name.len() == 0 {
+            self.repo_name = repo_name.to_string();
+        } else if self.repo_name != repo_name {
+            return OtherError::err("repository name does not match when loading (wrong repo?)");
+        }
+        Ok(())
     }
     
     /// Get the repo name.
@@ -304,7 +321,7 @@ impl<E: ElementT> Partition<E> {
         for ss in (0 .. self.io.ss_len()).rev() {
             if let Some(mut ssf) = try!(self.io.read_ss(ss)) {
                 let header = try!(read_head(&mut *ssf));
-                try!(Self::verify_repo_name(&header.name, &mut self.repo_name));
+                try!(Self::verify_head(header, &mut self.repo_name, &mut self.part_id));
                 return Ok(&self.repo_name);
             }
         }
@@ -343,10 +360,8 @@ impl<E: ElementT> Partition<E> {
             for ss in 0..ss_len {
                 if let Some(mut r) = try!(self.io.read_ss(ss)) {
                     let head = try!(read_head(&mut r));
-                    try!(Self::verify_repo_name(&head.name, &mut self.repo_name));
-                    
-                    let (state, range) = try!(read_snapshot(&mut r));
-                    try!(Self::verify_part_range(range, &mut self.part_range));
+                    try!(Self::verify_head(head, &mut self.repo_name, &mut self.part_id));
+                    let state = try!(read_snapshot(&mut r, self.part_id));
                     
                     self.tips.insert(state.statesum().clone());
                     self.states.insert(state);
@@ -356,8 +371,7 @@ impl<E: ElementT> Partition<E> {
                 for c in 0..self.io.ss_cl_len(ss) {
                     if let Some(mut r) = try!(self.io.read_ss_cl(ss, c)) {
                         let head = try!(read_head(&mut r));
-                        try!(Self::verify_repo_name(&head.name, &mut self.repo_name));
-                        
+                        try!(Self::verify_head(head, &mut self.repo_name, &mut self.part_id));
                         try!(read_log(&mut r, &mut queue));
                     }
                 }
@@ -371,10 +385,8 @@ impl<E: ElementT> Partition<E> {
             loop {
                 if let Some(mut r) = try!(self.io.read_ss(num)) {
                     let head = try!(read_head(&mut r));
-                    try!(Self::verify_repo_name(&head.name, &mut self.repo_name));
-                    
-                    let (state, range) = try!(read_snapshot(&mut r));
-                    try!(Self::verify_part_range(range, &mut self.part_range));
+                    try!(Self::verify_head(head, &mut self.repo_name, &mut self.part_id));
+                    let state = try!(read_snapshot(&mut r, self.part_id));
                     
                     self.tips.insert(state.statesum().clone());
                     self.states.insert(state);
@@ -382,10 +394,8 @@ impl<E: ElementT> Partition<E> {
                 }
                 
                 if num == 0 {
-                    // no more snapshot numbers to try; assume zero is empty state
-                    let state = PartitionState::new(self.part_range.0);
-                    self.tips.insert(state.statesum().clone());
-                    self.states.insert(state);
+                    // no more snapshot numbers to try; below we insert an empty state
+                    // #0017: we should warn about the missing snapshot file
                     break;
                 }
                 num -= 1;
@@ -396,13 +406,22 @@ impl<E: ElementT> Partition<E> {
                 for c in 0..self.io.ss_cl_len(ss) {
                     if let Some(mut r) = try!(self.io.read_ss_cl(ss, c)) {
                         let head = try!(read_head(&mut r));
-                        try!(Self::verify_repo_name(&head.name, &mut self.repo_name));
-                        
+                        try!(Self::verify_head(head, &mut self.repo_name, &mut self.part_id));
                         try!(read_log(&mut r, &mut queue));
                     }
                 }
             }
             self.ss_policy.add_commits(queue.len());
+            if self.tips.is_empty() {
+                // Only for the case we couldn't find a snapshot file (see "num == 0" above)
+                if self.part_id == 0 {
+                    // "part_id" should be stored in every file, so nothing was loaded?
+                    return make_io_err(ErrorKind::NotFound, "load operation found no files");
+                }
+                let state = PartitionState::new(self.part_id);
+                self.tips.insert(state.statesum().clone());
+                self.states.insert(state);
+            }
             let mut replayer = LogReplay::from_sets(&mut self.states, &mut self.tips);
             self.ss_policy.add_edits(try!(replayer.replay(queue)));
         }
@@ -415,6 +434,8 @@ impl<E: ElementT> Partition<E> {
         
         if self.tips.is_empty() {
             make_io_err(ErrorKind::NotFound, "load operation found no states")
+        } else if self.part_id == 0 {
+            return OtherError::err("partition number not set")
         } else {
             // success, but a merge may still be required
             Ok(())
@@ -445,26 +466,19 @@ impl<E: ElementT> Partition<E> {
     /// 
     /// This function is called for every file loaded. It does not take self as
     /// an argument, since it is called in situations where self.io is in use.
-    pub fn verify_repo_name(repo_name: &str, self_name: &mut String) -> Result<()> {
+    pub fn verify_head(head: FileHeader, self_name: &mut String,
+        self_partid: &mut u64) -> Result<()>
+    {
         if self_name.len() == 0 {
-            *self_name = repo_name.to_string();
-        } else if repo_name != self_name {
+            *self_name = head.name;
+        } else if *self_name != head.name{
             return OtherError::err("repository name does not match when loading (wrong repo?)");
         }
-        Ok(())
-    }
-    /// Verify or set the partition's identifier range
-    pub fn verify_part_range(range: (u64, u64), self_range: &mut (u64, u64)) -> Result<()> {
-        if self_range.0 == 0 && self_range.1 == 0 {
-            // This should only be the case when loading the first snapshot
-            // after `create()` is called. It should never be used otherwise.
-            self_range.0 = range.0;
-            self_range.1 = range.1;
-        } else {
-            // Presumably we read one snapshot already, and now found
-            // another. Values should be equal.
-            if self_range.0 != range.0 || self_range.1 != range.1 {
-                return OtherError::err("partition identifier range differs from previous value");
+        if head.part_id != 0 {
+            if *self_partid == 0 {
+                *self_partid = head.part_id;
+            } else if *self_partid != head.part_id {
+                return OtherError::err("partition identifier differs from previous value");
             }
         }
         Ok(())
@@ -690,6 +704,7 @@ impl<E: ElementT> Partition<E> {
                     let header = FileHeader {
                         ftype: FileType::CommitLog,
                         name: self.repo_name.clone(),
+                        part_id: self.part_id,
                         remarks: Vec::new(),
                         user_fields: Vec::new(),
                     };
@@ -742,12 +757,12 @@ impl<E: ElementT> Partition<E> {
                 let header = FileHeader {
                     ftype: FileType::Snapshot,
                     name: self.repo_name.clone(),
+                    part_id: self.part_id,
                     remarks: Vec::new(),
                     user_fields: Vec::new(),
                 };
                 try!(write_head(&header, &mut writer));
-                try!(write_snapshot(self.states.get(&tip_key).unwrap(),
-                    self.part_range, &mut writer));
+                try!(write_snapshot(self.states.get(&tip_key).unwrap(), &mut writer));
                 self.ss_num = ss_num;
                 self.ss_policy.reset();
                 return Ok(())

@@ -12,7 +12,7 @@ use ::error::{Result, Error};
 /// This number must not be zero and the high 24 bits must be zero (it must be
 /// less than 2^40).
 /// 
-/// Create via `From`: `Class::from(n)`, which introduces a bounds
+/// Create via `From`: `PartNum::from(n)`, which introduces a bounds
 /// check.
 /// 
 /// The same numbers are used for classification as for partitions: the numbers
@@ -23,14 +23,18 @@ use ::error::{Result, Error};
 /// `(part_num << 24) + gen_id()` where `part_num` is the partition number and
 /// `gen_id()` returns a 24-bit number unique within the partition.
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
-pub struct Class {
+pub struct PartNum {
     // #0018: optimise usage as Option with NonZero?
     num: u64,
 }
-impl From<u64> for Class {
-    fn from(n: u64) -> Class {
+impl PartNum {
+    /// Returns a non-zero number whose low 24 bits are all zero.
+    pub fn as_id(self) -> u64 { self.num << 24 }
+}
+impl From<u64> for PartNum {
+    fn from(n: u64) -> PartNum {
         assert!(n != 0 && n < (1<<40), "check bounds on classification / partition number");
-        Class {
+        PartNum {
             num: n
         }
     }
@@ -59,7 +63,7 @@ pub trait ClassifierT {
     /// 
     /// It is allowed for this function to panic once there is more than one
     /// classification available.
-    fn initial(&self) -> Class;
+    fn initial(&self) -> PartNum;
     
     /// Get the classification of an element.
     /// 
@@ -72,7 +76,7 @@ pub trait ClassifierT {
     /// 
     /// This function is only called when inserting/replacing an element and
     /// when repartitioning, so it doesn't need to be super fast.
-    fn classify(&self, elt: &Self::Element) -> Option<Class>;
+    fn classify(&self, elt: &Self::Element) -> Option<PartNum>;
     
     /// This is used only when `classify` returns `None` for an element.
     /// 
@@ -93,8 +97,8 @@ pub trait ClassifierT {
     /// stealing" logic will be activated (see `steal_target()` and
     /// `steal_from()`). This allows numbers to be redistributed, and on
     /// success, `divide()` will be called again.
-    fn divide(&mut self, class: Class) ->
-        Result<Vec<Class>, ReclassifyError>;
+    fn divide(&mut self, class: PartNum) ->
+        Result<Vec<PartNum>, ReclassifyError>;
     
     /// In case `ReclassifyError::OutOfNumbers` is returned, this function is
     /// called. It is used to suggest a partition to steal numbers from.
@@ -103,7 +107,7 @@ pub trait ClassifierT {
     /// *and* this function returns `None`. The default implementation returns
     /// `None`, on the assumption that many implementations will not need this
     /// logic.
-    fn steal_target(&self) -> Option<Class> { None }
+    fn steal_target(&self) -> Option<PartNum> { None }
     
     /// After `steal_target()` is called, the partition in question is loaded,
     /// the classifier updated, then this function called.
@@ -116,8 +120,8 @@ pub trait ClassifierT {
     /// `steal_target` returns a new number.
     /// 
     /// The default implementation returns `Err(StealError::GiveUp)`.
-    fn steal_from(&mut self, _target_id: Class,
-        _for_id: Class) -> Result<Vec<Class>, StealError>
+    fn steal_from(&mut self, _target_id: PartNum,
+        _for_id: PartNum) -> Result<Vec<PartNum>, StealError>
     {
         Err(StealError::GiveUp)
     }
@@ -159,11 +163,11 @@ pub enum StealError {
 /// inserted or replaced.
 pub enum ClassifyFallback {
     /// Use the given classification for an insertion or replacement.
-    Default(Class),
+    Default(PartNum),
     /// In the case of a replacement, assume the replacing element has the
     /// same classification as the element being replaced. If not a
     /// replacement, use the default specified.
-    ReplacedOrDefault(Class),
+    ReplacedOrDefault(PartNum),
     /// In the case of a replacement, assume the replacing element has the
     /// same classification as the element being replaced. If not a
     /// replacement, fail.
@@ -180,12 +184,12 @@ pub struct DummyClassifier<E: ElementT> {
 }
 impl<E: ElementT> ClassifierT for DummyClassifier<E> {
     type Element = E;
-    fn initial(&self) -> Class { Class::from(1) }
-    fn classify(&self, _elt: &Self::Element) -> Option<Class> {
-        Some(Class::from(1))
+    fn initial(&self) -> PartNum { PartNum::from(1) }
+    fn classify(&self, _elt: &Self::Element) -> Option<PartNum> {
+        Some(PartNum::from(1))
     }
-    fn divide(&mut self, _class: Class) ->
-        Result<Vec<Class>, ReclassifyError>
+    fn divide(&mut self, _class: PartNum) ->
+        Result<Vec<PartNum>, ReclassifyError>
     {
         Err(ReclassifyError::NotSubdivisible)
     }

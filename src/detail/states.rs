@@ -40,15 +40,20 @@ impl<E: ElementT> PartitionState<E> {
     /// Create a new state, with no elements or history.
     /// 
     /// The partition's identifier must be given; this is used to assign new
-    /// element identifiers.
+    /// element identifiers. Panics if the partition identifier is invalid.
     pub fn new(part_id: u64) -> PartitionState<E> {
+        assert!(part_id != 0 && (part_id & 0xFF_FFFF) == 0, "invalid part_id");
         PartitionState { part_id: part_id, parent: Sum::zero(),
             statesum: Sum::zero(), elts: HashMap::new() }
     }
-    /// Create from a map of elements
+    /// Create from a map of elements.
+    /// 
+    /// The partition's identifier must be given; this is used to assign new
+    /// element identifiers. Panics if the partition identifier is invalid.
     pub fn from_hash_map(part_id: u64, parent: Sum,
         map: EltMap<E>, statesum: Sum) -> PartitionState<E>
     {
+        assert!(part_id != 0 && (part_id & 0xFF_FFFF) == 0, "invalid part_id");
         PartitionState { part_id: part_id, parent: parent, statesum: statesum, elts: map }
     }
     

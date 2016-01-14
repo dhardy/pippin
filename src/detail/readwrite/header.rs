@@ -3,6 +3,7 @@
 use std::{io};
 use std::cmp::min;
 use std::result::Result as stdResult;
+use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
 use ::error::{Result, ArgError, ReadError, make_io_err};
 use ::util::rtrim;
@@ -12,18 +13,27 @@ const HEAD_SNAPSHOT : [[u8; 16]; 2] = [*b"PIPPINSS20150929",
     *b"PIPPINSS20160105"];
 const HEAD_COMMITLOG : [u8; 16] = *b"PIPPINCL20150929";
 const SUM_SHA256 : [u8; 16] = *b"HSUM SHA-2 256\x00\x00";
+const PARTID : [u8; 8] = *b"HPARTID ";
 
+/// File type
 pub enum FileType {
+    /// File is a snapshot
     Snapshot,
+    /// File is a commit log
     CommitLog,
 }
 
 // Information stored in a file header
 pub struct FileHeader {
+    /// File type: snapshot or log file.
     pub ftype: FileType,
-    /// Repo name
+    /// Repo name. Always present.
     pub name: String,
+    /// Partition identifier. Zero if not present.
+    pub part_id: u64,
+    /// User remarks
     pub remarks: Vec<String>,
+    /// User data
     pub user_fields: Vec<Vec<u8>>
 }
 
@@ -65,6 +75,7 @@ pub fn read_head(r: &mut io::Read) -> Result<FileHeader> {
     let mut header = FileHeader{
         ftype: ftype,
         name: repo_name,
+        part_id: 0,
         remarks: Vec::new(),
         user_fields: Vec::new(),
     };
@@ -73,7 +84,7 @@ pub fn read_head(r: &mut io::Read) -> Result<FileHeader> {
         try!(fill(&mut sum_reader, &mut buf[0..16], pos));
         let (block, off): (&[u8], usize) = if buf[0] == b'H' {
             pos += 1;
-            (rtrim(&buf[1..16], 0), 1)
+            (&buf[1..16], 1)
         } else if buf[0] == b'Q' {
             let x: usize = match buf[1] {
                 b'1' ... b'9' => buf[1] - b'0',
@@ -84,19 +95,26 @@ pub fn read_head(r: &mut io::Read) -> Result<FileHeader> {
             if buf.len() < len { buf.resize(len, 0); }
             try!(fill(&mut sum_reader, &mut buf[16..len], pos));
             pos += 2;
-            (rtrim(&buf[2..len], 0), 2)
+            (&buf[2..len], 2)
         } else {
             return ReadError::err("unexpected header contents", pos, (0, 1));
         };
         
         if block[0..3] == *b"SUM" {
-            if block[3..] == SUM_SHA256[4..14] {
+            if rtrim(&block[3..], 0) == &SUM_SHA256[4..14] {
                 /* we don't support any other checksum else yet, so don't need
                  * to configure anything here */
             }else {
                 return ReadError::err("unknown checksum format", pos, (3+off, 13+off))
             };
             break;      // "HSUM" must be last item of header before final checksum
+        } else if block[0..7] == PARTID[1..] {
+            let id = try!((&block[7..15]).read_u64::<BigEndian>());
+            //TODO: validate id?
+            if header.part_id != 0 {
+                return ReadError::err("repeat of PARTID", pos, (off, off+6));
+            }
+            header.part_id = id;
         } else if block[0] == b'R' {
             header.remarks.push(try!(String::from_utf8(rtrim(&block, 0).to_vec())));
         } else if block[0] == b'U' {
@@ -129,23 +147,29 @@ pub fn read_head(r: &mut io::Read) -> Result<FileHeader> {
 }
 
 /// Write a file header.
-pub fn write_head(header: &FileHeader, w: &mut io::Write) -> Result<()> {
+pub fn write_head(header: &FileHeader, writer: &mut io::Write) -> Result<()> {
     use std::io::Write;
     
     // A writer which calculates the checksum of what was written:
-    let mut sum_writer = sum::HashWriter::new256(w);
+    let mut w = sum::HashWriter::new256(writer);
     
     match header.ftype {
         FileType::Snapshot => {
-            try!(sum_writer.write(&HEAD_SNAPSHOT[1]));
+            try!(w.write(&HEAD_SNAPSHOT[1]));
         },
         FileType::CommitLog => {
-            try!(sum_writer.write(&HEAD_COMMITLOG));
+            try!(w.write(&HEAD_COMMITLOG));
         },
     };
     try!(validate_repo_name(&header.name));
-    let len = try!(sum_writer.write(header.name.as_bytes()));
-    try!(pad(&mut sum_writer, 16 - len));
+    let len = try!(w.write(header.name.as_bytes()));
+    try!(pad(&mut w, 16 - len));
+    
+    if header.part_id != 0 {
+        //TODO: validate part_id?
+        try!(w.write(&PARTID));
+        try!(w.write_u64::<BigEndian>(header.part_id));
+    }
     
     for rem in &header.remarks {
         let b = rem.as_bytes();
@@ -153,15 +177,15 @@ pub fn write_head(header: &FileHeader, w: &mut io::Write) -> Result<()> {
             return ArgError::err("remark does not start 'R'");
         }
         if b.len() <= 15 {
-            try!(sum_writer.write(b"H"));
-            try!(sum_writer.write(b));
-            try!(pad(&mut sum_writer, 15 - b.len()));
+            try!(w.write(b"H"));
+            try!(w.write(b));
+            try!(pad(&mut w, 15 - b.len()));
         } else if b.len() <= 16 * 36 - 2 {
             let n = (b.len() + 2 /* Qx */ + 15 /* round up */) / 16;
             let l = [b'Q', if n <= 9 { b'0' + n as u8 } else { b'A' - 10 + n as u8 } ];
-            try!(sum_writer.write(&l));
-            try!(sum_writer.write(b));
-            try!(pad(&mut sum_writer, n * 16 - b.len() + 2));
+            try!(w.write(&l));
+            try!(w.write(b));
+            try!(pad(&mut w, n * 16 - b.len() + 2));
         } else {
             return ArgError::err("remark too long");
         }
@@ -170,27 +194,27 @@ pub fn write_head(header: &FileHeader, w: &mut io::Write) -> Result<()> {
     for uf in &header.user_fields {
         let mut l = [b'Q', b'H', b'U'];
         if uf.len() <= 14 {
-            try!(sum_writer.write(&l[1..3]));
-            try!(sum_writer.write(&uf));
-            try!(pad(&mut sum_writer, 14 - uf.len()));
+            try!(w.write(&l[1..3]));
+            try!(w.write(&uf));
+            try!(pad(&mut w, 14 - uf.len()));
         } else if uf.len() <= 16 * 36 - 3 {
             let n = (uf.len() + 3 /* QxU */ + 15 /* round up */) / 16;
             l[1] = if n <= 9 { b'0' + n as u8 } else { b'A' - 10 + n as u8 };
-            try!(sum_writer.write(&l[0..3]));
-            try!(sum_writer.write(&uf));
-            try!(pad(&mut sum_writer, n * 16 - uf.len() - 3));
+            try!(w.write(&l[0..3]));
+            try!(w.write(&uf));
+            try!(pad(&mut w, n * 16 - uf.len() - 3));
         } else {
             return ArgError::err("user field too long");
         }
     }
     
-    try!(sum_writer.write(&SUM_SHA256));
+    try!(w.write(&SUM_SHA256));
     
     // Write the checksum of everything above:
-    assert_eq!( sum_writer.digest().output_bytes(), 32 );
+    assert_eq!( w.digest().output_bytes(), 32 );
     let mut sum32 = [0u8; 32];
-    sum_writer.digest().result(&mut sum32);
-    let w2 = sum_writer.into_inner();
+    w.digest().result(&mut sum32);
+    let w2 = w.into_inner();
     try!(w2.write(&sum32));
     
     fn pad<W: Write>(w: &mut W, n1: usize) -> Result<()> {
@@ -235,6 +259,7 @@ fn write_header() {
     let header = FileHeader {
         ftype: FileType::Snapshot,
         name: "Ähnliche Unsinn".to_string(),
+        part_id: 0,
         remarks: vec!["Remark ω".to_string(), "R Quatsch Quatsch Quatsch".to_string()],
         user_fields: vec![b" rsei noasr auyv 10()% xovn".to_vec()]
     };

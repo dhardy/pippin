@@ -7,7 +7,7 @@ pub use self::discover::DiscoverPartitionFiles;
 pub use self::commits::{Commit, CommitQueue, LogReplay, EltChange};
 pub use self::sum::Sum;
 pub use self::repo::Repo;
-pub use self::classifier::{ClassifierT, ClassifyFallback};
+pub use self::classifier::{PartNum, ClassifierT, ClassifyFallback};
 
 pub mod readwrite;
 mod sum;
