@@ -419,3 +419,48 @@ is "needed". Assume each log file has a number.
 
 No option is perfect. Perhaps (2) with a generous bound on write time assumed
 (e.g. only delete files 24 hours after they become stale) is acceptable.
+
+-------
+
+Repartitioning
+--------------
+
+Where elements move to a sub-partition, the original may stay with the same
+name, only marking certain elements as moved. Alternately, all elements may be
+moved to sub-partitions.
+
+Where a partition is rendered obsolete, it could (a) remain (but with a new
+empty snapshot) or (b) be closed with some special file. Maybe (a) is a form
+of (b).
+
+Where a partition is renamed, it could (a) not be renamed on the disk (breaking
+path to partition name correlations), (b) be handled by moving files on the
+disk (breaking historical name correlations, possibly dangerous), (c) be
+handled by closing the old partition and moving all elements (expensive), or
+(d) via some "link" and "rename marker" until the next snapshot is created.
+
+Simplest solution
+----------------------
+
+Partitions are given new names on the disk not correlating to partition path or
+any other user-friendly naming method. Renaming paths thus does not move
+partitions. All partitions are stored in the same directory. Partitions are
+never removed, but left empty if no longer needed.
+
+Allowing partition removal
+------------------------------
+
+(Obviously without deleting historical data.)
+
+Option 1) use a repository-wide snapshot number. Whenever any new snapshot is
+needed, update *all* partitions with a new snapshot file (in theory this could
+just be a link to the old one), except for partitions which are deleted. Only
+load from files with the latest snapshot number. This is not very robust.
+
+Option 2) use an index file to track partitioning. This breaks the independance
+of snapshots requirement.
+
+Option 3) close the partition with a special file. The only advantage this has
+over leaving the partition empty is that the file-name alone would indicate
+that the partition is empty. OTOH a special file name could be used for any
+empty snapshot file in any case.

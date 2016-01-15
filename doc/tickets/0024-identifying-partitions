@@ -40,3 +40,7 @@ But then the classifier turns 'properties' into an enumeration and the RepoIO
 turns the enumeration into a name meaningful to the end user, and the two
 are separate (unless using an Rc cell or something) and only communicate via
 this enumeration. So, better, why not combine the two?
+
+-----
+
+Documentation updated following above proposal (in repo-files.md).

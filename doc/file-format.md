@@ -1,6 +1,10 @@
 File format
 ========
 
+This document describes the content of files. The file [repo-files.md]()
+describes how these files are stored on the disk.
+
+
 Potential changes
 ---------------
 
@@ -211,77 +215,3 @@ Contents now depend on the previous identifier:
     identifier pointed to an element in the previous state.
 
 
-Repository disk layout
-==============
-
-This isn't strictly a file format.
-
-A repository is saved as a collection of snapshot files and log files.
-
-Filenames are of the form `BASENAME-NUMBER.EXT` where `BASENAME` may include
-`/` (interpreted as folder path separators on the file system). Other
-characters allowed in the `BASENAME` are TBD.
-Should have some base name, some version number and some extension.
-`NUMBER` is a non-negative decimal number which is incremented by one every
-time a new snapshot is made, starting from 0 for an empty snapshot or 1 for a
-non-empty initial snapshot.
-`EXT` should be `pip` for snapshot files and `piplog` for commit logs.
-
-### Partitioning
-Different base names should be used for each partition; additionally folders
-could be used; from the point of view of the library this is simply one base
-name possibly containing `/` separators.
-
-Base names may be specified by the program using the library (e.g. generated
-from classifiers) or even by the end-user of the program.
-
-TODO: try to work out a scheme whereby some information about partitions can
-be recovered without reading all partition headers.
-
-### Repartitioning
-Where elements move to a sub-partition, the original may stay with the same
-name, only marking certain elements as moved. Alternately, all elements may be
-moved to sub-partitions.
-
-Where a partition is rendered obsolete, it could (a) remain (but with a new
-empty snapshot) or (b) be closed with some special file. Maybe (a) is a form
-of (b).
-
-Where a partition is renamed, it could (a) not be renamed on the disk (breaking
-path to partition name correlations), (b) be handled by moving files on the
-disk (breaking historical name correlations, possibly dangerous), (c) be
-handled by closing the old partition and moving all elements (expensive), or
-(d) via some "link" and "rename marker" until the next snapshot is created.
-
-Simplest solution
-----------------------
-
-Partitions are given new names on the disk not correlating to partition path or
-any other user-friendly naming method. Renaming paths thus does not move
-partitions. All partitions are stored in the same directory. Partitions are
-never removed, but left empty if no longer needed.
-
-Allowing partition removal
-------------------------------
-
-(Obviously without deleting historical data.)
-
-Option 1) use a repository-wide snapshot number. Whenever any new snapshot is
-needed, update *all* partitions with a new snapshot file (in theory this could
-just be a link to the old one), except for partitions which are deleted. Only
-load from files with the latest snapshot number. This is not very robust.
-
-Option 2) use an index file to track partitioning. This breaks the independance
-of snapshots requirement.
-
-Option 3) close the partition with a special file. The only advantage this has
-over leaving the partition empty is that the file-name alone would indicate
-that the partition is empty. OTOH a special file name could be used for any
-empty snapshot file in any case.
-
-Log files
-----------
-
-Log files *always* correspond to some snapshot; there may be multiple log files
-corresponding to a snapshot. As such log files should use the snapshot file
-name with a postfix number/letter and maybe a different extension.
