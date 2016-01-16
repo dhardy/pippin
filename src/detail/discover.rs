@@ -40,9 +40,8 @@ impl DiscoverPartitionFiles {
             return ArgError::err("basename must not contain any path separators");
         }
         
-        // FIXME: check for match against *whole* file name, not just *in* the file name
-        let ss_pat = try!(Regex::new("-ss(0|[1-9][0-9]*).pip"));
-        let cl_pat = try!(Regex::new("-ss(0|[1-9][0-9]*)-cl(0|[1-9][0-9]*).piplog"));
+        let ss_pat = try!(Regex::new("^-ss(0|[1-9][0-9]*).pip$"));
+        let cl_pat = try!(Regex::new("^-ss(0|[1-9][0-9]*)-cl(0|[1-9][0-9]*).piplog$"));
         let blen = basename.len();
         
         let mut snapshots = VecMap::new();
@@ -60,17 +59,11 @@ impl DiscoverPartitionFiles {
             }
             let suffix = &fname[blen..];
             if let Some(caps) = ss_pat.captures(suffix) {
-                if caps.pos(0).unwrap().1 != suffix.len() {
-                    continue;   // match does not end at end of suffix, so ignore
-                }
                 let ss: usize = try!(caps.at(1).expect("match should yield capture").parse());
                 if let Some(_replaced) = snapshots.insert(ss, (entry.path(), VecMap::new())) {
                     panic!("multiple files map to same basname/number");
                 }
             } else if let Some(caps) = cl_pat.captures(suffix) {
-                if caps.pos(0).unwrap().1 != suffix.len() {
-                    continue;   // match does not end at end of suffix, so ignore
-                }
                 let ss: usize = try!(caps.at(1).expect("match should yield capture").parse());
                 let cl: usize = try!(caps.at(2).expect("match should yield capture").parse());
                 let s_vec = &mut snapshots.entry(ss).or_insert_with(|| (PathBuf::new(), VecMap::new()));
@@ -96,9 +89,8 @@ impl DiscoverPartitionFiles {
     pub fn from_paths(paths: Vec<PathBuf>) -> Result<DiscoverPartitionFiles> {
         // Note: there are no defined rules about which characters are allowed
         // in the basename, so just match anything.
-        // FIXME: check for match against *whole* file name, not just *in* the file name
-        let ss_pat = try!(Regex::new(r"(.+)-ss(0|[1-9][0-9]*).pip$"));
-        let cl_pat = try!(Regex::new(r"(.+)-ss(0|[1-9][0-9]*)-cl(0|[1-9][0-9]*).piplog"));
+        let ss_pat = try!(Regex::new(r"^(.+)-ss(0|[1-9][0-9]*).pip$"));
+        let cl_pat = try!(Regex::new(r"^(.+)-ss(0|[1-9][0-9]*)-cl(0|[1-9][0-9]*).piplog$"));
         
         let mut snapshots = VecMap::new();
         let mut dir_path = None;
@@ -286,9 +278,8 @@ impl DiscoverRepoFiles {
     pub fn from_dir(path: &Path) -> Result<DiscoverRepoFiles> {
         if !path.is_dir() { return PathError::err("not a directory", path.to_path_buf()); }
         
-        // FIXME: check for match against end of file name
-        let ss_pat = try!(Regex::new("(.*)pn(0|[1-9][0-9]*)-ss0|[1-9][0-9]*.pip"));
-        let cl_pat = try!(Regex::new("(.*)pn(0|[1-9][0-9]*)-ss0|[1-9][0-9]*-cl0|[1-9][0-9]*.piplog"));
+        let ss_pat = try!(Regex::new("^(.*)pn(0|[1-9][0-9]*)-ss0|[1-9][0-9]*.pip$"));
+        let cl_pat = try!(Regex::new("^(.*)pn(0|[1-9][0-9]*)-ss0|[1-9][0-9]*-cl0|[1-9][0-9]*.piplog$"));
         
         let mut paths = HashMap::new();
         
