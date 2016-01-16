@@ -29,6 +29,7 @@ regex = "*"
 # reason to choose this over libstd containers however.
 vec_map = "*"
 
+# Used by `PartitionState::gen_id()` and the 'sequences' example
 rand = "*"
 
 # Dependencies for examples below

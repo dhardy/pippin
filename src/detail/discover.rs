@@ -2,12 +2,13 @@
 
 use std::path::{Path, PathBuf};
 use std::io::{Read, Write, ErrorKind};
-use std::fs::{read_dir, File, OpenOptions};
+use std::fs::{read_dir, walk_dir, File, OpenOptions};
 use std::any::Any;
+use std::collections::HashMap;
 use regex::Regex;
 use vec_map::VecMap;
 
-use super::partition::PartitionIO;
+use super::{PartNum, RepoIO, PartitionIO};
 use error::{Result, PathError, ArgError, make_io_err};
 
 
@@ -48,25 +49,28 @@ impl DiscoverPartitionFiles {
         
         for entry in try!(read_dir(path)) {
             let entry = try!(entry);
-            let os_fname = entry.file_name();
-            let fname = match os_fname.to_str() {
+            let os_name = entry.file_name();    // must be named for lifetime
+            let fname = match os_name.to_str() {
                 Some(s) => s,
-                None => {
-                    // #0017: warn that name was unmappable
-//                     println!("ignoring (not unicode)");
-                    continue;
-                }
+                None => { /* ignore non-unicode names */ continue; },
             };
             if fname[0..blen] != *basename {
 //                 println!("ignoring (does not match basename): {}", fname);
                 continue;   // no match
             }
-            if let Some(caps) = ss_pat.captures(&fname[blen..]) {
+            let suffix = &fname[blen..];
+            if let Some(caps) = ss_pat.captures(suffix) {
+                if caps.pos(0).unwrap().1 != suffix.len() {
+                    continue;   // match does not end at end of suffix, so ignore
+                }
                 let ss: usize = try!(caps.at(1).expect("match should yield capture").parse());
                 if let Some(_replaced) = snapshots.insert(ss, (entry.path(), VecMap::new())) {
                     panic!("multiple files map to same basname/number");
                 }
-            } else if let Some(caps) = cl_pat.captures(&fname[blen..]) {
+            } else if let Some(caps) = cl_pat.captures(suffix) {
+                if caps.pos(0).unwrap().1 != suffix.len() {
+                    continue;   // match does not end at end of suffix, so ignore
+                }
                 let ss: usize = try!(caps.at(1).expect("match should yield capture").parse());
                 let cl: usize = try!(caps.at(2).expect("match should yield capture").parse());
                 let s_vec = &mut snapshots.entry(ss).or_insert_with(|| (PathBuf::new(), VecMap::new()));
@@ -258,5 +262,79 @@ impl PartitionIO for DiscoverPartitionFiles {
         let stream = try!(OpenOptions::new().create(true).write(true).append(true).open(&p));
         logs.insert(cl_num, p);
         Ok(Some(box stream))
+    }
+}
+
+
+struct DiscoverRepoFiles {
+    // top directory
+    dir: PathBuf,
+    // for each partition number, a path and base-name
+    partitions: HashMap<PartNum, (PathBuf, String)>,
+}
+impl DiscoverRepoFiles {
+    /// Discover all repository files in some directory (including recursively).
+    pub fn from_dir(path: &Path) -> Result<DiscoverRepoFiles> {
+        if !path.is_dir() { return PathError::err("not a directory", path.to_path_buf()); }
+        
+        // FIXME: check for match against end of file name
+        let ss_pat = try!(Regex::new("(.*)pn(0|[1-9][0-9]*)-ss0|[1-9][0-9]*.pip"));
+        let cl_pat = try!(Regex::new("(.*)pn(0|[1-9][0-9]*)-ss0|[1-9][0-9]*-cl0|[1-9][0-9]*.piplog"));
+        
+        let mut paths = HashMap::new();
+        
+        for entry in try!(walk_dir(path)) {
+            let entry = try!(entry);
+            let os_name = entry.file_name();    // must be named for lifetime
+            let fname = match os_name.to_str() {
+                Some(s) => s,
+                None => { /* ignore non-unicode names */ continue; },
+            };
+            let caps = if let Some(caps) = ss_pat.captures(fname) { 
+                Some(caps)
+            } else if let Some(caps) = cl_pat.captures(fname) {
+                Some(caps)
+            } else {
+                None
+            };
+            if let Some(caps) = caps {
+                let num: u64 = try!(caps.at(2).expect("match should yield capture").parse());
+                let num = PartNum::from(num);
+                let basename = caps.at(1).expect("match should yield capture");
+                paths.insert(num, (entry.path(), basename.to_string()));
+            }
+        }
+        
+        Ok(DiscoverRepoFiles {
+            dir: path.to_path_buf(),
+            partitions: paths
+        })
+    }
+}
+impl RepoIO for DiscoverRepoFiles {
+    fn as_any(&self) -> &Any { self }
+    fn num_partitions(&self) -> usize {
+        self.partitions.len()
+    }
+    fn partitions(&self) -> Vec<PartNum> {
+        self.partitions.keys().map(|n| *n).collect()
+    }
+    fn add_partition(&mut self, num: PartNum, prefix: &str) -> Result<()> {
+        let mut path = self.dir.clone();
+        let mut prefix = prefix;
+        while let Some(pos) = prefix.find('/') {
+            path.push(Path::new(&prefix[..pos]));
+            prefix = &prefix[pos+1..];
+        }
+        let basename = format!("{}pn{}", prefix, num.num());
+        self.partitions.insert(num, (path, basename));
+        Ok(())
+    }
+    fn make_partition_io(&self, num: PartNum) -> Result<Option<Box<PartitionIO>>> {
+        if let Some(&(ref path, ref basename)) = self.partitions.get(&num) {
+            Ok(Some(box try!(DiscoverPartitionFiles::from_dir_basename(path, basename))))
+        } else {
+            Ok(None)
+        }
     }
 }

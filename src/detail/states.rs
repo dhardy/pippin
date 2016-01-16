@@ -103,6 +103,8 @@ impl<E: ElementT> PartitionState<E> {
     }
     
     /// Generate an element identifier.
+    /// 
+    /// This generates a pseudo-random number
     pub fn gen_id(&self) -> Result<u64, ElementOp> {
         // Generate an identifier: (1) use a random sample, (2) increment if
         // taken, (3) add the partition identifier.

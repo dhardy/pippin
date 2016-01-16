@@ -8,6 +8,9 @@
 
 #![feature(box_syntax)]
 
+// We use this. Possibly we should switch to one of the external crates.
+#![feature(fs_walk)]
+
 #![warn(missing_docs)]
 
 extern crate crypto;

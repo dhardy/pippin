@@ -22,12 +22,14 @@ use ::error::{Result, Error};
 /// bits; the high 24 bits must be zero. Element identifiers are take the form
 /// `(part_num << 24) + gen_id()` where `part_num` is the partition number and
 /// `gen_id()` returns a 24-bit number unique within the partition.
-#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug, Hash)]
 pub struct PartNum {
     // #0018: optimise usage as Option with NonZero?
     num: u64,
 }
 impl PartNum {
+    /// Extracts the number
+    pub fn num(self) -> u64 { self.num }
     /// Returns a non-zero number whose low 24 bits are all zero.
     pub fn as_id(self) -> u64 { self.num << 24 }
 }
