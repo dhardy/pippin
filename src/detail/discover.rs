@@ -6,7 +6,7 @@ use std::fs::{read_dir, walk_dir, File, OpenOptions};
 use std::any::Any;
 use std::collections::HashMap;
 use regex::Regex;
-use vec_map::VecMap;
+use vec_map::{VecMap, Entry};
 
 use super::{PartNum, RepoIO, PartitionIO};
 use error::{Result, PathError, ArgError, make_io_err};
@@ -149,9 +149,18 @@ impl DiscoverPartitionFiles {
             match file_is {
                 // Decisions made. Now we can move path without worrying the borrow checker.
                 FileIs::SnapShot(ss) => {
-                    if let Some(_replaced) = snapshots.insert(ss, (path, VecMap::new())) {
-                        panic!("multiple files map to same basename/number");
-                    }
+                    match snapshots.entry(ss) {
+                        Entry::Vacant(e) => {
+                            e.insert((path, VecMap::new()));
+                        },
+                        Entry::Occupied(mut e) => {
+                            let value: &mut (PathBuf, VecMap<PathBuf>) = e.get_mut();
+                            if value.0 != PathBuf::new() {
+                                panic!("multiple files map to same basename/number");
+                            }
+                            value.0 = path;
+                        },
+                    };
                 },
                 FileIs::CommitLog(ss, cl) => {
                     let s_vec = &mut snapshots.entry(ss).or_insert_with(|| (PathBuf::new(), VecMap::new()));
