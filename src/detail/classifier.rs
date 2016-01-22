@@ -128,6 +128,8 @@ pub trait ClassifierT {
         Err(StealError::GiveUp)
     }
     
+    // #0025: provide a choice of how to implement IO via a const bool?
+    
     /// This function lets a classifier write out whatever it knows about
     /// partitions to some piece of data, stored in a partition header.
     fn write_buf(&self, writer: &mut Write) -> Result<()>;

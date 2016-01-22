@@ -69,9 +69,7 @@ use ::error::{Result};
 /// }
 /// ```
 pub trait ElementT where Self: Sized+PartialEq+Debug {
-    // TODO: provide a choice of how to implement IO using a const?
-    // associated constants are experimental (see issue #29646)
-    // 
+    // #0025: provide a choice of how to implement IO via a const bool?
 //     /// If this is set true, the `read_buf` and `write_buf` functions must be
 //     /// implemented. These are easier to use but potentially less efficient. If
 //     /// this is set false, then the `read`, `write` and `write_len` functions
