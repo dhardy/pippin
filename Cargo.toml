@@ -32,6 +32,9 @@ vec_map = "*"
 # Used by `PartitionState::gen_id()` and the 'sequences' example
 rand = "*"
 
+# For the 'discover' module
+walkdir = "*"
+
 # Dependencies for examples below
 [dev-dependencies]
 

@@ -2,11 +2,13 @@
 
 use std::path::{Path, PathBuf};
 use std::io::{Read, Write, ErrorKind};
-use std::fs::{read_dir, walk_dir, File, OpenOptions};
+use std::fs::{read_dir, File, OpenOptions};
 use std::any::Any;
 use std::collections::HashMap;
+
 use regex::Regex;
 use vec_map::{VecMap, Entry};
+use walkdir::WalkDir;
 
 use super::{PartNum, RepoIO, PartitionIO};
 use error::{Result, PathError, ArgError, make_io_err};
@@ -283,14 +285,13 @@ impl DiscoverRepoFiles {
         
         let mut paths = HashMap::new();
         
-        for entry in try!(walk_dir(path)) {
+        for entry in WalkDir::new(path) {
             let entry = try!(entry);
-            let os_name = entry.file_name();    // must be named for lifetime
-            let fname = match os_name.to_str() {
+            let fname = match entry.file_name().to_str() {
                 Some(s) => s,
                 None => { /* ignore non-unicode names */ continue; },
             };
-            let caps = if let Some(caps) = ss_pat.captures(fname) { 
+            let caps = if let Some(caps) = ss_pat.captures(fname) {
                 Some(caps)
             } else if let Some(caps) = cl_pat.captures(fname) {
                 Some(caps)
@@ -301,7 +302,7 @@ impl DiscoverRepoFiles {
                 let num: u64 = try!(caps.at(2).expect("match should yield capture").parse());
                 let num = PartNum::from(num);
                 let basename = caps.at(1).expect("match should yield capture");
-                paths.insert(num, (entry.path(), basename.to_string()));
+                paths.insert(num, (entry.path().to_path_buf(), basename.to_string()));
             }
         }
         

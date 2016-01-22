@@ -8,9 +8,6 @@
 
 #![feature(box_syntax)]
 
-// We use this. Possibly we should switch to one of the external crates.
-#![feature(fs_walk)]
-
 #![warn(missing_docs)]
 
 extern crate crypto;
@@ -20,6 +17,7 @@ extern crate hashindexed;
 extern crate regex;
 extern crate vec_map;
 extern crate rand;
+extern crate walkdir;
 
 pub use detail::Repo;
 pub use detail::{ElementT};
