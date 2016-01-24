@@ -24,10 +24,6 @@ impl<E: ElementT> CommitQueue<E> {
     pub fn new() -> CommitQueue<E> {
         CommitQueue { commits: Vec::new() }
     }
-    /// Add a commit to the end of the queue.
-    pub fn push(&mut self, commit: Commit<E>) {
-        self.commits.push(commit);
-    }
     /// Get the number of items in the queue
     pub fn len(&self) -> usize {
         self.commits.len()
@@ -174,8 +170,6 @@ impl<E: ElementT> Commit<E> {
     pub fn statesum(&self) -> &Sum { &self.statesum }
     /// Get the first parent's `Sum`
     pub fn parent(&self) -> &Sum { &self.parents[0] }
-    /// Get the list of all parents' `Sum`s
-    pub fn parents(&self) -> &Vec<Sum> { &self.parents }
     /// Get the number of changes in the "patch"
     pub fn num_changes(&self) -> usize { self.changes.len() }
     /// Get an iterator over changes
@@ -202,12 +196,6 @@ impl<'a, E: ElementT> LogReplay<'a, E> {
     /// case call `add_state()` to add an initial state.
     pub fn from_sets(states: &'a mut StatesSet<E>, tips: &'a mut HashSet<Sum>) -> LogReplay<'a, E> {
         LogReplay { states: states, tips: tips }
-    }
-    
-    /// Insert an initial state, marked as a tip (pass by value or clone).
-    pub fn add_state(&mut self, state: PartitionState<E>) {
-        self.tips.insert(state.statesum().clone());
-        self.states.insert(state);
     }
     
     /// Recreate all known states from a set of commits. On success, return the
@@ -254,42 +242,65 @@ impl<'a, E: ElementT> LogReplay<'a, E> {
     }
 }
 
-
-#[test]
-fn commit_creation_and_replay(){
-    let part_id = 1 << 24;
-    let mut commits = CommitQueue::<String>::new();
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ::{ElementT, PartitionState};
+    use hashindexed::HashIndexed;
+    use std::collections::HashSet;
     
-    let mut state_a = PartitionState::new(part_id);
-    state_a.insert_elt(1, "one".to_string()).unwrap();
-    state_a.insert_elt(2, "two".to_string()).unwrap();
-    
-    let mut state_b = state_a.clone_child();
-    state_b.insert_elt(3, "three".to_string()).unwrap();
-    state_b.insert_elt(4, "four".to_string()).unwrap();
-    state_b.insert_elt(5, "five".to_string()).unwrap();
-    commits.push(Commit::from_diff(&state_a, &state_b).unwrap());
-    
-    let mut state_c = state_b.clone_child();
-    state_c.insert_elt(6, "six".to_string()).unwrap();
-    state_c.insert_elt(7, "seven".to_string()).unwrap();
-    state_c.remove_elt(4).unwrap();
-    state_c.replace_elt(3, "half six".to_string()).unwrap();
-    commits.push(Commit::from_diff(&state_b, &state_c).unwrap());
-    
-    let mut state_d = state_c.clone_child();
-    state_d.insert_elt(8, "eight".to_string()).unwrap();
-    state_d.insert_elt(4, "half eight".to_string()).unwrap();
-    commits.push(Commit::from_diff(&state_c, &state_d).unwrap());
-    
-    let (mut states, mut tips) = (HashIndexed::new(), HashSet::new());
-    {
-        let mut replayer = LogReplay::from_sets(&mut states, &mut tips);
-        replayer.add_state(state_a);
-        replayer.replay(commits).unwrap();
+    impl<E: ElementT> CommitQueue<E> {
+        /// Add a commit to the end of the queue.
+        pub fn push(&mut self, commit: Commit<E>) {
+            self.commits.push(commit);
+        }
     }
-    assert_eq!(tips.len(), 1);
-    let tip_sum = tips.iter().next().unwrap();
-    let replayed_state = states.remove(&tip_sum).unwrap();
-    assert_eq!(replayed_state, state_d);
+    
+    impl<'a, E: ElementT> LogReplay<'a, E> {
+        /// Insert an initial state, marked as a tip (pass by value or clone).
+        pub fn add_state(&mut self, state: PartitionState<E>) {
+            self.tips.insert(state.statesum().clone());
+            self.states.insert(state);
+        }
+    }
+    
+    
+    #[test]
+    fn commit_creation_and_replay(){
+        let part_id = 1 << 24;
+        let mut commits = CommitQueue::<String>::new();
+        
+        let mut state_a = PartitionState::new(part_id);
+        state_a.insert_elt(1, "one".to_string()).unwrap();
+        state_a.insert_elt(2, "two".to_string()).unwrap();
+        
+        let mut state_b = state_a.clone_child();
+        state_b.insert_elt(3, "three".to_string()).unwrap();
+        state_b.insert_elt(4, "four".to_string()).unwrap();
+        state_b.insert_elt(5, "five".to_string()).unwrap();
+        commits.push(Commit::from_diff(&state_a, &state_b).unwrap());
+        
+        let mut state_c = state_b.clone_child();
+        state_c.insert_elt(6, "six".to_string()).unwrap();
+        state_c.insert_elt(7, "seven".to_string()).unwrap();
+        state_c.remove_elt(4).unwrap();
+        state_c.replace_elt(3, "half six".to_string()).unwrap();
+        commits.push(Commit::from_diff(&state_b, &state_c).unwrap());
+        
+        let mut state_d = state_c.clone_child();
+        state_d.insert_elt(8, "eight".to_string()).unwrap();
+        state_d.insert_elt(4, "half eight".to_string()).unwrap();
+        commits.push(Commit::from_diff(&state_c, &state_d).unwrap());
+        
+        let (mut states, mut tips) = (HashIndexed::new(), HashSet::new());
+        {
+            let mut replayer = LogReplay::from_sets(&mut states, &mut tips);
+            replayer.add_state(state_a);
+            replayer.replay(commits).unwrap();
+        }
+        assert_eq!(tips.len(), 1);
+        let tip_sum = tips.iter().next().unwrap();
+        let replayed_state = states.remove(&tip_sum).unwrap();
+        assert_eq!(replayed_state, state_d);
+    }
 }
