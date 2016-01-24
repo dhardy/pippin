@@ -41,9 +41,6 @@
 //! Usage should be via the `Repo` type or, for a simpler interface where
 //! classification and partitioning is not required, via the `Partition` type.
 
-// because at this stage of development there's a lot of it:
-#![allow(dead_code)]
-
 // Used for error display; not essential
 #![feature(step_by)]
 
@@ -64,7 +61,9 @@ pub use detail::Repo;
 pub use detail::{ElementT};
 pub use detail::{PartitionState};
 pub use detail::{Partition, PartitionIO, PartitionDummyIO};
-pub use detail::DiscoverPartitionFiles;
+pub use detail::{DiscoverPartitionFiles, DiscoverRepoFiles};
+pub use detail::merge;
+pub use detail::classifier;
 pub use error::{Result};
 
 pub mod error;

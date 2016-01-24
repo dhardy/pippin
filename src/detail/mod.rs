@@ -3,11 +3,11 @@
 pub use self::element::{ElementT};
 pub use self::states::{EltId, PartitionState, PartitionStateSumComparator};
 pub use self::partition::{Partition, PartitionIO, PartitionDummyIO};
-pub use self::discover::DiscoverPartitionFiles;
+pub use self::discover::{DiscoverPartitionFiles, DiscoverRepoFiles};
 pub use self::commits::{Commit, CommitQueue, LogReplay, EltChange};
 pub use self::sum::Sum;
 pub use self::repo::{Repo, RepoIO};
-pub use self::classifier::{PartNum, ClassifierT, ClassifyFallback};
+pub use self::classifier::{PartNum, ClassifierT};
 
 pub mod readwrite;
 mod sum;
@@ -18,4 +18,4 @@ mod discover;
 mod element;
 mod repo;
 pub mod merge;
-mod classifier;
+pub mod classifier;

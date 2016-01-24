@@ -386,6 +386,9 @@ pub enum EltMerge<E: ElementT> {
 
 /// Implementations solve two-way merges on an element-by-element basis.
 pub trait TwoWaySolver<E: ElementT> {
+    /// This function should take possibly-present elements from states A, B
+    /// and common ancestor state C, which all have the same identifier, and
+    /// return an `EltMerge` object.
     fn solve<'a>(&self, a: Option<&'a Rc<E>>, b: Option<&'a Rc<E>>,
         c: Option<&'a Rc<E>>) -> EltMerge<E>;
 }

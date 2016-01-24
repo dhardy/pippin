@@ -269,7 +269,8 @@ impl PartitionIO for DiscoverPartitionFiles {
 }
 
 
-struct DiscoverRepoFiles {
+/// A helper struct for finding repository files.
+pub struct DiscoverRepoFiles {
     // top directory
     dir: PathBuf,
     // for each partition number, a path and base-name
