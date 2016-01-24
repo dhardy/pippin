@@ -44,8 +44,12 @@
 // Used for error display; not essential
 #![feature(step_by)]
 
+// Nicer syntax. Until there are no other issues preventing Pippin from
+// building with stable code (namely, hashindexed), I see no reason not to use
+// it. I hope Rust adopts this or finds a nice alternative.
 #![feature(box_syntax)]
 
+// This should probably be enabled by default for libraries.
 #![warn(missing_docs)]
 
 extern crate crypto;
@@ -66,9 +70,12 @@ pub use detail::merge;
 pub use detail::classifier;
 pub use error::{Result};
 
+// Most Pippin code is put in this private module to allow inter-module
+// dependencies without making the details public. In the future there may
+// be other ways to do this (i.e. better privacy control).
+mod detail;
 pub mod error;
 pub mod util;
-mod detail;
 
 /// Version. The low 16 bits are patch number, next 16 are the minor version
 /// number, the next are the major version number. The top 16 are zero.
