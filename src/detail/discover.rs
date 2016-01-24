@@ -332,11 +332,11 @@ impl RepoIO for DiscoverRepoFiles {
         self.partitions.insert(num, (path, basename));
         Ok(())
     }
-    fn make_partition_io(&self, num: PartNum) -> Result<Option<Box<PartitionIO>>> {
+    fn make_partition_io(&self, num: PartNum) -> Result<Box<PartitionIO>> {
         if let Some(&(ref path, ref basename)) = self.partitions.get(&num) {
-            Ok(Some(box try!(DiscoverPartitionFiles::from_dir_basename(path, basename))))
+            Ok(box try!(DiscoverPartitionFiles::from_dir_basename(path, basename)))
         } else {
-            Ok(None)
+            make_io_err(ErrorKind::NotFound, "partition not found")
         }
     }
 }

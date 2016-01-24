@@ -1,44 +1,9 @@
 //! Pippin "repository" type
 
 use std::slice::{Iter, IterMut};
-use std::any::Any;
 
-use super::{Partition, PartitionIO, ClassifierT, PartNum};
+use super::{Partition, ClassifierT, RepoIO};
 use ::error::{Result, OtherError};
-
-pub trait RepoIO {
-    /// Convert self to a `&Any`
-    fn as_any(&self) -> &Any;
-    
-    /// Get the number of partitions found.
-    fn num_partitions(&self) -> usize;
-    
-    /// Get a list of all partition numbers. These are the numbers which can be
-    /// passed to `make_partition_io`, and conversely the numbers which should
-    /// not be passed to `add_partition`.
-    /// 
-    /// Note: we cannot 'simply iterate' over elements without allocating
-    /// unless we make more restrictions on implementations or switch to
-    /// compile-time polymorphism over type `RepoIO`.
-    fn partitions(&self) -> Vec<PartNum>;
-    
-    /// Add a new partition. `num` is the partition number to use; this function
-    /// fails if it is already taken. `prefix` is a relative path plus file-name
-    /// prefix, e.g. `data/misc-` would result in a snapshot having a name like
-    /// `misc-pn1-ss1.pip` inside the `data` subdirectory.
-    /// 
-    /// On success, returns the index of the new partition (for use with
-    /// `make_partition_io()`).
-    fn add_partition(&mut self, num: PartNum, prefix: &str) -> Result<()>;
-    
-    /// Construct and return a new PartitionIO for partition `num`.
-    /// 
-    /// Fails if construction of the PartitionIO fails (file-system or regex
-    /// errors).
-    /// 
-    /// Returns `Ok(None)` if partition `n` isn't known.
-    fn make_partition_io(&self, num: PartNum) -> Result<Option<Box<PartitionIO>>>;
-}
 
 /// Handle on a repository.
 /// 
@@ -58,8 +23,6 @@ pub struct Repo<C: ClassifierT> {
     /// the element type, and we do not want element look-ups to involve a
     /// run-time conversion.
     classifier: C,
-    /// I/O provider. In theory this could be changed during usage.
-    io: Box<RepoIO>,
     /// Descriptive identifier for the repository
     name: String,
     /// List of loaded partitions, by in-memory (temporary numeric) identifier.
@@ -79,14 +42,11 @@ impl<C: ClassifierT> Repo<C> {
     /// 
     /// This creates an initial 'partition' ready for use (all contents must
     /// be kept within a `Partition`).
-    pub fn create(classifier: C, mut io: Box<RepoIO>, name: String) -> Result<Repo<C>> {
-        let num = classifier.initial();
-        try!(io.add_partition(num, ""/*TODO: prefix comes from classifier?*/));
-        let part_io = try!(io.make_partition_io(num)).unwrap() /*we just added this partition so it must exist*/;
+    pub fn create(mut classifier: C, name: String) -> Result<Repo<C>> {
+        let (num, part_io) = try!(classifier.first_part());
         let part = try!(Partition::create_part(part_io, &name, num));
         Ok(Repo{
             classifier: classifier,
-            io: io,
             name: name,
             partitions: vec![part],
         })
@@ -102,14 +62,14 @@ impl<C: ClassifierT> Repo<C> {
             return OtherError::err("No repository files found");
         }
         
-        let part_io = try!(io.make_partition_io(part_nums[0])).expect("have this partition number");
+        let part_io = try!(io.make_partition_io(part_nums[0]));
         let mut part0 = Partition::open(part_io);
         let name = try!(part0.get_repo_name()).to_string();
         
         let mut parts = Vec::with_capacity(part_nums.len());
         parts.push(part0);
         for i in 1..part_nums.len() {
-            let part_io = try!(io.make_partition_io(part_nums[i])).expect("have this partition number");
+            let part_io = try!(io.make_partition_io(part_nums[i]));
             let mut part = Partition::open(part_io);
             try!(part.set_repo_name(&name));
             parts.push(part);
@@ -117,7 +77,6 @@ impl<C: ClassifierT> Repo<C> {
         
         Ok(Repo{
             classifier: classifier,
-            io: io,
             name: name,
             partitions: parts,
         })
