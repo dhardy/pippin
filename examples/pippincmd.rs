@@ -1,5 +1,6 @@
 //! Command-line UI for Pippin
 #![feature(box_syntax)]
+#![feature(str_char)]
 
 extern crate pippin;
 extern crate rustc_serialize;
@@ -8,11 +9,11 @@ extern crate docopt;
 use std::{fs, env, fmt, result};
 use std::process::{exit, Command};
 use std::path::PathBuf;
-use std::io::{Read, Write, ErrorKind};
+use std::io::{Read, Write};
 use std::ffi::OsStr;
 use std::os::unix::ffi::OsStrExt;
 use docopt::Docopt;
-use pippin::error::{Result, make_io_err};
+use pippin::error::{Result, PathError};
 use pippin::{DiscoverPartitionFiles, Partition, PartitionIO, ElementT};
 use pippin::util::rtrim;
 
@@ -22,15 +23,17 @@ capabilities and to allow direct inspection of Pippin files. It is not intended
 for automated usage and the UI may be subject to changes.
 
 Usage:
-  pippincmd [-h] -n NAME FILE
+  pippincmd [-h] -n PREFIX [-N NAME] DIR
   pippincmd [-h] [-P] FILE...
   pippincmd [-h] [-p PART] [-S] [-C] FILE...
   pippincmd [-h] [-f] [-p PART] [-c COMMIT] [-s] [-E | -g ELT | -e ELT | -v ELT | -d ELT] FILE...
   pippincmd --help | --version
 
 Options:
-  -n --new NAME         Create a new partition with name NAME. A default state
-                        (no elements) is created.
+  -n --new PREFIX       Create a new partition with file name prefix PREFIX.
+                        A default state (no elements) is created.
+                        If -N is not provided, PREFIX is used as the repo name.
+  -N --repo-name NAME   Specify the 'repo name' for a new partition.
   -s --snapshot         Force writing of a snapshot after loading and applying
                         any changes, unless the state already has a snapshot.
   
@@ -58,8 +61,10 @@ Options:
 #[derive(Debug, RustcDecodable)]
 #[allow(non_snake_case)]        // names are mandated by docopt
 struct Args {
+    arg_DIR: Option<String>,
     arg_FILE: Vec<String>,
     flag_new: Option<String>,
+    flag_repo_name: Option<String>,
     flag_snapshot: bool,
     flag_partitions: bool,
     flag_partition: Option<String>,
@@ -88,7 +93,7 @@ enum PartitionOp {
 enum Editor { Cmd, Visual }
 #[derive(Debug)]
 enum Operation {
-    NewPartition(String),
+    NewPartition(String /*prefix*/, Option<String> /*repo name*/),
     ListPartitions,
     OnPartition(PartitionOp),
     /// Default operation: print out a few statistics or something
@@ -112,7 +117,7 @@ fn main() {
     } else {
         // Rely on docopt to spot invalid conflicting flags
         let op = if let Some(name) = args.flag_new {
-                Operation::NewPartition(name)
+                Operation::NewPartition(name, args.flag_repo_name)
             } else if args.flag_partitions {
                 Operation::ListPartitions
             } else if args.flag_snapshots || args.flag_commits {
@@ -132,7 +137,9 @@ fn main() {
             };
         let rest = Rest{ part: args.flag_partition, commit: args.flag_commit,
                 snapshot: args.flag_snapshot, force: args.flag_force };
-        match inner(args.arg_FILE, op, rest) {
+        assert!(args.arg_DIR.is_none() || args.arg_FILE.is_empty());
+        let paths = if args.arg_DIR.is_some() { vec![args.arg_DIR.unwrap()] } else { args.arg_FILE };
+        match inner(paths, op, rest) {
             Ok(()) => {},
             Err(e) => {
                 println!("Error: {}", e);
@@ -153,20 +160,21 @@ fn inner(files: Vec<String>, op: Operation, args: Rest) -> Result<()>
     let paths: Vec<PathBuf> = files.into_iter().map(|f| PathBuf::from(f)).collect();
     
     match op {
-        Operation::NewPartition(name) => {
-            println!("New-partition functionality not yet available");
-//             println!("Creating new partition: {}", name);
-//             assert_eq!(paths.len(), 1);
-//             assert_eq!(args.part, None);
-//             assert_eq!(args.commit, None);
-//             let path = &paths[0];
-//             println!("Initial snapshot: {}", path.display());
-//             if path.exists() {
-//                 return Err(Error::io(ErrorKind::AlreadyExists, "snapshot file already exists"));
-//             }
-//             
-//             let repo = try!(Partition::new(io, name));
-//             repo.save_file(&path)
+        Operation::NewPartition(name, repo_name) => {
+            assert_eq!(paths.len(), 1);
+            assert_eq!(args.part, None);
+            assert_eq!(args.commit, None);
+            let path = &paths[0];
+            println!("Creating new partition: '{}' in {}", name, path.display());
+            
+            let repo_name = repo_name.unwrap_or_else(|| {
+                let mut len = 16;
+                while !name.is_char_boundary(len) { len -= 1; }
+                name[0..len].to_string()
+            });
+            
+            let io = try!(DiscoverPartitionFiles::from_dir_basename(path, &name));
+            try!(Partition::<DataElt>::create(box io, &repo_name));
             Ok(())
         },
         Operation::ListPartitions => {
@@ -234,7 +242,7 @@ fn inner(files: Vec<String>, op: Operation, args: Rest) -> Result<()>
                             }
                             let tmp_path = PathBuf::from(OsStr::from_bytes(rtrim(&output.stdout, b'\n')));
                             if !tmp_path.is_file() {
-                                return make_io_err(ErrorKind::NotFound, "temporary file not found");
+                                return PathError::err("temporary file created but not found", tmp_path);
                             }
                             
                             let id: u64 = try!(elt.parse());
