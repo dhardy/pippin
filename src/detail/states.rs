@@ -4,11 +4,12 @@ use std::collections::{HashMap};
 use std::collections::hash_map::{Keys};
 use std::clone::Clone;
 use std::rc::Rc;
+
 use hashindexed::KeyComparator;
-use error::ElementOp;
 use rand::random;
 
-use detail::{Sum, ElementT};
+use {ElementT, Sum};
+use error::ElementOp;
 
 
 /// Type of an element identifier within a partition.

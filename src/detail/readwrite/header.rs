@@ -3,11 +3,12 @@
 use std::{io};
 use std::cmp::min;
 use std::result::Result as stdResult;
+
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
-use ::error::{Result, ArgError, ReadError, make_io_err};
-use ::util::rtrim;
-use super::{sum, fill};
+use detail::readwrite::{sum, fill};
+use error::{Result, ArgError, ReadError, make_io_err};
+use util::rtrim;
 
 const HEAD_SNAPSHOT : [[u8; 16]; 2] = [*b"PIPPINSS20150929",
     *b"PIPPINSS20160105"];

@@ -8,11 +8,12 @@ mod snapshot;
 mod commitlog;
 
 use std::{io, mem};
-use error::{ReadError, Result};
 
 pub use self::header::{FileHeader, FileType, read_head, write_head, validate_repo_name};
 pub use self::snapshot::{read_snapshot, write_snapshot};
 pub use self::commitlog::{CommitReceiver, read_log, start_log, write_commit};
+
+use error::{ReadError, Result};
 
 
 // Utilities for reading from streams:

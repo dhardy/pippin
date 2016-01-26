@@ -6,13 +6,15 @@ use std::result;
 use std::any::Any;
 use hashindexed::HashIndexed;
 
-use super::{Sum, Commit, CommitQueue, LogReplay};
-use super::{PartitionState, PartitionStateSumComparator};
-use super::{ElementT, PartNum};
-use super::merge::{TwoWayMerge, TwoWaySolver};
-use super::readwrite::{FileHeader, FileType, read_head, write_head, validate_repo_name};
-use super::readwrite::{read_snapshot, write_snapshot};
-use super::readwrite::{read_log, start_log, write_commit};
+pub use detail::states::PartitionState;
+
+use detail::readwrite::{FileHeader, FileType, read_head, write_head, validate_repo_name};
+use detail::readwrite::{read_snapshot, write_snapshot};
+use detail::readwrite::{read_log, start_log, write_commit};
+use detail::states::{PartitionStateSumComparator};
+use detail::{Commit, CommitQueue, LogReplay};
+use merge::{TwoWayMerge, TwoWaySolver};
+use {ElementT, Sum, PartNum};
 use error::{Result, ArgError, TipError, MatchError, OtherError, make_io_err};
 
 /// An interface providing read and/or write access to a suitable location.
@@ -211,7 +213,7 @@ impl<E: ElementT> Partition<E> {
     /// Example:
     /// 
     /// ```
-    /// use pippin::{Partition, PartitionDummyIO};
+    /// use pippin::partition::{Partition, PartitionDummyIO};
     /// 
     /// let io = Box::new(PartitionDummyIO::new());
     /// let partition = Partition::<String>::create(io, "example repo");
@@ -273,7 +275,8 @@ impl<E: ElementT> Partition<E> {
     /// 
     /// ```no_run
     /// use std::path::Path;
-    /// use pippin::{Partition, DiscoverPartitionFiles};
+    /// use pippin::Partition;
+    /// use pippin::discover::DiscoverPartitionFiles;
     /// 
     /// let path = Path::new(".");
     /// let io = DiscoverPartitionFiles::from_dir_basename(path, "my-partition").unwrap();

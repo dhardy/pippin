@@ -30,7 +30,9 @@ use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::rc::Rc;
 
-use super::{PartitionState, EltId, Commit, EltChange, ElementT, Sum};
+use detail::{EltId, Commit, EltChange};
+use partition::PartitionState;
+use {ElementT, Sum};
 
 /// This struct controls the merging of two states into one.
 /// 

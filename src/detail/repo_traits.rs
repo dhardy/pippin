@@ -5,8 +5,9 @@ use std::marker::PhantomData;
 use std::any::Any;
 use std::io::Write;
 
-use super::{ElementT, PartNum, PartitionIO};
-use ::error::{Error, Result};
+use partition::PartitionIO;
+use {ElementT, PartNum};
+use error::{Error, Result};
 
 
 /// Provides file discovery and creation for a repository.

@@ -13,7 +13,8 @@ use docopt::Docopt;
 use rand::Rng;
 use rand::distributions::{IndependentSample, Range, Normal, LogNormal};
 
-use pippin::{ElementT, DiscoverPartitionFiles, Partition, PartitionState};
+use pippin::{ElementT, Partition, PartitionState};
+use pippin::discover::DiscoverPartitionFiles;
 use pippin::error::{Result, OtherError};
 
 

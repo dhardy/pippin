@@ -5,14 +5,14 @@
 use std::io::{Read, Write};
 use std::collections::HashMap;
 use std::rc::Rc;
+
 use crypto::digest::Digest;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
-use ::{ElementT};
-use super::{sum, fill};
-use detail::{Sum, Commit};
-use detail::commits::EltChange;
-use ::error::{Result, ReadError};
+use detail::readwrite::{sum, fill};
+use detail::{Commit, EltChange};
+use {ElementT, Sum};
+use error::{Result, ReadError};
 
 /// Implement this to use read_log().
 pub trait CommitReceiver<E: ElementT> {

@@ -10,9 +10,11 @@ use std::any::Any;
 // use std::io::stderr;
 // use std::path::Path;
 // use std::fs::{File, create_dir_all};
+
+use vec_map::VecMap;
+
 use pippin::{Partition, PartitionIO};
 use pippin::error::{make_io_err, Result};
-use vec_map::VecMap;
 
 /// Allows writing to in-memory streams. Refers to external data so that it
 /// can be recovered after the `Partition` is destroyed in the tests.

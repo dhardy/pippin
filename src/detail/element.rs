@@ -5,8 +5,8 @@ use std::io::{/*Read,*/ Write};
 use std::str::from_utf8;
 // use vec_map::VecMap;
 
-use super::sum::Sum;
-use ::error::{Result};
+use Sum;
+use error::{Result};
 
 
 /// Whatever element type the user wishes to store must implement this trait.

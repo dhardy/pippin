@@ -10,7 +10,9 @@ use regex::Regex;
 use vec_map::{VecMap, Entry};
 use walkdir::WalkDir;
 
-use super::{PartNum, RepoIO, PartitionIO};
+use partition::PartitionIO;
+use repo::RepoIO;
+use PartNum;
 use error::{Result, PathError, ArgError, make_io_err};
 
 

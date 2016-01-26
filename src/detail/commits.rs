@@ -5,9 +5,10 @@ use std::clone::Clone;
 use std::rc::Rc;
 use hashindexed::HashIndexed;
 
-use detail::{ElementT};
-use detail::{Sum, PartitionState, PartitionStateSumComparator};
+use detail::states::PartitionStateSumComparator;
 use detail::readwrite::CommitReceiver;
+use partition::PartitionState;
+use {ElementT, Sum};
 use error::{Result, ReplayError, ElementOp};
 
 

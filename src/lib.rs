@@ -79,14 +79,18 @@ extern crate vec_map;
 extern crate rand;
 extern crate walkdir;
 
-pub use detail::{Repo, RepoIO, RepoState, RepoDivideError, RepoT};
-pub use detail::{ClassifierT, ClassifyFallback, DummyClassifier};
-pub use detail::{ElementT};
-pub use detail::{PartitionState};
-pub use detail::{Partition, PartitionIO, PartitionDummyIO};
-pub use detail::{DiscoverPartitionFiles, DiscoverRepoFiles};
-pub use detail::merge;
+// Redundantly re-export some of the main types here:
+pub use repo::{Repo, RepoIO, RepoT, ClassifierT, RepoState};
+pub use partition::{Partition, PartitionIO, PartitionState};
 pub use error::{Result};
+// Export some main/miscellaneous types here:
+pub use detail::{ElementT, PartNum, Sum};
+
+// Export some modules here:
+pub use detail::repo;
+pub use detail::partition;
+pub use detail::merge;
+pub use detail::discover;
 
 // Most Pippin code is put in this private module to allow inter-module
 // dependencies without making the details public. In the future there may

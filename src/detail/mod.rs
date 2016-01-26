@@ -1,23 +1,21 @@
 //! In-memory representations of Pippin data
 
 pub use self::element::{ElementT};
-pub use self::states::{EltId, PartitionState, PartitionStateSumComparator};
-pub use self::partition::{Partition, PartitionIO, PartitionDummyIO};
-pub use self::discover::{DiscoverPartitionFiles, DiscoverRepoFiles};
+pub use self::states::{EltId};
 pub use self::commits::{Commit, CommitQueue, LogReplay, EltChange};
 pub use self::sum::Sum;
 pub use self::repo::{Repo, RepoState};
-pub use self::repo_traits::{ClassifierT, ClassifyFallback, DummyClassifier, RepoIO, RepoT, RepoDivideError};
 
 pub mod readwrite;
+pub mod partition;
+pub mod discover;
+pub mod repo;
+pub mod merge;
+
 mod sum;
 mod states;
 mod commits;
-mod partition;
-mod discover;
 mod element;
-mod repo;
-pub mod merge;
 mod repo_traits;
 
 /// A classification / partition number

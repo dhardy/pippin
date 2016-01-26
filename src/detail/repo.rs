@@ -16,9 +16,13 @@
 use std::result;
 use std::collections::HashMap;
 
-use super::{Partition, PartNum, PartitionState, EltId};
-use super::repo_traits::{ClassifierT, ClassifyFallback, RepoT, RepoIO};
-use ::error::{Result, OtherError, TipError, ElementOp};
+// Re-export these. We pretend these are part of the same module while keeping files smaller.
+pub use detail::repo_traits::{RepoIO, ClassifierT, ClassifyFallback, RepoT,
+    RepoDivideError, DummyClassifier};
+use partition::{Partition, PartitionState};
+use detail::{EltId};
+use PartNum;
+use error::{Result, OtherError, TipError, ElementOp};
 
 /// Handle on a repository.
 /// 

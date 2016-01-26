@@ -13,8 +13,9 @@ use std::io::{Read, Write};
 use std::ffi::OsStr;
 use std::os::unix::ffi::OsStrExt;
 use docopt::Docopt;
+use pippin::{Partition, PartitionIO, ElementT};
+use pippin::discover::DiscoverPartitionFiles;
 use pippin::error::{Result, PathError};
-use pippin::{DiscoverPartitionFiles, Partition, PartitionIO, ElementT};
 use pippin::util::rtrim;
 
 const USAGE: &'static str = "

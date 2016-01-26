@@ -5,10 +5,10 @@ use chrono::UTC;
 use crypto::digest::Digest;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
-use super::{sum, fill};
-use detail::{Sum, PartitionState};
-use detail::{ElementT};
-use ::error::{Result, ReadError};
+use detail::readwrite::{sum, fill};
+use partition::PartitionState;
+use {ElementT, Sum};
+use error::{Result, ReadError};
 
 /// Read a snapshot of a set of elements from a stream.
 /// 
