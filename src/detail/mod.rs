@@ -45,6 +45,12 @@ impl PartNum {
     pub fn num(self) -> u64 { self.num }
     /// Returns a non-zero number whose low 24 bits are all zero.
     pub fn as_id(self) -> u64 { self.num << 24 }
+    /// Creates from an "id" (this is the inverse of `as_id()`)
+    pub fn from_id(id: u64) -> PartNum {
+        //TODO: error handling: 0 should not be accepted but should not cause a panic
+//         assert!(id != 0, "check bounds on classification / partition number");
+        PartNum { num: id >> 24 }
+    }
 }
 impl From<u64> for PartNum {
     fn from(n: u64) -> PartNum {

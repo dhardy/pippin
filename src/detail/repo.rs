@@ -1,9 +1,11 @@
 //! Pippin "repository" type
 
-use std::slice::{Iter, IterMut};
+use std::result;
+use std::collections::HashMap;
 
-use super::{Partition, ClassifierT, RepoIO};
-use ::error::{Result, OtherError};
+use super::{Partition, PartNum, PartitionState, EltId};
+use super::classifier::{ClassifierT, ClassifyFallback, RepoIO};
+use ::error::{Result, OtherError, TipError, ElementOp};
 
 /// Handle on a repository.
 /// 
@@ -27,7 +29,7 @@ pub struct Repo<C: ClassifierT> {
     name: String,
     /// List of loaded partitions, by in-memory (temporary numeric) identifier.
     /// Identifier is TBD (TODO).
-    partitions: Vec<Partition<C::Element>>,
+    partitions: HashMap<PartNum, Partition<C::Element>>,
 }
 
 // Non-member functions on Repo
@@ -45,10 +47,12 @@ impl<C: ClassifierT> Repo<C> {
     pub fn create(mut classifier: C, name: String) -> Result<Repo<C>> {
         let (num, part_io) = try!(classifier.first_part());
         let part = try!(Partition::create_part(part_io, &name, num));
+        let mut partitions = HashMap::new();
+        partitions.insert(num, part);
         Ok(Repo{
             classifier: classifier,
             name: name,
-            partitions: vec![part],
+            partitions: partitions,
         })
     }
     
@@ -57,22 +61,24 @@ impl<C: ClassifierT> Repo<C> {
     /// This does not automatically load partition data, however it must load
     /// at least one header in order to identify the repository.
     pub fn open(classifier: C, io: Box<RepoIO>) -> Result<Repo<C>> {
-        let part_nums = io.partitions();
-        if part_nums.is_empty() {
+        let mut part_nums = io.partitions().into_iter();
+        let num0 = if let Some(num) = part_nums.next() {
+            num
+        } else {
             return OtherError::err("No repository files found");
-        }
+        };
         
-        let part_io = try!(io.make_partition_io(part_nums[0]));
+        let part_io = try!(io.make_partition_io(num0));
         let mut part0 = Partition::open(part_io);
         let name = try!(part0.get_repo_name()).to_string();
         
-        let mut parts = Vec::with_capacity(part_nums.len());
-        parts.push(part0);
-        for i in 1..part_nums.len() {
-            let part_io = try!(io.make_partition_io(part_nums[i]));
+        let mut parts = HashMap::new();
+        parts.insert(num0, part0);
+        for n in part_nums {
+            let part_io = try!(io.make_partition_io(n));
             let mut part = Partition::open(part_io);
             try!(part.set_repo_name(&name));
-            parts.push(part);
+            parts.insert(n, part);
         }
         
         Ok(Repo{
@@ -88,19 +94,11 @@ impl<C: ClassifierT> Repo<C> {
     /// Get the repo name
     pub fn name(&self) -> &str { &self.name }
     
-    /// Get an iterator over partitions
-    pub fn partitions(&self) -> Iter<Partition<C::Element>> {
-        self.partitions.iter()
-    }
-    
-    /// Get a mutable iterator over partitions
-    pub fn partitions_mut(&mut self) -> IterMut<Partition<C::Element>> {
-        self.partitions.iter_mut()
-    }
+    // TODO: some way to iterate or access partitions?
     
     /// Convenience function to call `Partition::load(all_history)` on all partitions.
     pub fn load_all(&mut self, all_history: bool) -> Result<()> {
-        for part in &mut self.partitions {
+        for (_, part) in &mut self.partitions {
             try!(part.load(all_history));
         }
         Ok(())
@@ -108,7 +106,7 @@ impl<C: ClassifierT> Repo<C> {
     
     /// Convenience function to call `Partition::write(fast)` on all partitions.
     pub fn write_all(&mut self, fast: bool) -> Result<()> {
-        for part in &mut self.partitions {
+        for (_, part) in &mut self.partitions {
             try!(part.write(fast));
         }
         Ok(())
@@ -122,9 +120,139 @@ impl<C: ClassifierT> Repo<C> {
     /// if and only if all partitions are unloaded.
     pub fn unload_all(&mut self, force: bool) -> bool {
         let mut all = true;
-        for part in &mut self.partitions {
+        for (_, part) in &mut self.partitions {
             all = all && part.unload(force);
         }
         all
+    }
+    
+    /// Get a `RepoState` with a copy of the state of all loaded partitions.
+    /// 
+    /// This is not required for reading elements but is the only way to edit
+    /// contents. Accessing the copy does not block operations on this `Repo`
+    /// since the all shared state is reference-counted and immutable.
+    /// 
+    /// This operation is fairly cheap since elements are Copy-on-Write, but
+    /// each partition's hash-map must still be copied.
+    /// 
+    /// The operation can fail if a partition requires merging.
+    /// 
+    /// TODO: a way to copy only some of the loaded partitions.
+    pub fn clone_state(&self) -> result::Result<RepoState<C>, TipError> {
+        let mut rs = RepoState::new(self.classifier.clone());
+        for (num, part) in &self.partitions {
+            rs.add_part(*num, try!(part.tip()).clone_exact());
+        }
+        Ok(rs)
+    }
+    
+    /// Merge changes from a `RepoState` into the repo, consuming the
+    /// `RepoState`.
+    pub fn merge_in(&mut self, state: RepoState<C>) -> Result<()> {
+        for (num, pstate) in state.states {
+            let mut part = if let Some(p) = self.partitions.get_mut(&num) {
+                p
+            } else {
+                panic!("partitions don't match!");
+                //TODO: support for merging after a division/union/change of partitioning
+            };
+            if try!(part.push_state(pstate)) {
+                if part.merge_required() {
+                    panic!("merging not implemented");
+                    //TODO — but how? *Always* require merge machinery to be passed to this method?
+                }
+            }
+        }
+        Ok(())
+    }
+    
+    /// Merge changes from a `RepoState` and update it to the latest state of
+    /// the `Repo`.
+    pub fn sync(&mut self, _state: &mut RepoState<C>) {
+        panic!("not implemented");  // TODO
+    }
+}
+
+/// Provides read-write access to some or all partitions in a non-blocking
+/// fashion. Has no access to historical states and is not able to load more
+/// data on demand. Has to be merged back in to the repo in order to record
+/// and synchronise edits.
+pub struct RepoState<C: ClassifierT> {
+    classifier: C,   // TODO: full clone?? We don't need the I/O part this time..
+    states: HashMap<PartNum, PartitionState<C::Element>>,
+}
+
+impl<C: ClassifierT> RepoState<C> {
+    /// Create new, with no partition states (use `add_part()`)
+    fn new(classifier: C) -> RepoState<C> {
+        RepoState { classifier: classifier, states: HashMap::new() }
+    }
+    /// Add a state from some partition
+    fn add_part(&mut self, num: PartNum, state: PartitionState<C::Element>) {
+        self.states.insert(num, state);
+    }
+    
+    /// Get a reference to some element (which can be cloned if required).
+    /// 
+    /// Note that elements can't be modified directly but must instead be
+    /// replaced, hence there is no version of this function returning a
+    /// mutable reference.
+    pub fn get_elt(&self, id: EltId) -> Option<&C::Element> {
+        //TODO: current policy is that the "partition" part of an element ID
+        // is only there to ensure uniqueness. Can we not also use it for fast
+        // look-ups?
+//         let num = PartNum::from_id(id);
+        for (_num, state) in &self.states {
+            match state.get_elt(id) {
+                Some(e) => { return Some(e); },
+                None => {},
+            }
+        }
+        None
+    }
+    
+    /// True if there are no elements within the state available to this `RepoState`
+    pub fn is_empty(&self) -> bool {
+        self.states.values().all(|v| v.is_empty())
+    }
+    
+    /// Get the number of elements available to this `RepoState`
+    pub fn num_elts(&self) -> usize {
+        panic!("not implemented");
+        //TODO: `sum()` is an unstable library feature:
+//         self.states.values().map(|v| v.num_elts()).sum()
+    }
+    
+    /// Insert an element and return (), unless the id is already used in
+    /// which case the function stops with an error.
+    pub fn insert_elt(&mut self, id: EltId, elt: C::Element) -> Result<(), ElementOp> {
+        let num = if let Some(num) = self.classifier.classify(&elt) {
+            num
+        } else {
+            match self.classifier.fallback() {
+                ClassifyFallback::Default(num) | ClassifyFallback::ReplacedOrDefault(num) => num,
+                ClassifyFallback::ReplacedOrFail | ClassifyFallback::Fail => {
+                    return Err(ElementOp::classify_failure());
+                },
+            }
+        };
+        if let Some(mut state) = self.states.get_mut(&num) {
+            // Now insert into our PartitionState (may also fail):
+            state.insert_elt(id, elt)
+        } else {
+            panic!("classifier did not give valid partition");  //TODO: handling
+        }
+    }
+    /// Replace an existing element and return the replaced element, unless the
+    /// id is not already used in which case the function stops with an error.
+    pub fn replace_elt(&mut self, _id: EltId, _elt: C::Element) -> Result<C::Element, ElementOp> {
+        panic!("not implemented");
+        //TODO: how do we locate the element partition? (See get_elt().)
+    }
+    /// Remove an element, returning the element removed. If no element is
+    /// found with the `id` given, `None` is returned.
+    pub fn remove_elt(&mut self, _id: EltId) -> Result<C::Element, ElementOp> {
+        panic!("not implemented");
+        //TODO: how do we locate the element partition? (See get_elt().)
     }
 }

@@ -507,6 +507,11 @@ impl<E: ElementT> Partition<E> {
     pub fn unwrap_io(self) -> Box<PartitionIO> {
         self.io
     }
+    
+    /// Get the partition's number
+    pub fn num(&self) -> PartNum {
+        PartNum::from_id(self.part_id)
+    }
 }
 
 // Methods saving a partition's data

@@ -53,7 +53,11 @@ pub trait RepoIO {
 /// 
 /// Implementations must provide at least `Element`, `initial`, `classify`,
 /// `divide`, `read_buf` and `write_buf`.
-pub trait ClassifierT {
+/// 
+/// Implementations must also be clonable, but clones do not need to support
+/// I/O (only `Element`, `classify()` and `fallback()` must be implemented).
+/// TODO: better interface.
+pub trait ClassifierT where Self: Clone {
     /// The user-specified element type.
     type Element: ElementT;
     
@@ -173,18 +177,23 @@ pub enum ClassifyFallback {
 /// 1, thus there will only ever be a single 'partition'.
 pub struct DummyClassifier<E: ElementT> {
     p: PhantomData<E>,
-    io: Box<RepoIO>,
+    io: Option<Box<RepoIO>>,
 }
 impl<E: ElementT> DummyClassifier<E> {
     /// Create an instance owning a boxed `RepoIO`
     pub fn new(io: Box<RepoIO>) -> DummyClassifier<E> {
-        DummyClassifier { p: PhantomData, io: io }
+        DummyClassifier { p: PhantomData, io: Some(io) }
     }
 }
-impl<E: ElementT> ClassifierT for DummyClassifier<E> {
+impl<E: ElementT> ClassifierT for DummyClassifier<E> where DummyClassifier<E> : Clone {
     type Element = E;
     fn repo_io<'a>(&'a mut self) -> &'a mut RepoIO {
-        &mut *self.io
+        match self.io {
+            Some(ref mut io) => &mut **io,
+            None => {
+                panic!("repo_io() called on a clone!"); //TODO: better handling?
+            },
+        }
     }
     fn classify(&self, _elt: &Self::Element) -> Option<PartNum> {
         Some(PartNum::from(1))
@@ -196,4 +205,9 @@ impl<E: ElementT> ClassifierT for DummyClassifier<E> {
     }
     fn write_buf(&self, _num: PartNum, _writer: &mut Write) -> Result<()> { Ok(()) }
     fn read_buf(&mut self, _num: PartNum, _buf: &[u8]) -> Result<()> { Ok(()) }
+}
+impl<E: ElementT> Clone for DummyClassifier<E> {
+    fn clone(&self) -> Self {
+        DummyClassifier { p: self.p.clone(), io: None }
+    }
 }

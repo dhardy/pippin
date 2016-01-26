@@ -146,6 +146,8 @@ pub enum ElementOpClass {
     ReplacementFailure,
     /// Deletion failed due to missing element (element identifier)
     DeletionFailure,
+    /// Classification failed and the fallback is to fail
+    ClassifyFailure,
 }
 impl ElementOp {
     /// Get the description string corresponding to the classification
@@ -155,6 +157,7 @@ impl ElementOp {
             ElementOpClass::InsertionFailure => "insertion failed: identifier already in use",
             ElementOpClass::ReplacementFailure => "replacement failed: cannot find element to replace",
             ElementOpClass::DeletionFailure => "deletion failed: element not found",
+            ElementOpClass::ClassifyFailure => "classification of element failed",
         }
     }
     /// Create an instance
@@ -173,13 +176,20 @@ impl ElementOp {
     pub fn deletion_failure(id: u64) -> ElementOp {
         ElementOp { id: id, class: ElementOpClass::DeletionFailure }
     }
+    /// Create an instance
+    pub fn classify_failure() -> ElementOp {
+        ElementOp { id: 0, class: ElementOpClass::ClassifyFailure }
+    }
 }
 impl fmt::Display for ElementOp {
     fn fmt(&self, f: &mut fmt::Formatter) -> result::Result<(), fmt::Error> {
-        if self.class == ElementOpClass::IdGenFailure {
-            write!(f, "{}", self.description())
-        } else {
-            write!(f, "{}: {}", self.description(), self.id)
+        match self.class {
+            ElementOpClass::IdGenFailure | ElementOpClass::ClassifyFailure => {
+                write!(f, "{}", self.description())
+            },
+            _ => {
+                write!(f, "{}: {}", self.description(), self.id)
+            },
         }
     }
 }
