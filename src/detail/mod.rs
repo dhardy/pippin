@@ -7,7 +7,7 @@ pub use self::discover::{DiscoverPartitionFiles, DiscoverRepoFiles};
 pub use self::commits::{Commit, CommitQueue, LogReplay, EltChange};
 pub use self::sum::Sum;
 pub use self::repo::{Repo, RepoState};
-pub use self::classifier::{ClassifierT, ClassifyFallback, DummyClassifier, RepoIO, RepoT, RepoDivideError};
+pub use self::repo_traits::{ClassifierT, ClassifyFallback, DummyClassifier, RepoIO, RepoT, RepoDivideError};
 
 pub mod readwrite;
 mod sum;
@@ -18,7 +18,7 @@ mod discover;
 mod element;
 mod repo;
 pub mod merge;
-mod classifier;
+mod repo_traits;
 
 /// A classification / partition number
 /// 

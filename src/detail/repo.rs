@@ -17,7 +17,7 @@ use std::result;
 use std::collections::HashMap;
 
 use super::{Partition, PartNum, PartitionState, EltId};
-use super::classifier::{ClassifierT, ClassifyFallback, RepoT, RepoIO};
+use super::repo_traits::{ClassifierT, ClassifyFallback, RepoT, RepoIO};
 use ::error::{Result, OtherError, TipError, ElementOp};
 
 /// Handle on a repository.
