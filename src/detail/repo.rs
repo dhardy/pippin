@@ -1,10 +1,23 @@
-//! Pippin "repository" type
+//! Pippin's "repository" type and its dependencies
+//! 
+//! For simpler, single-partition usage, see the `partition` module. For full
+//! functionality, use the `Repo` type in this module.
+//! 
+//! Implementations of the following traits are required for usage:
+//! 
+//! *   `RepoIO` with an accompanying `PartitionIO` to describe how to access
+//!     the files (or other objects) storing data; the types in the `discover`
+//!     module should suffice for normal usage
+//! *   `ClassifierT` to classify elements, along with an `ElementT` type
+//! *   `RepoT`. This type should handle partitioning, creation of `ClassifierT`
+//!     objects, saving and discovering partitioning information, and provide
+//!     the `RepoIO` implementation
 
 use std::result;
 use std::collections::HashMap;
 
 use super::{Partition, PartNum, PartitionState, EltId};
-use super::classifier::{ClassifierT, ClassifyFallback, RepoIO};
+use super::classifier::{ClassifierT, ClassifyFallback, RepoT, RepoIO};
 use ::error::{Result, OtherError, TipError, ElementOp};
 
 /// Handle on a repository.
@@ -20,11 +33,11 @@ use ::error::{Result, OtherError, TipError, ElementOp};
 /// and used to read and write elements. The copy may be accessed without
 /// blocking other operations on the underlying repository. Changes made to
 /// the copy may be merged back into the repository.
-pub struct Repo<C: ClassifierT> {
+pub struct Repo<C: ClassifierT, R: RepoT<C>> {
     /// Classifier. This must use compile-time polymorphism since it gives us
     /// the element type, and we do not want element look-ups to involve a
     /// run-time conversion.
-    classifier: C,
+    classifier: R,
     /// Descriptive identifier for the repository
     name: String,
     /// List of loaded partitions, by in-memory (temporary numeric) identifier.
@@ -33,7 +46,7 @@ pub struct Repo<C: ClassifierT> {
 }
 
 // Non-member functions on Repo
-impl<C: ClassifierT> Repo<C> {
+impl<C: ClassifierT, R: RepoT<C>> Repo<C, R> {
     /// Create a new repository with the given name.
     /// 
     /// The name must be UTF-8 and not more than 16 bytes long. It allows a
@@ -44,7 +57,7 @@ impl<C: ClassifierT> Repo<C> {
     /// 
     /// This creates an initial 'partition' ready for use (all contents must
     /// be kept within a `Partition`).
-    pub fn create(mut classifier: C, name: String) -> Result<Repo<C>> {
+    pub fn create(mut classifier: R, name: String) -> Result<Repo<C, R>> {
         let (num, part_io) = try!(classifier.first_part());
         let part = try!(Partition::create_part(part_io, &name, num));
         let mut partitions = HashMap::new();
@@ -60,7 +73,7 @@ impl<C: ClassifierT> Repo<C> {
     /// 
     /// This does not automatically load partition data, however it must load
     /// at least one header in order to identify the repository.
-    pub fn open(classifier: C, io: Box<RepoIO>) -> Result<Repo<C>> {
+    pub fn open(classifier: R, io: Box<RepoIO>) -> Result<Repo<C, R>> {
         let mut part_nums = io.partitions().into_iter();
         let num0 = if let Some(num) = part_nums.next() {
             num
@@ -90,7 +103,7 @@ impl<C: ClassifierT> Repo<C> {
 }
 
 // Member functions on Repo — a set of elements.
-impl<C: ClassifierT> Repo<C> {
+impl<C: ClassifierT, R: RepoT<C>> Repo<C, R> {
     /// Get the repo name
     pub fn name(&self) -> &str { &self.name }
     
@@ -139,7 +152,7 @@ impl<C: ClassifierT> Repo<C> {
     /// 
     /// TODO: a way to copy only some of the loaded partitions.
     pub fn clone_state(&self) -> result::Result<RepoState<C>, TipError> {
-        let mut rs = RepoState::new(self.classifier.clone());
+        let mut rs = RepoState::new(self.classifier.clone_classifier());
         for (num, part) in &self.partitions {
             rs.add_part(*num, try!(part.tip()).clone_exact());
         }
@@ -178,7 +191,7 @@ impl<C: ClassifierT> Repo<C> {
 /// data on demand. Has to be merged back in to the repo in order to record
 /// and synchronise edits.
 pub struct RepoState<C: ClassifierT> {
-    classifier: C,   // TODO: full clone?? We don't need the I/O part this time..
+    classifier: C,
     states: HashMap<PartNum, PartitionState<C::Element>>,
 }
 

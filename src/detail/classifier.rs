@@ -1,13 +1,13 @@
-//! Classification of Pippin elements
+//! Traits for Pippin's `Repo` type
 
 use std::convert::From;
-use std::io::Write;
 use std::marker::PhantomData;
 use std::any::Any;
+use std::io::Write;
 
-use super::{ElementT, PartNum};
-use super::{PartitionIO};
-use ::error::{Result, Error};
+use super::{ElementT, PartNum, PartitionIO};
+use ::error::{Error, Result};
+
 
 /// Provides file discovery and creation for a repository.
 pub trait RepoIO {
@@ -42,7 +42,6 @@ pub trait RepoIO {
     fn make_partition_io(&self, num: PartNum) -> Result<Box<PartitionIO>>;
 }
 
-
 /// A classifier is a device taking an element and returning a numeric code
 /// classifying that element. See notes on partitioning and classification.
 /// 
@@ -56,14 +55,62 @@ pub trait RepoIO {
 /// 
 /// Implementations must also be clonable, but clones do not need to support
 /// I/O (only `Element`, `classify()` and `fallback()` must be implemented).
-/// TODO: better interface.
-pub trait ClassifierT where Self: Clone {
+pub trait ClassifierT {
     /// The user-specified element type.
     type Element: ElementT;
     
+    /// Get the classification of an element.
+    /// 
+    /// If this returns `None`, the library assumes classification of the
+    /// element is temporarily unavailable. In this case it might call
+    /// `fallback`.
+    /// 
+    /// The return value must not be zero (see `ClassifierT` documentation on
+    /// numbers).
+    /// 
+    /// This function is only called when inserting/replacing an element and
+    /// when repartitioning, so it doesn't need to be super fast.
+    fn classify(&self, elt: &Self::Element) -> Option<PartNum>;
+    
+    /// This is used only when `classify` returns `None` for an element.
+    /// 
+    /// This is only needed for cases where some operations should be supported
+    /// despite classification not being available in all cases. The default
+    /// implementation returns `ClassifyFallback::Fail`.
+    fn fallback(&self) -> ClassifyFallback { ClassifyFallback::Fail }
+}
+
+/// Specifies what to do when classification fails and an element is to be
+/// inserted or replaced.
+pub enum ClassifyFallback {
+    /// Use the given classification for an insertion or replacement.
+    Default(PartNum),
+    /// In the case of a replacement, assume the replacing element has the
+    /// same classification as the element being replaced. If not a
+    /// replacement, use the default specified.
+    ReplacedOrDefault(PartNum),
+    /// In the case of a replacement, assume the replacing element has the
+    /// same classification as the element being replaced. If not a
+    /// replacement, fail.
+    ReplacedOrFail,
+    /// Fail the operation. The insertion or replacement operation will fail
+    /// with an error.
+    Fail,
+}
+
+/// Encapsulates a RepoIO and a ClassifierT, handling repartitioning and
+/// serialisation.
+pub trait RepoT<C: ClassifierT+Sized>: ClassifierT {
     /// Get access to the I/O provider. This could be an instance of
     /// `DiscoverRepoFiles` or could be self (among other possibilities).
     fn repo_io<'a>(&'a mut self) -> &'a mut RepoIO;
+    
+    /// Make a copy of the classifier. This should be independent (for use with
+    /// `Repo::clone_state()`) and be unaffected by repartitioning (e.g.
+    /// `divide()`) of this object. Assuming this object is not repartitioned,
+    /// both self and the returned object should return the same
+    /// classifications.
+    fn clone_classifier(&self) -> C;
     
     /// Initially there should only be one partition and one classification.
     /// This function returns the number of this classification and a
@@ -85,26 +132,6 @@ pub trait ClassifierT where Self: Clone {
         Ok((num, part_io))
     }
     
-    /// Get the classification of an element.
-    /// 
-    /// If this returns `None`, the library assumes classification of the
-    /// element is temporarily unavailable. In this case it might call
-    /// `fallback`.
-    /// 
-    /// The return value must not be zero (see `ClassifierT` documentation on
-    /// numbers).
-    /// 
-    /// This function is only called when inserting/replacing an element and
-    /// when repartitioning, so it doesn't need to be super fast.
-    fn classify(&self, elt: &Self::Element) -> Option<PartNum>;
-    
-    /// This is used only when `classify` returns `None` for an element.
-    /// 
-    /// This is only needed for cases where some operations should be supported
-    /// despite classification not being available in all cases. The default
-    /// implementation returns `ClassifyFallback::Fail`.
-    fn fallback(&self) -> ClassifyFallback { ClassifyFallback::Fail }
-    
     /// This function is called when too many elements correspond to the given
     /// classification. The function should divide this classification into two
     /// or more new classifications with new numbers; the number of the old
@@ -121,9 +148,9 @@ pub trait ClassifierT where Self: Clone {
     /// changed and need to be updated (a new snapshot will be created for
     /// each, which will call `write_buf(...)` in the process). In case another
     /// partition needs to be loaded first, this function may fail with
-    /// `DivideError::LoadPart(num)`.
+    /// `RepoDivideError::LoadPart(num)`.
     fn divide(&mut self, class: PartNum) ->
-        Result<(Vec<PartNum>, Vec<PartNum>), DivideError>;
+        Result<(Vec<PartNum>, Vec<PartNum>), RepoDivideError>;
     
     // #0025: provide a choice of how to implement IO via a const bool?
     
@@ -145,7 +172,7 @@ pub trait ClassifierT where Self: Clone {
 }
 
 /// Failures allowed for `ClassifierT::divide`.
-pub enum DivideError {
+pub enum RepoDivideError {
     /// No logic is available allowing subdivision of the category.
     NotSubdivisible,
     /// Used when another partition needs to be loaded before division, e.g.
@@ -155,59 +182,20 @@ pub enum DivideError {
     Other(Error),
 }
 
-/// Specifies what to do when classification fails and an element is to be
-/// inserted or replaced.
-pub enum ClassifyFallback {
-    /// Use the given classification for an insertion or replacement.
-    Default(PartNum),
-    /// In the case of a replacement, assume the replacing element has the
-    /// same classification as the element being replaced. If not a
-    /// replacement, use the default specified.
-    ReplacedOrDefault(PartNum),
-    /// In the case of a replacement, assume the replacing element has the
-    /// same classification as the element being replaced. If not a
-    /// replacement, fail.
-    ReplacedOrFail,
-    /// Fail the operation. The insertion or replacement operation will fail
-    /// with an error.
-    Fail,
-}
-
 /// Trivial implementation for testing purposes. Always returns the same value,
 /// 1, thus there will only ever be a single 'partition'.
 pub struct DummyClassifier<E: ElementT> {
     p: PhantomData<E>,
-    io: Option<Box<RepoIO>>,
 }
 impl<E: ElementT> DummyClassifier<E> {
-    /// Create an instance owning a boxed `RepoIO`
-    pub fn new(io: Box<RepoIO>) -> DummyClassifier<E> {
-        DummyClassifier { p: PhantomData, io: Some(io) }
+    /// Create an instance
+    pub fn new() -> DummyClassifier<E> {
+        DummyClassifier { p: PhantomData }
     }
 }
 impl<E: ElementT> ClassifierT for DummyClassifier<E> where DummyClassifier<E> : Clone {
     type Element = E;
-    fn repo_io<'a>(&'a mut self) -> &'a mut RepoIO {
-        match self.io {
-            Some(ref mut io) => &mut **io,
-            None => {
-                panic!("repo_io() called on a clone!"); //TODO: better handling?
-            },
-        }
-    }
     fn classify(&self, _elt: &Self::Element) -> Option<PartNum> {
         Some(PartNum::from(1))
-    }
-    fn divide(&mut self, _class: PartNum) ->
-        Result<(Vec<PartNum>, Vec<PartNum>), DivideError>
-    {
-        Err(DivideError::NotSubdivisible)
-    }
-    fn write_buf(&self, _num: PartNum, _writer: &mut Write) -> Result<()> { Ok(()) }
-    fn read_buf(&mut self, _num: PartNum, _buf: &[u8]) -> Result<()> { Ok(()) }
-}
-impl<E: ElementT> Clone for DummyClassifier<E> {
-    fn clone(&self) -> Self {
-        DummyClassifier { p: self.p.clone(), io: None }
     }
 }

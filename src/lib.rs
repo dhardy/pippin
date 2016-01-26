@@ -40,6 +40,24 @@
 //!
 //! Usage should be via the `Repo` type or, for a simpler interface where
 //! classification and partitioning is not required, via the `Partition` type.
+//! 
+//! ### Relationship between structs and traits
+//! 
+//! Traits for the user to implement (only the first two if only using a single
+//! partition; useful implementations of the "IO" traits are provided):
+//! 
+//! *   ElementT
+//! *   PartitionIO
+//! *   ClassifierT (depends on ElementT)
+//! *   RepoIO (must be able to yield PartitionIO objects)
+//! *   RepoT (requires ClassifierT and RepoIO implementations)
+//! 
+//! Library structures:
+//! 
+//! *   PartitionState (depends on ElementT)
+//! *   Partition (uses a PartitionIO and yields PartitionState objects)
+//! *   Repo (uses a RepoT and holds Partition objects, can yield RepoState objects)
+//! *   RepoState (uses a ClassifierT object)
 
 // Used for error display; not essential
 #![feature(step_by)]
@@ -61,13 +79,13 @@ extern crate vec_map;
 extern crate rand;
 extern crate walkdir;
 
-pub use detail::Repo;
+pub use detail::{Repo, RepoIO, RepoState, RepoDivideError, RepoT};
+pub use detail::{ClassifierT, ClassifyFallback, DummyClassifier};
 pub use detail::{ElementT};
 pub use detail::{PartitionState};
 pub use detail::{Partition, PartitionIO, PartitionDummyIO};
 pub use detail::{DiscoverPartitionFiles, DiscoverRepoFiles};
 pub use detail::merge;
-pub use detail::classifier;
 pub use error::{Result};
 
 // Most Pippin code is put in this private module to allow inter-module
