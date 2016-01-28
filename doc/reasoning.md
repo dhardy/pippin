@@ -89,6 +89,89 @@ Identifiers could be suggested by the user, subject to verification of
 uniqueness.
 
 
+Finding elements given the identifier
+-----------------------------------
+
+The chosen identifier allocation strategy, based on the above, is to use the
+current partition identifier plus a number unique within the partition, and not
+to relabel when repartitioning since this is not required for uniqueness.
+
+But, presented with an element identifier, how can we find the element?
+
+There are two issues to deal with: repartitioning (mainly division into child
+partitions) and reclassification (because the element changed).
+
+### Check all partitions
+
+The naive strategy is just to check each partition, starting with loaded ones.
+For loaded partitions it's fairly fast since each has a hash-map of elements;
+for unloaded partitions it's rediculously slow. There is a fair chance that the
+partition part of the identifier gives the correct partition, but some
+use-cases (e.g. accepting all new data into an "in-tray", then moving) will
+mean this is mostly not the case.
+
+### Relabel on repartitioning
+
+Use the partition part of the identifier to find the partition. Alternatively,
+attach an additional identifier describing the partition. Both methods require
+adjusting the identifier when repartitioning and reclassifying; the advantage
+of using an additional identifier for the partition is that the first part
+would still be correct if an external reference to the element was not updated,
+allowing the slow check-all-partitions strategy to find it again.
+
+Invalidating externally held element identifiers on repartitioning is not
+desirable, nor is having to make identifiers larger.
+
+### Remember partition history
+
+Use the partition part of the identifier to find the partition. If this
+partition has been closed (repartitioning), use stored historical information
+to find out which partitions it might now be in.
+
+This is better at handling repartitioning than the naive strategy, but still
+poor, and useless for reclassification of elements. New references to old
+elements might still require loading more partitions to find the element on
+each load of the database.
+
+### Multiple names / redundant renaming
+
+When repartitioning, give all elements new names: update the partition part to
+the new partition identifier, *but* remember their old names too.
+
+Where a partition has been divided, child partitions can be checked or the
+parent could have a list of where each element went. Where elements are
+reclassified, the parent partition would have to store each element's new
+identifier (note that the second part of the identifier might need to be
+changed too to avoid a clash).
+
+External references *should* be updated (for faster access) but will work
+either way.
+
+A major disadvantage of this approach is that where reclassification is common
+some partitions could end up with huge tables describing renaming and would not
+be able to drop information from this table ever. Further, identifiers of moved
+elements could not be re-used.
+
+#### Variant: remember parent partitions
+
+Don't remember old names of each element, just remember old partition
+identifiers. On any look-up, if the partition identifier is that of a closed
+parent partition, then for each child partition, replace the identifier with
+the child partition identifier and check that partition.
+
+This should work for repartitioning in most cases, but has two corner-cases:
+(1) fabricated
+element identifiers using an old partition identifier could potentially match
+multiple elements, and (2) if partitions were to be (re)combined, some element
+identifiers might collide and need to be reassigned, and to properly handle
+this another look-up table would need to be consulted to track the renames.
+
+Unfortunately, all reclassifications must still be remembered, potentially
+forever (though once the user has updated his/her references the information is
+no longer needed, and in any case a naive search could still be possible if
+elements remember their old names).
+
+
 Checksums
 ---------------
 
