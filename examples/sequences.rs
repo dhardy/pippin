@@ -13,7 +13,7 @@ use docopt::Docopt;
 use rand::Rng;
 use rand::distributions::{IndependentSample, Range, Normal, LogNormal};
 
-use pippin::{ElementT, Partition, PartitionState};
+use pippin::{ElementT, Partition, PartitionState, PartId};
 use pippin::discover::DiscoverPartitionFiles;
 use pippin::error::{Result, OtherError};
 
@@ -158,11 +158,13 @@ fn main() {
 fn run(dir: &Path, mode: Mode, create: bool, snapshot: bool, repetitions: usize) -> Result<()> {
     let io = Box::new(try!(DiscoverPartitionFiles::from_dir_basename(dir, "seqdb")));
 //     println!("Discovered: {:?}", *io);
-    
+        
     let mut part = if create {
         try!(Partition::<Sequence>::create(io, "sequences db"))
     } else {
-        let mut part = Partition::<Sequence>::open(io);
+        //TODO: correct part_id
+        let part_id = PartId::from_num(1);
+        let mut part = Partition::<Sequence>::open(io, part_id);
         try!(part.load(false));
         part
     };

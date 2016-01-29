@@ -1,12 +1,11 @@
 //! Traits for Pippin's `Repo` type
 
-use std::convert::From;
 use std::marker::PhantomData;
 use std::any::Any;
 use std::io::Write;
 
 use partition::PartitionIO;
-use {ElementT, PartNum};
+use {ElementT, PartId};
 use error::{Error, Result};
 
 
@@ -25,7 +24,7 @@ pub trait RepoIO {
     /// Note: we cannot 'simply iterate' over elements without allocating
     /// unless we make more restrictions on implementations or switch to
     /// compile-time polymorphism over type `RepoIO`.
-    fn partitions(&self) -> Vec<PartNum>;
+    fn partitions(&self) -> Vec<PartId>;
     
     /// Add a new partition. `num` is the partition number to use; this function
     /// fails if it is already taken. `prefix` is a relative path plus file-name
@@ -34,13 +33,13 @@ pub trait RepoIO {
     /// 
     /// On success, returns the index of the new partition (for use with
     /// `make_partition_io()`).
-    fn add_partition(&mut self, num: PartNum, prefix: &str) -> Result<()>;
+    fn add_partition(&mut self, num: PartId, prefix: &str) -> Result<()>;
     
     /// Construct and return a new PartitionIO for partition `num`.
     /// 
     /// Fails if construction of the PartitionIO fails (file-system or regex
     /// errors) or if the partition isn't found.
-    fn make_partition_io(&self, num: PartNum) -> Result<Box<PartitionIO>>;
+    fn make_partition_io(&self, num: PartId) -> Result<Box<PartitionIO>>;
 }
 
 /// A classifier is a device taking an element and returning a numeric code
@@ -71,7 +70,7 @@ pub trait ClassifierT {
     /// 
     /// This function is only called when inserting/replacing an element and
     /// when repartitioning, so it doesn't need to be super fast.
-    fn classify(&self, elt: &Self::Element) -> Option<PartNum>;
+    fn classify(&self, elt: &Self::Element) -> Option<PartId>;
     
     /// This is used only when `classify` returns `None` for an element.
     /// 
@@ -85,11 +84,11 @@ pub trait ClassifierT {
 /// inserted or replaced.
 pub enum ClassifyFallback {
     /// Use the given classification for an insertion or replacement.
-    Default(PartNum),
+    Default(PartId),
     /// In the case of a replacement, assume the replacing element has the
     /// same classification as the element being replaced. If not a
     /// replacement, use the default specified.
-    ReplacedOrDefault(PartNum),
+    ReplacedOrDefault(PartId),
     /// In the case of a replacement, assume the replacing element has the
     /// same classification as the element being replaced. If not a
     /// replacement, fail.
@@ -125,8 +124,8 @@ pub trait RepoT<C: ClassifierT+Sized>: ClassifierT {
     /// 
     /// The default implementation uses number 1 and calls `add_partition` and
     /// `make_partition_io`.
-    fn first_part(&mut self) -> Result<(PartNum, Box<PartitionIO>)> {
-        let num = PartNum::from(1);
+    fn first_part(&mut self) -> Result<(PartId, Box<PartitionIO>)> {
+        let num = PartId::from_num(1);
         let mut io = self.repo_io();
         try!(io.add_partition(num, "" /*no prefix*/));
         let part_io = try!(io.make_partition_io(num));
@@ -150,8 +149,8 @@ pub trait RepoT<C: ClassifierT+Sized>: ClassifierT {
     /// each, which will call `write_buf(...)` in the process). In case another
     /// partition needs to be loaded first, this function may fail with
     /// `RepoDivideError::LoadPart(num)`.
-    fn divide(&mut self, class: PartNum) ->
-        Result<(Vec<PartNum>, Vec<PartNum>), RepoDivideError>;
+    fn divide(&mut self, class: PartId) ->
+        Result<(Vec<PartId>, Vec<PartId>), RepoDivideError>;
     
     // #0025: provide a choice of how to implement IO via a const bool?
     
@@ -159,7 +158,7 @@ pub trait RepoT<C: ClassifierT+Sized>: ClassifierT {
     /// partitions to some piece of data, stored in a partition header.
     /// 
     /// The `num` indicates which partition this will be stored in.
-    fn write_buf(&self, num: PartNum, writer: &mut Write) -> Result<()>;
+    fn write_buf(&self, num: PartId, writer: &mut Write) -> Result<()>;
     
     /// This function is called whenever a partition header is loaded with
     /// information about classifications. If there are multiple partitions in
@@ -169,7 +168,7 @@ pub trait RepoT<C: ClassifierT+Sized>: ClassifierT {
     /// currently stored information.
     /// 
     /// The `num` indicates which partition this was stored in.
-    fn read_buf(&mut self, num: PartNum, buf: &[u8]) -> Result<()>;
+    fn read_buf(&mut self, num: PartId, buf: &[u8]) -> Result<()>;
 }
 
 /// Failures allowed for `ClassifierT::divide`.
@@ -178,7 +177,7 @@ pub enum RepoDivideError {
     NotSubdivisible,
     /// Used when another partition needs to be loaded before division, e.g.
     /// to steal allocated numbers.
-    LoadPart(PartNum),
+    LoadPart(PartId),
     /// Any other error.
     Other(Error),
 }
@@ -196,7 +195,7 @@ impl<E: ElementT> DummyClassifier<E> {
 }
 impl<E: ElementT> ClassifierT for DummyClassifier<E> where DummyClassifier<E> : Clone {
     type Element = E;
-    fn classify(&self, _elt: &Self::Element) -> Option<PartNum> {
-        Some(PartNum::from(1))
+    fn classify(&self, _elt: &Self::Element) -> Option<PartId> {
+        Some(PartId::from_num(1))
     }
 }

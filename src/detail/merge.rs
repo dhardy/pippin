@@ -215,20 +215,12 @@ impl<'a, E: ElementT> TwoWayMerge<'a, E> {
                 EltMerge::Rename => {
                     if let Some(elt1) = a {
                         if let Some(elt2) = b {
-                            let mut new_id = match self.a.gen_id() {
+                            let new_id = match self.a.gen_id_binary(self.b) {
                                 Ok(id) => id,
                                 Err(_) => { /*#0017: warn about failure*/
                                     return None;
                                 }
                             };
-                            while self.a.has_elt(new_id) || self.b.has_elt(new_id) {
-                                new_id += 1;
-                                if (new_id & 0xFF_FFFF) == 1 << 24 {
-                                    // could wrap and try more, but there isn't a whole lot of point
-                                    //#0017: warn about failure
-                                    return None;
-                                }
-                            }
                             
                             c1.insert(new_id, EltChange::insertion(elt2.clone()));
                             sum1.permute(&elt2.sum());

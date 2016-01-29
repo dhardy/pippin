@@ -13,6 +13,7 @@ use std::any::Any;
 
 use vec_map::VecMap;
 
+use pippin::PartId;
 use pippin::{Partition, PartitionIO};
 use pippin::error::{make_io_err, Result};
 
@@ -75,29 +76,30 @@ impl PartitionIO for PartitionStreams {
 #[test]
 fn create_small() {
     let part_streams = PartitionStreams { ss: VecMap::new() };
-    let mut part = Partition::<String>::create(box part_streams,
-        "create_small").expect("creating partition");
+    let part_id = PartId::from_num(56);
+    let mut part = Partition::<String>::create_part(box part_streams,
+        "create_small", part_id).expect("creating partition");
     
     // 2 Add a few elements over multiple commits
     let mut state = part.tip().expect("has tip").clone_child();
-    state.insert_elt(35, "thirty five".to_string()).expect("getting elt 35");
-    state.insert_elt(6513, "six thousand, five hundred and thirteen"
-            .to_string()).expect("getting elt 6513");
-    state.insert_elt(5698131, "five million, six hundred and ninety eight \
+    state.new_elt("thirty five".to_string()).expect("inserting elt 35");
+    state.new_elt("six thousand, five hundred and thirteen"
+            .to_string()).expect("inserting elt 6513");
+    state.new_elt("five million, six hundred and ninety eight \
             thousand, one hundred and thirty one".to_string())
-            .expect("getting elt 5698131");
+            .expect("inserting elt 5698131");
     part.push_state(state).expect("committing");
     let state1 = part.tip().expect("has tip").clone_exact();
     
     let mut state = part.tip().expect("getting tip").clone_child();
-    state.insert_elt(68168, "sixty eight thousand, one hundred and sixty eight"
-            .to_string()).expect("getting elt 68168");
+    state.new_elt("sixty eight thousand, one hundred and sixty eight"
+            .to_string()).expect("inserting elt 68168");
     part.push_state(state).expect("committing");
     
     let mut state = part.tip().expect("getting tip").clone_child();
-    state.insert_elt(89, "eighty nine".to_string()).expect("getting elt 89");
-    state.insert_elt(1063, "one thousand and sixty three".to_string())
-            .expect("getting elt 1063");
+    state.new_elt("eighty nine".to_string()).expect("inserting elt 89");
+    state.new_elt("one thousand and sixty three".to_string())
+            .expect("inserting elt 1063");
     part.push_state(state).expect("committing");
     let state3 = part.tip().expect("has tip").clone_exact();
     
@@ -140,7 +142,7 @@ fn create_small() {
     }
     
     // 5 Read streams back again and compare
-    let mut part2 = Partition::open(boxed_io);
+    let mut part2 = Partition::open(boxed_io, part_id);
     part2.load(true).expect("part2.load");
     // The "parent" field is not saved and so unequal in the reloaded state.
     // As a work-around, we use clone_child() which updates the "parent" field.

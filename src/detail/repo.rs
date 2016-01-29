@@ -21,7 +21,7 @@ pub use detail::repo_traits::{RepoIO, ClassifierT, ClassifyFallback, RepoT,
     RepoDivideError, DummyClassifier};
 use partition::{Partition, PartitionState};
 use detail::{EltId};
-use PartNum;
+use PartId;
 use error::{Result, OtherError, TipError, ElementOp};
 
 /// Handle on a repository.
@@ -46,7 +46,7 @@ pub struct Repo<C: ClassifierT, R: RepoT<C>> {
     name: String,
     /// List of loaded partitions, by in-memory (temporary numeric) identifier.
     /// Identifier is TBD (TODO).
-    partitions: HashMap<PartNum, Partition<C::Element>>,
+    partitions: HashMap<PartId, Partition<C::Element>>,
 }
 
 // Non-member functions on Repo
@@ -86,14 +86,14 @@ impl<C: ClassifierT, R: RepoT<C>> Repo<C, R> {
         };
         
         let part_io = try!(io.make_partition_io(num0));
-        let mut part0 = Partition::open(part_io);
+        let mut part0 = Partition::open(part_io, num0);
         let name = try!(part0.get_repo_name()).to_string();
         
         let mut parts = HashMap::new();
         parts.insert(num0, part0);
         for n in part_nums {
             let part_io = try!(io.make_partition_io(n));
-            let mut part = Partition::open(part_io);
+            let mut part = Partition::open(part_io, n);
             try!(part.set_repo_name(&name));
             parts.insert(n, part);
         }
@@ -196,7 +196,7 @@ impl<C: ClassifierT, R: RepoT<C>> Repo<C, R> {
 /// and synchronise edits.
 pub struct RepoState<C: ClassifierT> {
     classifier: C,
-    states: HashMap<PartNum, PartitionState<C::Element>>,
+    states: HashMap<PartId, PartitionState<C::Element>>,
 }
 
 impl<C: ClassifierT> RepoState<C> {
@@ -205,7 +205,7 @@ impl<C: ClassifierT> RepoState<C> {
         RepoState { classifier: classifier, states: HashMap::new() }
     }
     /// Add a state from some partition
-    fn add_part(&mut self, num: PartNum, state: PartitionState<C::Element>) {
+    fn add_part(&mut self, num: PartId, state: PartitionState<C::Element>) {
         self.states.insert(num, state);
     }
     
@@ -218,7 +218,7 @@ impl<C: ClassifierT> RepoState<C> {
         //TODO: current policy is that the "partition" part of an element ID
         // is only there to ensure uniqueness. Can we not also use it for fast
         // look-ups?
-//         let num = PartNum::from_id(id);
+//         let num = id.part_id();
         for (_num, state) in &self.states {
             match state.get_elt(id) {
                 Some(e) => { return Some(e); },
@@ -240,9 +240,9 @@ impl<C: ClassifierT> RepoState<C> {
 //         self.states.values().map(|v| v.num_elts()).sum()
     }
     
-    /// Insert an element and return (), unless the id is already used in
-    /// which case the function stops with an error.
-    pub fn insert_elt(&mut self, id: EltId, elt: C::Element) -> Result<(), ElementOp> {
+    /// Insert an element and return the identifier, unless the id is already
+    /// used in which case the function stops with an error.
+    pub fn insert_elt(&mut self, id: EltId, elt: C::Element) -> Result<EltId, ElementOp> {
         let num = if let Some(num) = self.classifier.classify(&elt) {
             num
         } else {

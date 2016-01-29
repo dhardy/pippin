@@ -9,6 +9,103 @@ use Sum;
 use error::{Result};
 
 
+/// A classification / partition number
+/// 
+/// This is a 40-bit number used to identify partitions and as part of an
+/// element identifier. Classification also uses these numbers.
+/// 
+/// Supports `From` (`PartId::from(n)`) to convert from a `u64`; this panics if
+/// the number is not a valid `PartId`. Supports `Into` (`pn.into()`) to
+/// convert to a `u64`.
+#[derive(Copy, Clone, PartialEq, Eq, Debug, Hash)]
+pub struct PartId {
+    // #0018: optimise usage as Option with NonZero?
+    id: u64,
+}
+impl PartId {
+    /// Convert from number, `n`, where `n > 0` and `n <= max()`. Panics if
+    /// bounds are not met.
+    pub fn from_num(n: u64) -> PartId {
+        assert!(n > 0 && n <= Self::max(), "PartId::from_num(n): n is invalid");
+        PartId { id: n << 24 }
+    }
+    /// Convert to a number (same restrictions as for input to `from_num()`).
+    pub fn into_num(self) -> u64 {
+        self.id >> 24
+    }
+    /// Create from a partition identifier plus a number. The number `n` must
+    /// be no more than `EltId::max()`.
+    pub fn elt_id(self, n: u32) -> EltId {
+        assert!(n <= EltId::max(), "PartId::elt_id(n): n is invalid");
+        EltId { id: self.id + n as u64 }
+    }
+    /// The maximum value which can be passed to `from_num()`.
+    pub fn max() -> u64 {
+       0xFF_FFFF_FFFF
+    }
+}
+impl From<u64> for PartId {
+    fn from(id: u64) -> PartId {
+        assert!(id != 0 && (id & 0xFF_FFFF) == 0, "invalid PartId");
+        PartId { id: id }
+    }
+}
+impl Into<u64> for PartId {
+    fn into(self) -> u64 {
+        self.id
+    }
+}
+
+/// An element identifier
+/// 
+/// This encodes both a partition identifier (`PartId`) and an element number
+/// (unique within the partition).
+/// 
+/// Supports `From` (`EltId::from(n)`) to convert from a `u64` (this panics if
+/// the value is not a valid identifier). Supports `Into` (`pn.into()`) to
+/// convert to a `u64`.
+#[derive(Copy, Clone, PartialEq, Eq, Debug, Hash)]
+pub struct EltId {
+    // #0018: optimise usage as Option with NonZero?
+    id: u64,
+}
+impl EltId {
+    /// Extract the partition identifier
+    pub fn part_id(self) -> PartId {
+        PartId::from(self.id & 0xFFFF_FFFF_FF00_0000)
+    }
+    /// Extract the element number (this is a 24-bit number)
+    pub fn elt_num(self) -> u32 {
+        (self.id & 0xFF_FFFF) as u32
+    }
+    /// Get the next element identifier, wrapping to zero if necessary, but
+    /// keeping the same partition identifier.
+    pub fn next_elt(self) -> EltId {
+        EltId{ id:
+            (self.id & 0xFFFF_FFFF_FF00_0000) +
+                (self.id & 0xFF_FFFF + 1) & 0xFF_FFFF
+        }
+    }
+    /// Maximum value which `elt_num()` can return and can be passed to
+    /// `PartId::elt_id()`.
+    pub fn max() -> u32 {
+        0xFF_FFFF
+    }
+}
+impl From<u64> for EltId {
+    fn from(n: u64) -> EltId {
+        assert!(n != 0, "invalid EltId");
+        EltId {
+            id: n
+        }
+    }
+}
+impl Into<u64> for EltId {
+    fn into(self) -> u64 {
+        self.id
+    }
+}
+
 /// Whatever element type the user wishes to store must implement this trait.
 /// 
 /// ### Read-only

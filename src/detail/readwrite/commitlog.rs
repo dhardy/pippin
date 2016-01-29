@@ -69,7 +69,7 @@ pub fn read_log<E: ElementT>(reader_: &mut Read, receiver: &mut CommitReceiver<E
             if buf[0..4] != *b"ELT " {
                 return ReadError::err("unexpected contents (expected ELT\\x20)", pos, (0, 4));
             }
-            let elt_id = try!((&buf[8..16]).read_u64::<BigEndian>());
+            let elt_id = try!((&buf[8..16]).read_u64::<BigEndian>()).into();
             let change_t = match &buf[4..8] {
                 b"DEL\x00" => { Change::Delete },
                 b"INS\x00" => { Change::Insert },
@@ -173,7 +173,7 @@ pub fn write_commit<E: ElementT>(commit: &Commit<E>, writer: &mut Write) -> Resu
             &EltChange::Replacement(_) => b"ELT REPL",
         };
         try!(w.write(marker));
-        try!(w.write_u64::<BigEndian>(*elt_id));
+        try!(w.write_u64::<BigEndian>((*elt_id).into()));
         if let Some(elt) = change.element() {
             try!(w.write(b"ELT DATA"));
             elt_buf.clear();
@@ -204,6 +204,8 @@ pub fn write_commit<E: ElementT>(commit: &Commit<E>, writer: &mut Write) -> Resu
 
 #[test]
 fn commit_write_read(){
+    use PartId;
+    
     // Note that we can make up completely nonsense commits here. Element
     // checksums must still match but state sums don't need to since we won't
     // be reproducing states. So lets make some fun sums!
@@ -216,16 +218,17 @@ fn commit_write_read(){
     v = (1u8..).map(|x| x.wrapping_mul(x).wrapping_add(5u8.wrapping_mul(x)).wrapping_add(11u8)).take(32).collect();
     let quadr = Sum::load(&v);
     
+    let p = PartId::from_num(1681);
     let mut changes = HashMap::new();
-    changes.insert(3, EltChange::insertion(Rc::new("three".to_string())));
-    changes.insert(4, EltChange::insertion(Rc::new("four".to_string())));
-    changes.insert(5, EltChange::insertion(Rc::new("five".to_string())));
+    changes.insert(p.elt_id(3), EltChange::insertion(Rc::new("three".to_string())));
+    changes.insert(p.elt_id(4), EltChange::insertion(Rc::new("four".to_string())));
+    changes.insert(p.elt_id(5), EltChange::insertion(Rc::new("five".to_string())));
     let commit_1 = Commit::new(seq, vec![squares], changes);
     
     changes = HashMap::new();
-    changes.insert(1, EltChange::deletion());
-    changes.insert(9, EltChange::replacement(Rc::new("NINE!".to_string())));
-    changes.insert(5, EltChange::insertion(Rc::new("five again?".to_string())));
+    changes.insert(p.elt_id(1), EltChange::deletion());
+    changes.insert(p.elt_id(9), EltChange::replacement(Rc::new("NINE!".to_string())));
+    changes.insert(p.elt_id(5), EltChange::insertion(Rc::new("five again?".to_string())));
     let commit_2 = Commit::new(nonsense, vec![quadr], changes);
     
     let mut obj = Vec::new();

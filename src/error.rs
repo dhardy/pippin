@@ -4,6 +4,8 @@ use std::{io, fmt, result};
 use std::path::PathBuf;
 use std::cmp::{min, max};
 
+use EltId;
+
 /// Our custom result type
 pub type Result<T, E = Error> = result::Result<T, E>;
 
@@ -127,9 +129,9 @@ impl fmt::Display for ArgError {
 #[derive(PartialEq, Debug)]
 pub struct ElementOp {
     /// Identity of element
-    pub id: u64,
+    id: Option<EltId>,
     /// Classification of failure
-    pub class: ElementOpClass,
+    class: ElementOpClass,
 }
 impl ErrorTrait for ElementOp {
     fn description(&self) -> &str { self.description() }
@@ -162,23 +164,23 @@ impl ElementOp {
     }
     /// Create an instance
     pub fn id_gen_failure() -> ElementOp {
-        ElementOp { id: 0, class: ElementOpClass::IdGenFailure }
+        ElementOp { id: None, class: ElementOpClass::IdGenFailure }
     }
     /// Create an instance
-    pub fn insertion_failure(id: u64) -> ElementOp {
-        ElementOp { id: id, class: ElementOpClass::InsertionFailure }
+    pub fn insertion_failure(id: EltId) -> ElementOp {
+        ElementOp { id: Some(id), class: ElementOpClass::InsertionFailure }
     }
     /// Create an instance
-    pub fn replacement_failure(id: u64) -> ElementOp {
-        ElementOp { id: id, class: ElementOpClass::ReplacementFailure }
+    pub fn replacement_failure(id: EltId) -> ElementOp {
+        ElementOp { id: Some(id), class: ElementOpClass::ReplacementFailure }
     }
     /// Create an instance
-    pub fn deletion_failure(id: u64) -> ElementOp {
-        ElementOp { id: id, class: ElementOpClass::DeletionFailure }
+    pub fn deletion_failure(id: EltId) -> ElementOp {
+        ElementOp { id: Some(id), class: ElementOpClass::DeletionFailure }
     }
     /// Create an instance
     pub fn classify_failure() -> ElementOp {
-        ElementOp { id: 0, class: ElementOpClass::ClassifyFailure }
+        ElementOp { id: None, class: ElementOpClass::ClassifyFailure }
     }
 }
 impl fmt::Display for ElementOp {
@@ -188,7 +190,8 @@ impl fmt::Display for ElementOp {
                 write!(f, "{}", self.description())
             },
             _ => {
-                write!(f, "{}: {}", self.description(), self.id)
+                let n: u64 = self.id.unwrap().into();
+                write!(f, "{}: {}", self.description(), n)
             },
         }
     }

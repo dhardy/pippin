@@ -8,12 +8,9 @@ use std::rc::Rc;
 use hashindexed::KeyComparator;
 use rand::random;
 
-use {ElementT, Sum};
+use {ElementT, Sum, PartId, EltId};
 use error::ElementOp;
 
-
-/// Type of an element identifier within a partition.
-pub type EltId = u64;
 
 /// Type of map used internally
 pub type EltMap<E> = HashMap<EltId, Rc<E>>;
@@ -31,7 +28,7 @@ pub type EltMap<E> = HashMap<EltId, Rc<E>>;
 /// supported.
 #[derive(PartialEq, Debug)]
 pub struct PartitionState<E: ElementT> {
-    part_id: u64,
+    part_id: PartId,
     parent: Sum,
     statesum: Sum,
     elts: EltMap<E>
@@ -42,8 +39,7 @@ impl<E: ElementT> PartitionState<E> {
     /// 
     /// The partition's identifier must be given; this is used to assign new
     /// element identifiers. Panics if the partition identifier is invalid.
-    pub fn new(part_id: u64) -> PartitionState<E> {
-        assert!(part_id != 0 && (part_id & 0xFF_FFFF) == 0, "invalid part_id");
+    pub fn new(part_id: PartId) -> PartitionState<E> {
         PartitionState { part_id: part_id, parent: Sum::zero(),
             statesum: Sum::zero(), elts: HashMap::new() }
     }
@@ -51,10 +47,9 @@ impl<E: ElementT> PartitionState<E> {
     /// 
     /// The partition's identifier must be given; this is used to assign new
     /// element identifiers. Panics if the partition identifier is invalid.
-    pub fn from_hash_map(part_id: u64, parent: Sum,
+    pub fn from_hash_map(part_id: PartId, parent: Sum,
         map: EltMap<E>, statesum: Sum) -> PartitionState<E>
     {
-        assert!(part_id != 0 && (part_id & 0xFF_FFFF) == 0, "invalid part_id");
         PartitionState { part_id: part_id, parent: parent, statesum: statesum, elts: map }
     }
     
@@ -106,50 +101,73 @@ impl<E: ElementT> PartitionState<E> {
     /// Generate an element identifier.
     /// 
     /// This generates a pseudo-random number
-    pub fn gen_id(&self) -> Result<u64, ElementOp> {
+    pub fn gen_id(&self) -> Result<EltId, ElementOp> {
         // Generate an identifier: (1) use a random sample, (2) increment if
         // taken, (3) add the partition identifier.
-        let initial = (random::<u32>() & 0xFF_FFFF) as u64;
+        let initial = self.part_id.elt_id(random::<u32>() & 0xFF_FFFF);
         let mut id = initial;
-        while self.elts.contains_key(&id) {
-            id += 1;
-            if id == 1 << 24 {
-                id = 0;
-            }
+        loop {
+            if !self.elts.contains_key(&id) { break; }
+            id = id.next_elt();
+            //TODO: is this too many to check exhaustively? We could use a
+            // lower limit, and possibly resample a few times.
             if id == initial {
                 return Err(ElementOp::id_gen_failure());
             }
         }
-        Ok(self.part_id + id)
+        Ok(id)
+    }
+    /// As `gen_id()`, but ensure the generated id is free in both self and
+    /// another state. Note that the other state is assumed to have the same
+    /// `part_id`; if not this is equivalent to `gen_id()`.
+    pub fn gen_id_binary(&self, s2: &PartitionState<E>) -> Result<EltId, ElementOp> {
+        let mut id = try!(self.gen_id());
+        let mut tries = 1000;
+        loop {
+            if !self.elts.contains_key(&id) && !s2.elts.contains_key(&id) {
+                break;
+            }
+            id = id.next_elt();
+            tries -= 1;
+            if tries == 0 {
+                return Err(ElementOp::id_gen_failure());
+            }
+        }
+        Ok(id)
     }
     
-    /// Insert an element, generating an identifier.
+    /// Insert an element, generating an identifier. Returns the new
+    /// identifier on success.
     /// 
     /// This is a convenience version of `self.insert_elt(try!(self.gen_id(), elt))`.
     /// 
     /// This function should succeed provided that not all usable identifiers
     /// are taken (2^24), though when approaching full it may be slow.
-    pub fn new_elt(&mut self, elt: E) -> Result<(), ElementOp> {
+    pub fn new_elt(&mut self, elt: E) -> Result<EltId, ElementOp> {
         self.new_rc(Rc::new(elt))
     }
     /// As `new_elt()`, but accept an Rc-wrapped element.
-    pub fn new_rc(&mut self, elt: Rc<E>) -> Result<(), ElementOp> {
+    pub fn new_rc(&mut self, elt: Rc<E>) -> Result<EltId, ElementOp> {
         let id = try!(self.gen_id());
-        self.insert_rc(id, elt)
+        try!(self.insert_rc(id, elt));
+        Ok(id)
     }
-    /// Insert an element and return (). Fails if the id does not have the
-    /// correct partition identifier part or if the id is already in use.
+    /// Insert an element and return the id (the one inserted).
+    /// 
+    /// Fails if the id does not have the correct partition identifier part or
+    /// if the id is already in use.
     /// It is suggested to use new_elt() instead if you do not need to specify
     /// the identifier.
-    pub fn insert_elt(&mut self, id: EltId, elt: E) -> Result<(), ElementOp> {
-        self.insert_rc(id, Rc::new(elt))
+    pub fn insert_elt(&mut self, id: EltId, elt: E) -> Result<EltId, ElementOp> {
+        try!(self.insert_rc(id, Rc::new(elt)));
+        Ok(id)
     }
     /// As `insert_elt()`, but accept an Rc-wrapped element.
-    pub fn insert_rc(&mut self, id: EltId, elt: Rc<E>) -> Result<(), ElementOp> {
+    pub fn insert_rc(&mut self, id: EltId, elt: Rc<E>) -> Result<EltId, ElementOp> {
         if self.elts.contains_key(&id) { return Err(ElementOp::insertion_failure(id)); }
         self.statesum.permute(&elt.sum());
         self.elts.insert(id, elt);
-        Ok(())
+        Ok(id)
     }
     /// Replace an existing element and return the replaced element, unless the
     /// id is not already used in which case the function stops with an error.

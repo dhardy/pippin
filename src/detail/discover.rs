@@ -12,7 +12,7 @@ use walkdir::WalkDir;
 
 use partition::PartitionIO;
 use repo::RepoIO;
-use PartNum;
+use PartId;
 use error::{Result, PathError, ArgError, make_io_err};
 
 
@@ -276,7 +276,7 @@ pub struct DiscoverRepoFiles {
     // top directory
     dir: PathBuf,
     // for each partition number, a path and base-name
-    partitions: HashMap<PartNum, (PathBuf, String)>,
+    partitions: HashMap<PartId, (PathBuf, String)>,
 }
 impl DiscoverRepoFiles {
     /// Discover all repository files in some directory (including recursively).
@@ -303,7 +303,7 @@ impl DiscoverRepoFiles {
             };
             if let Some(caps) = caps {
                 let num: u64 = try!(caps.at(2).expect("match should yield capture").parse());
-                let num = PartNum::from(num);
+                let num = PartId::from_num(num);    //TODO: verify first for better error handling?
                 let basename = caps.at(1).expect("match should yield capture");
                 paths.insert(num, (entry.path().to_path_buf(), basename.to_string()));
             }
@@ -320,21 +320,21 @@ impl RepoIO for DiscoverRepoFiles {
     fn num_partitions(&self) -> usize {
         self.partitions.len()
     }
-    fn partitions(&self) -> Vec<PartNum> {
+    fn partitions(&self) -> Vec<PartId> {
         self.partitions.keys().map(|n| *n).collect()
     }
-    fn add_partition(&mut self, num: PartNum, prefix: &str) -> Result<()> {
+    fn add_partition(&mut self, num: PartId, prefix: &str) -> Result<()> {
         let mut path = self.dir.clone();
         let mut prefix = prefix;
         while let Some(pos) = prefix.find('/') {
             path.push(Path::new(&prefix[..pos]));
             prefix = &prefix[pos+1..];
         }
-        let basename = format!("{}pn{}", prefix, num.num());
+        let basename = format!("{}pn{}", prefix, num.into_num());
         self.partitions.insert(num, (path, basename));
         Ok(())
     }
-    fn make_partition_io(&self, num: PartNum) -> Result<Box<PartitionIO>> {
+    fn make_partition_io(&self, num: PartId) -> Result<Box<PartitionIO>> {
         if let Some(&(ref path, ref basename)) = self.partitions.get(&num) {
             Ok(box try!(DiscoverPartitionFiles::from_dir_basename(path, basename)))
         } else {

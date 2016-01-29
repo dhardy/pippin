@@ -7,7 +7,7 @@ use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
 use detail::readwrite::{sum, fill};
 use partition::PartitionState;
-use {ElementT, Sum};
+use {ElementT, PartId, Sum};
 use error::{Result, ReadError};
 
 /// Read a snapshot of a set of elements from a stream.
@@ -16,9 +16,8 @@ use error::{Result, ReadError};
 /// this is in fact the end of the file (or other data stream), though
 /// according to the specified file format this should be the case.
 /// 
-/// The `part_id` parameter is the partition number << 24 and is assigned to
-/// the `PartitionState` returned.
-pub fn read_snapshot<T: ElementT>(reader: &mut Read, part_id: u64) ->
+/// The `part_id` parameter is assigned to the `PartitionState` returned.
+pub fn read_snapshot<T: ElementT>(reader: &mut Read, part_id: PartId) ->
     Result<PartitionState<T>>
 {
     // A reader which calculates the checksum of what was read:
@@ -49,7 +48,7 @@ pub fn read_snapshot<T: ElementT>(reader: &mut Read, part_id: u64) ->
             println!("buf: \"{}\", {:?}", String::from_utf8_lossy(&buf[0..8]), &buf[0..8]);
             return ReadError::err("unexpected contents (expected ELEMENT\\x00)", pos, (0, 8));
         }
-        let ident = try!((&buf[8..16]).read_u64::<BigEndian>());
+        let ident = try!((&buf[8..16]).read_u64::<BigEndian>()).into();
         pos += 16;
         
         if buf[16..24] != *b"BYTES\x00\x00\x00" {
@@ -131,7 +130,7 @@ pub fn write_snapshot<T: ElementT>(state: &PartitionState<T>,
     
     for (ident, elt) in elts {
         try!(w.write(b"ELEMENT\x00"));
-        try!(w.write_u64::<BigEndian>(*ident));
+        try!(w.write_u64::<BigEndian>((*ident).into()));
         
         try!(w.write(b"BYTES\x00\x00\x00"));
         elt_buf.clear();
@@ -167,7 +166,7 @@ pub fn write_snapshot<T: ElementT>(state: &PartitionState<T>,
 
 #[test]
 fn snapshot_writing() {
-    let part_id = 1 << 24;
+    let part_id = PartId::from_num(1);
     let mut state = PartitionState::<String>::new(part_id);
     let data = "But I must explain to you how all this \
         mistaken idea of denouncing pleasure and praising pain was born and I \

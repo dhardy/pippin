@@ -14,7 +14,7 @@ use detail::readwrite::{read_log, start_log, write_commit};
 use detail::states::{PartitionStateSumComparator};
 use detail::{Commit, CommitQueue, LogReplay};
 use merge::{TwoWayMerge, TwoWaySolver};
-use {ElementT, Sum, PartNum};
+use {ElementT, Sum, PartId};
 use error::{Result, ArgError, TipError, MatchError, OtherError, make_io_err};
 
 /// An interface providing read and/or write access to a suitable location.
@@ -188,9 +188,8 @@ pub struct Partition<E: ElementT> {
     io: Box<PartitionIO>,
     // Partition name. Used to identify loaded files.
     repo_name: String,
-    // Partition identifier. This is the number << 24. Initially set to 0 which
-    // is not valid for creating element ids.
-    part_id: u64,
+    // Partition identifier
+    part_id: PartId,
     // Number of the current snapshot file
     ss_num: usize,
     // Determines when to write new snapshots
@@ -219,22 +218,21 @@ impl<E: ElementT> Partition<E> {
     /// let partition = Partition::<String>::create(io, "example repo");
     /// ```
     pub fn create(io: Box<PartitionIO>, name: &str) -> Result<Partition<E>> {
-        Self::create_part(io, name, PartNum::from(1))
+        Self::create_part(io, name, PartId::from_num(1))
     }
     
     /// As `create(io, name)` but with a specified partition number. For
     /// single-partition usage the number isn't important; for multiple
     /// partitions it is handled by the classifier and forwarded by `Repo`.
     pub fn create_part(mut io: Box<PartitionIO>, name: &str,
-        part_num: PartNum) -> Result<Partition<E>>
+        part_id: PartId) -> Result<Partition<E>>
     {
         try!(validate_repo_name(name));
-        let part_id = part_num.as_id();
         let state = PartitionState::new(part_id);
         let header = FileHeader {
             ftype: FileType::Snapshot,
             name: name.to_string(),
-            part_id: part_id,
+            part_id: Some(part_id),
             remarks: Vec::new(),
             user_fields: Vec::new(),
         };
@@ -275,18 +273,19 @@ impl<E: ElementT> Partition<E> {
     /// 
     /// ```no_run
     /// use std::path::Path;
-    /// use pippin::Partition;
+    /// use pippin::{PartId, Partition};
     /// use pippin::discover::DiscoverPartitionFiles;
     /// 
     /// let path = Path::new(".");
     /// let io = DiscoverPartitionFiles::from_dir_basename(path, "my-partition").unwrap();
-    /// let partition = Partition::<String>::open(Box::new(io));
+    /// let part_id = PartId::from_num(1);
+    /// let partition = Partition::<String>::open(Box::new(io), part_id);
     /// ```
-    pub fn open(io: Box<PartitionIO>) -> Partition<E> {
+    pub fn open(io: Box<PartitionIO>, part_id: PartId) -> Partition<E> {
         Partition {
             io: io,
             repo_name: "".to_string() /*temporary value; checked before usage elsewhere*/,
-            part_id: 0,
+            part_id: part_id,
             ss_num: 0,
             ss_policy: SnapshotPolicy::new(),
             states: HashIndexed::new(),
@@ -324,7 +323,7 @@ impl<E: ElementT> Partition<E> {
         for ss in (0 .. self.io.ss_len()).rev() {
             if let Some(mut ssf) = try!(self.io.read_ss(ss)) {
                 let header = try!(read_head(&mut *ssf));
-                try!(Self::verify_head(header, &mut self.repo_name, &mut self.part_id));
+                try!(Self::verify_head(header, &mut self.repo_name, self.part_id));
                 return Ok(&self.repo_name);
             }
         }
@@ -363,7 +362,7 @@ impl<E: ElementT> Partition<E> {
             for ss in 0..ss_len {
                 if let Some(mut r) = try!(self.io.read_ss(ss)) {
                     let head = try!(read_head(&mut r));
-                    try!(Self::verify_head(head, &mut self.repo_name, &mut self.part_id));
+                    try!(Self::verify_head(head, &mut self.repo_name, self.part_id));
                     let state = try!(read_snapshot(&mut r, self.part_id));
                     
                     self.tips.insert(state.statesum().clone());
@@ -374,7 +373,7 @@ impl<E: ElementT> Partition<E> {
                 for c in 0..self.io.ss_cl_len(ss) {
                     if let Some(mut r) = try!(self.io.read_ss_cl(ss, c)) {
                         let head = try!(read_head(&mut r));
-                        try!(Self::verify_head(head, &mut self.repo_name, &mut self.part_id));
+                        try!(Self::verify_head(head, &mut self.repo_name, self.part_id));
                         try!(read_log(&mut r, &mut queue));
                     }
                 }
@@ -388,7 +387,7 @@ impl<E: ElementT> Partition<E> {
             loop {
                 if let Some(mut r) = try!(self.io.read_ss(num)) {
                     let head = try!(read_head(&mut r));
-                    try!(Self::verify_head(head, &mut self.repo_name, &mut self.part_id));
+                    try!(Self::verify_head(head, &mut self.repo_name, self.part_id));
                     let state = try!(read_snapshot(&mut r, self.part_id));
                     
                     self.tips.insert(state.statesum().clone());
@@ -409,7 +408,7 @@ impl<E: ElementT> Partition<E> {
                 for c in 0..self.io.ss_cl_len(ss) {
                     if let Some(mut r) = try!(self.io.read_ss_cl(ss, c)) {
                         let head = try!(read_head(&mut r));
-                        try!(Self::verify_head(head, &mut self.repo_name, &mut self.part_id));
+                        try!(Self::verify_head(head, &mut self.repo_name, self.part_id));
                         try!(read_log(&mut r, &mut queue));
                     }
                 }
@@ -417,10 +416,6 @@ impl<E: ElementT> Partition<E> {
             self.ss_policy.add_commits(queue.len());
             if self.tips.is_empty() {
                 // Only for the case we couldn't find a snapshot file (see "num == 0" above)
-                if self.part_id == 0 {
-                    // "part_id" should be stored in every file, so nothing was loaded?
-                    return make_io_err(ErrorKind::NotFound, "load operation found no files");
-                }
                 let state = PartitionState::new(self.part_id);
                 self.tips.insert(state.statesum().clone());
                 self.states.insert(state);
@@ -437,8 +432,6 @@ impl<E: ElementT> Partition<E> {
         
         if self.tips.is_empty() {
             make_io_err(ErrorKind::NotFound, "load operation found no states")
-        } else if self.part_id == 0 {
-            return OtherError::err("partition number not set")
         } else {
             // success, but a merge may still be required
             Ok(())
@@ -470,17 +463,15 @@ impl<E: ElementT> Partition<E> {
     /// This function is called for every file loaded. It does not take self as
     /// an argument, since it is called in situations where self.io is in use.
     pub fn verify_head(head: FileHeader, self_name: &mut String,
-        self_partid: &mut u64) -> Result<()>
+        self_partid: PartId) -> Result<()>
     {
         if self_name.len() == 0 {
             *self_name = head.name;
         } else if *self_name != head.name{
             return OtherError::err("repository name does not match when loading (wrong repo?)");
         }
-        if head.part_id != 0 {
-            if *self_partid == 0 {
-                *self_partid = head.part_id;
-            } else if *self_partid != head.part_id {
+        if let Some(h_pid) = head.part_id {
+            if self_partid != h_pid {
                 return OtherError::err("partition identifier differs from previous value");
             }
         }
@@ -512,8 +503,8 @@ impl<E: ElementT> Partition<E> {
     }
     
     /// Get the partition's number
-    pub fn num(&self) -> PartNum {
-        PartNum::from_id(self.part_id)
+    pub fn part_id(&self) -> PartId {
+        self.part_id
     }
 }
 
@@ -712,7 +703,7 @@ impl<E: ElementT> Partition<E> {
                     let header = FileHeader {
                         ftype: FileType::CommitLog,
                         name: self.repo_name.clone(),
-                        part_id: self.part_id,
+                        part_id: Some(self.part_id),
                         remarks: Vec::new(),
                         user_fields: Vec::new(),
                     };
@@ -765,7 +756,7 @@ impl<E: ElementT> Partition<E> {
                 let header = FileHeader {
                     ftype: FileType::Snapshot,
                     name: self.repo_name.clone(),
-                    part_id: self.part_id,
+                    part_id: Some(self.part_id),
                     remarks: Vec::new(),
                     user_fields: Vec::new(),
                 };
@@ -847,8 +838,8 @@ fn on_new_partition() {
     let elt2 = "Element two data.".to_string();
     let mut key = elt1.sum().clone();
     key.permute(&elt2.sum());
-    assert!(state.insert_elt(1, elt1).is_ok());
-    assert!(state.insert_elt(2, elt2).is_ok());
+    let e1id = state.new_elt(elt1).expect("inserting elt");
+    let e2id = state.new_elt(elt2).expect("inserting elt");
     assert_eq!(state.statesum(), &key);
     
     assert_eq!(part.push_state(state).expect("comitting"), true);
@@ -856,8 +847,8 @@ fn on_new_partition() {
     assert_eq!(part.states.len(), 2);
     {
         let state = part.state(&key).expect("getting state by key");
-        assert!(state.has_elt(1));
-        assert_eq!(state.get_elt(2), Some(&"Element two data.".to_string()));
+        assert!(state.has_elt(e1id));
+        assert_eq!(state.get_elt(e2id), Some(&"Element two data.".to_string()));
     }   // `state` goes out of scope
     assert_eq!(part.tips.len(), 1);
     let state = part.tip().expect("getting tip").clone_child();

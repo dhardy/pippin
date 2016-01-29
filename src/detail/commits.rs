@@ -8,8 +8,8 @@ use hashindexed::HashIndexed;
 use detail::states::PartitionStateSumComparator;
 use detail::readwrite::CommitReceiver;
 use partition::PartitionState;
-use {ElementT, Sum};
-use error::{Result, ReplayError, ElementOp};
+use {ElementT, EltId, Sum};
+use error::{Result, ReplayError};
 
 
 /// Holds a set of commits, ordered by insertion order.
@@ -52,7 +52,7 @@ pub struct Commit<E: ElementT> {
     /// to; the rest are simply "additional parents".
     parents: Vec<Sum>,
     /// Per-element changes
-    changes: HashMap<u64, EltChange<E>>
+    changes: HashMap<EltId, EltChange<E>>
 }
 
 /// Per-element changes
@@ -95,7 +95,7 @@ impl<E: ElementT> Commit<E> {
     /// are sure all sums are correct.
     /// 
     /// This also panics if parents.len() == 0.
-    pub fn new(statesum: Sum, parents: Vec<Sum>, changes: HashMap<u64, EltChange<E>>) -> Commit<E> {
+    pub fn new(statesum: Sum, parents: Vec<Sum>, changes: HashMap<EltId, EltChange<E>>) -> Commit<E> {
         assert!(parents.len() >= 1);
         Commit { statesum: statesum, parents: parents, changes: changes }
     }
@@ -118,7 +118,8 @@ impl<E: ElementT> Commit<E> {
                         changes.insert(*id, EltChange::replacement(new_elt));
                     }
                 },
-                Err(ElementOp{id: _,class: _}) => {
+                Err(_) => {
+                    // we assume the failure is because the element does not exist
                     changes.insert(*id, EltChange::deletion());
                 }
             }
@@ -174,7 +175,7 @@ impl<E: ElementT> Commit<E> {
     /// Get the number of changes in the "patch"
     pub fn num_changes(&self) -> usize { self.changes.len() }
     /// Get an iterator over changes
-    pub fn changes_iter(&self) -> hash_map::Iter<u64, EltChange<E>> { self.changes.iter() }
+    pub fn changes_iter(&self) -> hash_map::Iter<EltId, EltChange<E>> { self.changes.iter() }
 }
 
 
@@ -268,29 +269,31 @@ mod tests {
     
     #[test]
     fn commit_creation_and_replay(){
-        let part_id = 1 << 24;
+        use PartId;
+        
+        let p = PartId::from_num(1);
         let mut commits = CommitQueue::<String>::new();
         
-        let mut state_a = PartitionState::new(part_id);
-        state_a.insert_elt(1, "one".to_string()).unwrap();
-        state_a.insert_elt(2, "two".to_string()).unwrap();
+        let mut state_a = PartitionState::new(p);
+        state_a.insert_elt(p.elt_id(1), "one".to_string()).unwrap();
+        state_a.insert_elt(p.elt_id(2), "two".to_string()).unwrap();
         
         let mut state_b = state_a.clone_child();
-        state_b.insert_elt(3, "three".to_string()).unwrap();
-        state_b.insert_elt(4, "four".to_string()).unwrap();
-        state_b.insert_elt(5, "five".to_string()).unwrap();
+        state_b.insert_elt(p.elt_id(3), "three".to_string()).unwrap();
+        state_b.insert_elt(p.elt_id(4), "four".to_string()).unwrap();
+        state_b.insert_elt(p.elt_id(5), "five".to_string()).unwrap();
         commits.push(Commit::from_diff(&state_a, &state_b).unwrap());
         
         let mut state_c = state_b.clone_child();
-        state_c.insert_elt(6, "six".to_string()).unwrap();
-        state_c.insert_elt(7, "seven".to_string()).unwrap();
-        state_c.remove_elt(4).unwrap();
-        state_c.replace_elt(3, "half six".to_string()).unwrap();
+        state_c.insert_elt(p.elt_id(6), "six".to_string()).unwrap();
+        state_c.insert_elt(p.elt_id(7), "seven".to_string()).unwrap();
+        state_c.remove_elt(p.elt_id(4)).unwrap();
+        state_c.replace_elt(p.elt_id(3), "half six".to_string()).unwrap();
         commits.push(Commit::from_diff(&state_b, &state_c).unwrap());
         
         let mut state_d = state_c.clone_child();
-        state_d.insert_elt(8, "eight".to_string()).unwrap();
-        state_d.insert_elt(4, "half eight".to_string()).unwrap();
+        state_d.insert_elt(p.elt_id(8), "eight".to_string()).unwrap();
+        state_d.insert_elt(p.elt_id(4), "half eight".to_string()).unwrap();
         commits.push(Commit::from_diff(&state_c, &state_d).unwrap());
         
         let (mut states, mut tips) = (HashIndexed::new(), HashSet::new());

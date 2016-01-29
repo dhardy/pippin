@@ -13,7 +13,7 @@ use std::io::{Read, Write};
 use std::ffi::OsStr;
 use std::os::unix::ffi::OsStrExt;
 use docopt::Docopt;
-use pippin::{Partition, PartitionIO, ElementT};
+use pippin::{Partition, PartitionIO, ElementT, PartId};
 use pippin::discover::DiscoverPartitionFiles;
 use pippin::error::{Result, PathError};
 use pippin::util::rtrim;
@@ -186,6 +186,8 @@ fn inner(files: Vec<String>, op: Operation, args: Rest) -> Result<()>
             println!("Scanning files ...");
             //TODO: verify all files belong to the same partition `args.part`
             let discover = try!(DiscoverPartitionFiles::from_paths(paths));
+            //TODO: get correct partition id
+            let part_id = PartId::from_num(1);
             
             if let PartitionOp::List(list_snapshots, list_logs) = part_op {
                 println!("ss_len: {}", discover.ss_len());
@@ -203,7 +205,7 @@ fn inner(files: Vec<String>, op: Operation, args: Rest) -> Result<()>
                 }
                 Ok(())
             } else {
-                let mut part = Partition::<DataElt>::open(box discover);
+                let mut part = Partition::<DataElt>::open(box discover, part_id);
                 {
                     let mut state = if let Some(ss) = args.commit {
                         try!(part.load(true));
@@ -218,12 +220,13 @@ fn inner(files: Vec<String>, op: Operation, args: Rest) -> Result<()>
                         PartitionOp::ListElts => {
                             println!("Elements:");
                             for id in state.elt_ids() {
-                                println!("  {}", id);
+                                let n: u64 = (*id).into();
+                                println!("  {}", n);
                             }
                         },
                         PartitionOp::EltGet(elt) => {
                             let id: u64 = try!(elt.parse());
-                            match state.get_elt(id) {
+                            match state.get_elt(id.into()) {
                                 None => { println!("No element {}", id); },
                                 Some(d) => {
                                     println!("Element {}:", id);
@@ -248,7 +251,7 @@ fn inner(files: Vec<String>, op: Operation, args: Rest) -> Result<()>
                             
                             let id: u64 = try!(elt.parse());
                             {
-                                let elt_data: &DataElt = if let Some(d) = state.get_elt(id) {
+                                let elt_data: &DataElt = if let Some(d) = state.get_elt(id.into()) {
                                     &d
                                 } else {
                                     panic!("element not found");
@@ -269,7 +272,7 @@ fn inner(files: Vec<String>, op: Operation, args: Rest) -> Result<()>
                             let mut file = try!(fs::File::open(&tmp_path));
                             let mut buf = Vec::new();
                             try!(file.read_to_end(&mut buf));
-                            try!(state.replace_elt(id, DataElt::from(buf)));
+                            try!(state.replace_elt(id.into(), DataElt::from(buf)));
                             try!(fs::remove_file(tmp_path));
                         },
                         PartitionOp::EltDelete(elt) => {
@@ -277,7 +280,7 @@ fn inner(files: Vec<String>, op: Operation, args: Rest) -> Result<()>
                                 panic!("Do you really want to make an edit from a historical state? If so specify '--force'.");
                             }
                             let id: u64 = try!(elt.parse());
-                            try!(state.remove_elt(id));
+                            try!(state.remove_elt(id.into()));
                         },
                     }
                 }       // destroy reference `state`

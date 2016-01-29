@@ -6,6 +6,7 @@ use std::result::Result as stdResult;
 
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
+use PartId;
 use detail::readwrite::{sum, fill};
 use error::{Result, ArgError, ReadError, make_io_err};
 use util::rtrim;
@@ -31,7 +32,7 @@ pub struct FileHeader {
     /// Repo name. Always present.
     pub name: String,
     /// Partition identifier. Zero if not present.
-    pub part_id: u64,
+    pub part_id: Option<PartId>,
     /// User remarks
     pub remarks: Vec<String>,
     /// User data
@@ -76,7 +77,7 @@ pub fn read_head(r: &mut io::Read) -> Result<FileHeader> {
     let mut header = FileHeader{
         ftype: ftype,
         name: repo_name,
-        part_id: 0,
+        part_id: None,
         remarks: Vec::new(),
         user_fields: Vec::new(),
     };
@@ -110,12 +111,12 @@ pub fn read_head(r: &mut io::Read) -> Result<FileHeader> {
             };
             break;      // "HSUM" must be last item of header before final checksum
         } else if block[0..7] == PARTID[1..] {
-            let id = try!((&block[7..15]).read_u64::<BigEndian>());
+            let id = try!((&block[7..15]).read_u64::<BigEndian>()).into();
             //TODO: validate id?
-            if header.part_id != 0 {
+            if header.part_id != None {
                 return ReadError::err("repeat of PARTID", pos, (off, off+6));
             }
-            header.part_id = id;
+            header.part_id = Some(id);
         } else if block[0] == b'R' {
             header.remarks.push(try!(String::from_utf8(rtrim(&block, 0).to_vec())));
         } else if block[0] == b'U' {
@@ -166,10 +167,10 @@ pub fn write_head(header: &FileHeader, writer: &mut io::Write) -> Result<()> {
     let len = try!(w.write(header.name.as_bytes()));
     try!(pad(&mut w, 16 - len));
     
-    if header.part_id != 0 {
+    if let Some(part_id) = header.part_id {
         //TODO: validate part_id?
         try!(w.write(&PARTID));
-        try!(w.write_u64::<BigEndian>(header.part_id));
+        try!(w.write_u64::<BigEndian>(part_id.into()));
     }
     
     for rem in &header.remarks {
@@ -260,7 +261,7 @@ fn write_header() {
     let header = FileHeader {
         ftype: FileType::Snapshot,
         name: "Ähnliche Unsinn".to_string(),
-        part_id: 0,
+        part_id: None,
         remarks: vec!["Remark ω".to_string(), "R Quatsch Quatsch Quatsch".to_string()],
         user_fields: vec![b" rsei noasr auyv 10()% xovn".to_vec()]
     };

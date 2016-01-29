@@ -84,7 +84,7 @@ pub use repo::{Repo, RepoIO, RepoT, ClassifierT, RepoState};
 pub use partition::{Partition, PartitionIO, PartitionState};
 pub use error::{Result};
 // Export some main/miscellaneous types here:
-pub use detail::{ElementT, PartNum, Sum};
+pub use detail::{ElementT, PartId, EltId, Sum};
 
 // Export some modules here:
 pub use detail::repo;
