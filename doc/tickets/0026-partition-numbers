@@ -19,4 +19,5 @@ functionality. This could still be changed. But should it?
 Proposals:
 
 1.  do nothing
-2.  make the number available from `PartitionIO` and just verify when loading
+2.  make the number available from `PartitionIO` and just verify when loading;
+    in this case Partition::open() doesn't need the number passed any more

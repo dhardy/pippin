@@ -166,10 +166,23 @@ multiple elements, and (2) if partitions were to be (re)combined, some element
 identifiers might collide and need to be reassigned, and to properly handle
 this another look-up table would need to be consulted to track the renames.
 
-Unfortunately, all reclassifications must still be remembered, potentially
-forever (though once the user has updated his/her references the information is
-no longer needed, and in any case a naive search could still be possible if
-elements remember their old names).
+Unfortunately, all reclassifications must still be remembered, by the source
+partition to allow fast look-ups, and optionally by the target partition
+(possibly only to support naive search if the source partition forgets).
+Source partitions could forget about a move if (a) the element is deleted and
+the source is notified (either by the target remembering the move or by some
+kind of slow optimisation proceedure) and/or (b) after some period of time (if
+naive searches are still possible or this kind of data-loss is acceptable to
+the application).
+
+The main problem with the source partition having to remember all moves is that
+it could be problematic for this use case: new elements arrive via an "in-tray"
+(a temporary initial classification) and are later classified properly (i.e.
+moved). This partition must remember all moves, and if ten or one hundred
+million elements are added, a table of this many items must be loaded every
+time the partition is loaded. There is a work-around for this case: tell the
+system not to remember moves for very long on this partition (remembering them 
+would be a good idea for synchronisation however).
 
 
 Checksums

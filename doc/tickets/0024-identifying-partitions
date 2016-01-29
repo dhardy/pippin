@@ -44,3 +44,9 @@ this enumeration. So, better, why not combine the two?
 -----
 
 Documentation updated following above proposal (in repo-files.md).
+
+-----
+
+This is implemented, but a related problem has cropped up: it should be
+possible to find an element from its identifier without naively trying all
+partitions. See section in [reasoning.md]().
