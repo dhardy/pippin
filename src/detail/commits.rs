@@ -110,7 +110,7 @@ impl<E: ElementT> Commit<E> {
         let mut state = new_state.clone_exact();
         let mut changes = HashMap::new();
         for (id, old_elt) in old_state.map() {
-            match state.remove_rc(*id) {
+            match state.remove_elt(*id) {
                 Ok(new_elt) => {
                     if new_elt == *old_elt {
                         /* no change */
@@ -151,7 +151,7 @@ impl<E: ElementT> Commit<E> {
         for (id, ref change) in self.changes.iter() {
             match *change {
                 &EltChange::Deletion => {
-                    try!(state.remove_rc(*id));
+                    try!(state.remove_elt(*id));
                 },
                 &EltChange::Insertion(ref elt) => {
                     try!(state.insert_rc(*id, elt.clone()));

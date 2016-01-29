@@ -15,6 +15,7 @@
 
 use std::result;
 use std::collections::HashMap;
+use std::rc::Rc;
 
 // Re-export these. We pretend these are part of the same module while keeping files smaller.
 pub use detail::repo_traits::{RepoIO, ClassifierT, ClassifyFallback, RepoT,
@@ -209,23 +210,59 @@ impl<C: ClassifierT> RepoState<C> {
         self.states.insert(num, state);
     }
     
+    /// Find an element that may have moved. This method returns an EltId on
+    /// success which can then be used by other methods (`get_elt()`, etc.).
+    /// 
+    /// If the element has not been moved and its partition is loaded, this
+    /// will return the same identifier and be fast.
+    /// 
+    /// If the element's partition is not loaded, this will fail, since a
+    /// `RepoState` cannot load partitions. It will normally indicate which
+    /// partition should be loaded, however without checking the partition it
+    /// cannot be sure that this is correct.
+    /// 
+    /// This may also fail completely. In this case searching all partitions
+    /// may still find the element (either use `Repo::locate(...)` or
+    /// `Repo::load_all()` then call this again on a fresh `RepoState` or after
+    /// synchronising). This method does search all loaded partitions when
+    /// other strategies fail.
+    pub fn locate(&self, id: EltId) -> Result<EltId, ElementOp> {
+        let mut error = ElementOp::not_found(id);
+        let part_id = id.part_id();
+        if let Some(state) = self.states.get(&part_id) {
+            if state.has_elt(id) {
+                return Ok(id);  // Partition is loaded and has element
+            }
+            // Partition is loaded but does not have element!
+            error = ElementOp::not_loaded(part_id);
+            // TODO: add support for partitions tracking where their elements moved to and use here
+        }
+        
+        // Partition is not loaded or not found. In this case we could naively
+        // search all partitions, however there is currently no renaming and no
+        // chance that it would be in another partition with the wrong part_id,
+        // so no point.
+        // TODO: add support for renaming and tracking of an element's old names?
+        
+        // No success; fail with the last set error state
+        Err(error)
+    }
+    
     /// Get a reference to some element (which can be cloned if required).
+    /// 
+    /// This fails if the relevant partition is not loaded or the element is
+    /// not found. In this case `locate(id)` may be helpful.
     /// 
     /// Note that elements can't be modified directly but must instead be
     /// replaced, hence there is no version of this function returning a
     /// mutable reference.
+    /// 
+    /// TODO: should this return `None` or `Err(ElementOp::not_loaded(part_id))`
+    /// when the partition is not loaded?
     pub fn get_elt(&self, id: EltId) -> Option<&C::Element> {
-        //TODO: current policy is that the "partition" part of an element ID
-        // is only there to ensure uniqueness. Can we not also use it for fast
-        // look-ups?
-//         let num = id.part_id();
-        for (_num, state) in &self.states {
-            match state.get_elt(id) {
-                Some(e) => { return Some(e); },
-                None => {},
-            }
-        }
-        None
+        // If the `id` is correct, it will give us the partition identifier:
+        let part_id = id.part_id();
+        self.states.get(&part_id).and_then(|state| state.get_elt(id))
     }
     
     /// True if there are no elements within the state available to this `RepoState`
@@ -233,43 +270,78 @@ impl<C: ClassifierT> RepoState<C> {
         self.states.values().all(|v| v.is_empty())
     }
     
-    /// Get the number of elements available to this `RepoState`
+    /// Get the number of elements held by loaded partitions
     pub fn num_elts(&self) -> usize {
-        panic!("not implemented");
-        //TODO: `sum()` is an unstable library feature:
-//         self.states.values().map(|v| v.num_elts()).sum()
+        self.states.values().fold(0, |acc, ref v| acc + v.num_elts())
     }
     
-    /// Insert an element and return the identifier, unless the id is already
-    /// used in which case the function stops with an error.
-    pub fn insert_elt(&mut self, id: EltId, elt: C::Element) -> Result<EltId, ElementOp> {
-        let num = if let Some(num) = self.classifier.classify(&elt) {
-            num
+    /// Insert an element and return the identifier.
+    /// 
+    /// This fails if the relevant partition is not loaded or the element is
+    /// not found. In this case loading the suggested partition or calling
+    /// `locate(id)` may help.
+    /// 
+    /// Note: there is no equivalent to `PartitionState`'s
+    /// `insert_elt(id, elt)` because we need to use the classifier to find
+    /// part of the identifier. We could still allow the "element" part of the
+    /// identifier to be specified, but I see no need for this.
+    pub fn new_elt(&mut self, elt: C::Element) -> Result<EltId, ElementOp> {
+        let part_id = if let Some(part_id) = self.classifier.classify(&elt) {
+            part_id
         } else {
             match self.classifier.fallback() {
-                ClassifyFallback::Default(num) | ClassifyFallback::ReplacedOrDefault(num) => num,
+                ClassifyFallback::Default(part_id) | ClassifyFallback::ReplacedOrDefault(part_id) => part_id,
                 ClassifyFallback::ReplacedOrFail | ClassifyFallback::Fail => {
                     return Err(ElementOp::classify_failure());
                 },
             }
         };
-        if let Some(mut state) = self.states.get_mut(&num) {
+        if let Some(mut state) = self.states.get_mut(&part_id) {
             // Now insert into our PartitionState (may also fail):
-            state.insert_elt(id, elt)
+            state.new_elt(elt)
         } else {
-            panic!("classifier did not give valid partition");  //TODO: handling
+            Err(ElementOp::not_loaded(part_id))
         }
     }
     /// Replace an existing element and return the replaced element, unless the
     /// id is not already used in which case the function stops with an error.
-    pub fn replace_elt(&mut self, _id: EltId, _elt: C::Element) -> Result<C::Element, ElementOp> {
-        panic!("not implemented");
-        //TODO: how do we locate the element partition? (See get_elt().)
+    /// 
+    /// This fails if the relevant partition is not loaded or the element is
+    /// not found. In this case loading the suggested partition or calling
+    /// `locate(id)` may help.
+    pub fn replace_elt(&mut self, id: EltId, elt: C::Element) -> Result<Rc<C::Element>, ElementOp> {
+        let part_id = if let Some(part_id) = self.classifier.classify(&elt) {
+            part_id
+        } else {
+            match self.classifier.fallback() {
+                ClassifyFallback::Default(part_id) => part_id,
+                ClassifyFallback::ReplacedOrFail | ClassifyFallback::ReplacedOrDefault(_) => id.part_id(),
+                ClassifyFallback::Fail => {
+                    return Err(ElementOp::classify_failure());
+                },
+            }
+        };
+        if part_id != id.part_id() {
+            // TODO: support for moving an element when "replaced"
+            panic!("no support yet for moving elements");
+        }
+        if let Some(mut state) = self.states.get_mut(&part_id) {
+            state.replace_elt(id, elt)
+        } else {
+            Err(ElementOp::not_loaded(part_id))
+        }
     }
-    /// Remove an element, returning the element removed. If no element is
-    /// found with the `id` given, `None` is returned.
-    pub fn remove_elt(&mut self, _id: EltId) -> Result<C::Element, ElementOp> {
-        panic!("not implemented");
-        //TODO: how do we locate the element partition? (See get_elt().)
+    /// Remove an element, returning the element removed or failing.
+    /// 
+    /// This fails if the relevant partition is not loaded or the element is
+    /// not found. In this case loading the suggested partition or calling
+    /// `locate(id)` may help.
+    pub fn remove_elt(&mut self, id: EltId) -> Result<Rc<C::Element>, ElementOp> {
+        let part_id = id.part_id();
+        if let Some(mut state) = self.states.get_mut(&part_id) {
+            state.remove_elt(id)
+        } else {
+            Err(ElementOp::not_loaded(part_id))
+        }
     }
 }

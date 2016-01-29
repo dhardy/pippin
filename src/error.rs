@@ -4,7 +4,7 @@ use std::{io, fmt, result};
 use std::path::PathBuf;
 use std::cmp::{min, max};
 
-use EltId;
+use {PartId, EltId};
 
 /// Our custom result type
 pub type Result<T, E = Error> = result::Result<T, E>;
@@ -129,7 +129,7 @@ impl fmt::Display for ArgError {
 #[derive(PartialEq, Debug)]
 pub struct ElementOp {
     /// Identity of element
-    id: Option<EltId>,
+    id: EltId,
     /// Classification of failure
     class: ElementOpClass,
 }
@@ -138,7 +138,7 @@ impl ErrorTrait for ElementOp {
 }
 
 /// Classification of element operation failure
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Eq, Debug, Clone, Copy)]
 pub enum ElementOpClass {
     /// Unable to find any new element identifier
     IdGenFailure,
@@ -150,8 +150,23 @@ pub enum ElementOpClass {
     DeletionFailure,
     /// Classification failed and the fallback is to fail
     ClassifyFailure,
+    /// The (presumably) relevant partition is not loaded
+    NotLoaded,
+    /// The element was simply not found
+    NotFound,
 }
 impl ElementOp {
+    /// Get the class of the error
+    pub fn class(&self) -> ElementOpClass {
+        self.class
+    }
+    /// Get the `EltId` associated with this error. This is only meaningful
+    /// for those classes where an `EltId` is passed when creating, or where
+    /// a `PartId` is passed, the `EltId` should be converted back
+    /// (`id.part_id()`).
+    pub fn elt_id(&self) -> EltId {
+        self.id
+    }
     /// Get the description string corresponding to the classification
     pub fn description(&self) -> &'static str {
         match self.class {
@@ -160,27 +175,39 @@ impl ElementOp {
             ElementOpClass::ReplacementFailure => "replacement failed: cannot find element to replace",
             ElementOpClass::DeletionFailure => "deletion failed: element not found",
             ElementOpClass::ClassifyFailure => "classification of element failed",
+            ElementOpClass::NotLoaded => "partition must be loaded",
+            ElementOpClass::NotFound => "element not found",
         }
     }
     /// Create an instance
     pub fn id_gen_failure() -> ElementOp {
-        ElementOp { id: None, class: ElementOpClass::IdGenFailure }
+        let dummy_id = PartId::from_num(1).elt_id(0);
+        ElementOp { id: dummy_id, class: ElementOpClass::IdGenFailure }
     }
     /// Create an instance
     pub fn insertion_failure(id: EltId) -> ElementOp {
-        ElementOp { id: Some(id), class: ElementOpClass::InsertionFailure }
+        ElementOp { id: id, class: ElementOpClass::InsertionFailure }
     }
     /// Create an instance
     pub fn replacement_failure(id: EltId) -> ElementOp {
-        ElementOp { id: Some(id), class: ElementOpClass::ReplacementFailure }
+        ElementOp { id: id, class: ElementOpClass::ReplacementFailure }
     }
     /// Create an instance
     pub fn deletion_failure(id: EltId) -> ElementOp {
-        ElementOp { id: Some(id), class: ElementOpClass::DeletionFailure }
+        ElementOp { id: id, class: ElementOpClass::DeletionFailure }
     }
     /// Create an instance
     pub fn classify_failure() -> ElementOp {
-        ElementOp { id: None, class: ElementOpClass::ClassifyFailure }
+        let dummy_id = PartId::from_num(1).elt_id(0);
+        ElementOp { id: dummy_id, class: ElementOpClass::ClassifyFailure }
+    }
+    /// Create an instance
+    pub fn not_loaded(part_id: PartId) -> ElementOp {
+        ElementOp { id: part_id.elt_id(0), class: ElementOpClass::NotLoaded }
+    }
+    /// Create an instance
+    pub fn not_found(id: EltId) -> ElementOp {
+        ElementOp { id: id, class: ElementOpClass::NotFound }
     }
 }
 impl fmt::Display for ElementOp {
@@ -189,9 +216,16 @@ impl fmt::Display for ElementOp {
             ElementOpClass::IdGenFailure | ElementOpClass::ClassifyFailure => {
                 write!(f, "{}", self.description())
             },
-            _ => {
-                let n: u64 = self.id.unwrap().into();
+            ElementOpClass::InsertionFailure |
+                ElementOpClass::ReplacementFailure |
+                ElementOpClass::DeletionFailure |
+                ElementOpClass::NotFound =>
+            {
+                let n: u64 = self.id.into();
                 write!(f, "{}: {}", self.description(), n)
+            },
+            ElementOpClass::NotLoaded => {
+                write!(f, "{}: {}", self.description(), self.id.part_id().into_num())
             },
         }
     }

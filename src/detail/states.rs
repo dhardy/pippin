@@ -191,13 +191,8 @@ impl<E: ElementT> PartitionState<E> {
             }
         }
     }
-    /// Remove an element, returning the element removed. If no element is
-    /// found with the `id` given, `None` is returned.
+    /// Remove an element, returning the element removed or failing.
     pub fn remove_elt(&mut self, id: EltId) -> Result<Rc<E>, ElementOp> {
-        self.remove_rc(id)
-    }
-    /// As `remove_elt()`, but return an Rc-wrapped element.
-    pub fn remove_rc(&mut self, id: EltId) -> Result<Rc<E>, ElementOp> {
         match self.elts.remove(&id) {
             None => Err(ElementOp::deletion_failure(id)),
             Some(removed) => {
