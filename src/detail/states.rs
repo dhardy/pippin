@@ -201,6 +201,14 @@ impl<E: ElementT> PartitionState<E> {
             }
         }
     }
+    /// Remove and return an element, but leave a memo that it has been moved
+    /// to another identifier (usually under another partition).
+    pub fn remove_to(&mut self, id: EltId, new_id: EltId) -> Result<Rc<E>, ElementOp> {
+        let removed = try!(self.remove_elt(id));
+        //TODO: add memo about new_id
+        panic!("not implemented");
+        Ok(removed)
+    }
     
     // Also see #0021 about commit creation.
     

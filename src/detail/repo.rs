@@ -310,25 +310,54 @@ impl<C: ClassifierT> RepoState<C> {
     /// not found. In this case loading the suggested partition or calling
     /// `locate(id)` may help.
     pub fn replace_elt(&mut self, id: EltId, elt: C::Element) -> Result<Rc<C::Element>, ElementOp> {
-        let part_id = if let Some(part_id) = self.classifier.classify(&elt) {
-            part_id
+        let class_id = if let Some(class_id) = self.classifier.classify(&elt) {
+            class_id
         } else {
             match self.classifier.fallback() {
-                ClassifyFallback::Default(part_id) => part_id,
+                ClassifyFallback::Default(class_id) => class_id,
                 ClassifyFallback::ReplacedOrFail | ClassifyFallback::ReplacedOrDefault(_) => id.part_id(),
                 ClassifyFallback::Fail => {
                     return Err(ElementOp::classify_failure());
                 },
             }
         };
-        if part_id != id.part_id() {
-            // TODO: support for moving an element when "replaced"
-            panic!("no support yet for moving elements");
-        }
-        if let Some(mut state) = self.states.get_mut(&part_id) {
-            state.replace_elt(id, elt)
+        if class_id != id.part_id() {
+            // Different partition; we need to move.
+            // 1: Confirm we have the source partition available or abort.
+            let source_id = id.part_id();
+            try!(if let Some(mut source_state) = self.states.get_mut(&source_id) {
+                // TODO: do we want to notify that `id` is about to be moved?
+                Ok(())
+            } else {
+                Err(ElementOp::not_loaded(source_id))
+            });
+            // 2: Find target partition and insert element.
+            let new_id = try!(if let Some(mut target_state) = self.states.get_mut(&class_id) {
+                let elt = Rc::new(elt);
+                match target_state.insert_rc(class_id.elt_id(id.elt_num()), elt.clone()) {
+                    // success with the same element part of the id:
+                    Ok(id) => Ok(id),
+                    // failure; try with a new id:
+                    Err(_) => target_state.new_rc(elt)
+                }
+            } else {
+                Err(ElementOp::not_loaded(class_id))
+            });
+            // 3: Remove from source partition. We must find `source_state`
+            // again because `self.states` does not support simultaneous
+            // mutable references to two of its elements.
+            if let Some(mut source_state) = self.states.get_mut(&source_id) {
+                source_state.remove_to(id, new_id)
+            } else {
+                Err(ElementOp::not_loaded(source_id))
+            }
         } else {
-            Err(ElementOp::not_loaded(part_id))
+            // Same partition: just replace
+            if let Some(mut state) = self.states.get_mut(&class_id) {
+                state.replace_elt(id, elt)
+            } else {
+                Err(ElementOp::not_loaded(class_id))
+            }
         }
     }
     /// Remove an element, returning the element removed or failing.
