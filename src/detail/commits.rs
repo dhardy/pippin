@@ -64,6 +64,10 @@ pub enum EltChange<E: ElementT> {
     Insertion(Rc<E>),
     /// Element was replaced (full data)
     Replacement(Rc<E>),
+    /// Element has been moved, must be removed from this partition; new identity mentioned
+    MovedOut(EltId),
+    /// Same as `MovedOut` except that the element has already been removed from the partition
+    Moved(EltId),
 }
 impl<E: ElementT> EltChange<E> {
     /// Create an `Insertion`
@@ -78,12 +82,34 @@ impl<E: ElementT> EltChange<E> {
     pub fn deletion() -> EltChange<E> {
         EltChange::Deletion
     }
-    /// Get `Some(elt)` or `None`
+    /// Create a note that the element has moved.
+    /// 
+    /// If `remove` is true, this also deletes the element from the state
+    /// (otherwise it is assumed that the element has already been deleted).
+    pub fn moved(new_id: EltId, remove: bool) -> EltChange<E> {
+        match remove {
+            true => EltChange::MovedOut(new_id),
+            false => EltChange::Moved(new_id),
+        }
+    }
+    /// Get `Some(elt)` if an element is contained, `None` otherwise
     pub fn element(&self) -> Option<&Rc<E>> {
         match self {
             &EltChange::Deletion => None,
             &EltChange::Insertion(ref elt) => Some(elt),
             &EltChange::Replacement(ref elt) => Some(elt),
+            &EltChange::MovedOut(_) => None,
+            &EltChange::Moved(_) => None,
+        }
+    }
+    /// Get `Some(new_id)` if this is a "moved" change, else None
+    pub fn moved_id(&self) -> Option<EltId> {
+        match self {
+            &EltChange::Deletion => None,
+            &EltChange::Insertion(_) => None,
+            &EltChange::Replacement(_) => None,
+            &EltChange::MovedOut(id) => Some(id),
+            &EltChange::Moved(id) => Some(id)
         }
     }
 }
@@ -124,8 +150,25 @@ impl<E: ElementT> Commit<E> {
                 }
             }
         }
-        for (id, new_elt) in state.into_map() {
+        let (elt_map, mut moved_map) = state.into_maps();
+        for (id, new_id) in old_state.moved_map() {
+            if let Some(new_id2) = moved_map.remove(&id) {
+                if *new_id == new_id2 {
+                    /* no change */
+                } else {
+                    changes.insert(*id, EltChange::moved(new_id2, false));
+                }
+            } else {
+                // we seem to have forgotten that an element was moved
+                // TODO: why? Should we track this so patches can make states *forget*?
+                // TODO: should we warn about it?
+            }
+        }
+        for (id, new_elt) in elt_map {
             changes.insert(id, EltChange::insertion(new_elt));
+        }
+        for (id, new_id) in moved_map {
+            changes.insert(id, EltChange::moved(new_id, true));
         }
         
         if changes.is_empty() {
@@ -158,6 +201,12 @@ impl<E: ElementT> Commit<E> {
                 }
                 &EltChange::Replacement(ref elt) => {
                     try!(state.replace_rc(*id, elt.clone()));
+                }
+                &EltChange::MovedOut(new_id) => {
+                    try!(state.remove_to(*id, new_id));
+                }
+                &EltChange::Moved(new_id) => {
+                    state.set_move(*id, new_id);
                 }
             }
         }

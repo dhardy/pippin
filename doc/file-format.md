@@ -61,7 +61,7 @@ NOTE: the `Bbbb` variant is not currently implemented and may be excluded.
 Header
 ----------
 
-*   `PIPPINSS20160105` (PIPPIN SnapShot, date of last format change)
+*   `PIPPINSS20160201` (PIPPIN SnapShot, date of last format change)
 *   16 bytes UTF-8 for name of repository; this string is identical for each
     partition and right-padded with zero (0x00) to make 16 bytes
 *   header content
@@ -139,7 +139,7 @@ Data is written as follows:
 *   (??) the date of creation of the snapshot as YYYYMMDD
 *   TBD: state/commit identifier and time stamp
 *   `ELEMENTS` (section identifier)
-*   number of elements as a u64 (binary, TBD endianness)
+*   number of elements as a u64
 
 Per-element data (in any order):
 
@@ -149,6 +149,17 @@ Per-element data (in any order):
 *   length of byte stream (u64)
 *   data (byte stream), padded to the next 16-byte boundary
 *   checksum (TBD: could remove)
+
+Memory of moved elements; this section is optional and jused to track elements
+moved to other partitions. If no moves have been tracked it may safely be
+omitted.
+
+*   `ELTMOVES` to mark section
+*   number of records (u64)
+*   for each record,
+    
+    1.  the source identifier
+    2.  the new identifier after the moveq
 
 Finally:
 
@@ -165,7 +176,7 @@ Header
 ---------
 
 The header has the same format as snapshot files except that the first 16 bytes
-are replaced with `PIPPINCL20150924`.
+are replaced with `PIPPINCL20160201`.
 
 Header content (`H...`, `Q...`,  `B...` sections) may differ.
 
@@ -199,9 +210,14 @@ Where "PER ELEMENT DATA" is written above, a sequence of element-specific
 sections appears. Elements may appear in any order. The syntax for each
 element is:
 
-*   section identifier: `ELT ` followed by one of `DEL` (delete), `INS` (insert
-    with new element id), `REPL` (replace an existing element with new data) or
-    TODO `PATC` (patch an existing element)
+*   section identifier: `ELT ` followed by one of
+    
+    *   `DEL` (delete)
+    *   `INS` (insert with new element id)
+    *   `REPL` (replace an existing element with new data)
+    *   `MOVO` (moved out, that is `DEL` plus a new identifier)
+    *   `MOV` (moved, that is a new identifier but no operation on stored elements)
+    *   (TODO) `PATC` (patch an existing element)
 *   element identifier (partition specific, u64)
 
 Contents now depend on the previous identifier:
@@ -213,5 +229,6 @@ Contents now depend on the previous identifier:
 *   `REPL`: contents is identical to `INS`, but `INS` is only allowed when the
     element identifier was free while `REPL` is only allowed when the
     identifier pointed to an element in the previous state.
-
+*   `MOVO` or `MOV`: identifier `NEW ELT` (pad to 8 bytes), element identifier
+    (u64)
 

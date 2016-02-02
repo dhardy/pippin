@@ -11,18 +11,36 @@ use detail::readwrite::{sum, fill};
 use error::{Result, ArgError, ReadError, make_io_err};
 use util::rtrim;
 
-const HEAD_SNAPSHOT : [[u8; 16]; 2] = [*b"PIPPINSS20150929",
-    *b"PIPPINSS20160105"];
-const HEAD_COMMITLOG : [u8; 16] = *b"PIPPINCL20150929";
+// Snapshot header. This is the latest version.
+const HEAD_SNAPSHOT : [u8; 16] = *b"PIPPINSS20160201";
+// Commit log header. This is the latest version.
+const HEAD_COMMITLOG : [u8; 16] = *b"PIPPINCL20160201";
+// Versions of header (all versions, including latest), encoded as an integer.
+// All restrictions to specific versions should mention `HEAD_VERSIONS` in
+// comments to aid searches.
+// 
+// Note: new versions can be implemented just by updating the three HEAD_...
+// constants and updating code, so long as the code will still read old
+// versions. The file format documentation should also be updated.
+const HEAD_VERSIONS : [u32; 3] = [
+    2015_09_29, // initial standardisation
+    2016_01_05, // add 'PARTID' to header blocks (snapshot only)
+    2016_02_01, // add memory of new names of moved elements
+];
 const SUM_SHA256 : [u8; 16] = *b"HSUM SHA-2 256\x00\x00";
 const PARTID : [u8; 8] = *b"HPARTID ";
 
-/// File type
+/// File type and version.
+/// 
+/// Version is encoded as an integer; see `HEAD_VERSIONS` constant.
+/// 
+/// The version is set when a header is read but ignored when the header is
+/// written. When creating an instance you can normally just use version 0.
 pub enum FileType {
     /// File is a snapshot
-    Snapshot,
+    Snapshot(u32),
     /// File is a commit log
-    CommitLog,
+    CommitLog(u32),
 }
 
 // Information stored in a file header
@@ -37,6 +55,17 @@ pub struct FileHeader {
     pub remarks: Vec<String>,
     /// User data
     pub user_fields: Vec<Vec<u8>>
+}
+
+// Decodes from a string to the format used in HEAD_VERSIONS. Returns zero on
+// error.
+fn read_head_version(s: &[u8]) -> u32 {
+    let mut v = 0;
+    for c in s {
+        if *c < b'0' || *c > b'9' { return 0; }
+        v = 10 * v + (*c - b'0') as u32;
+    }
+    v
 }
 
 pub fn validate_repo_name(name: &str) -> stdResult<(), ArgError> {
@@ -58,10 +87,14 @@ pub fn read_head(r: &mut io::Read) -> Result<FileHeader> {
     let mut buf = vec![0; 16];
     
     try!(fill(&mut sum_reader, &mut buf[0..16], pos));
-    let ftype = if buf == HEAD_SNAPSHOT[0] || buf == HEAD_SNAPSHOT[1] {
-        FileType::Snapshot
-    } else if buf == HEAD_COMMITLOG {
-        FileType::CommitLog
+    let head_version = read_head_version(&buf[8..16]);
+    if !HEAD_VERSIONS.contains(&head_version) {
+        return ReadError::err("Pippin file of unknown version", pos, (0, 16));
+    }
+    let ftype = if buf[0..8] == HEAD_SNAPSHOT[0..8] {
+        FileType::Snapshot(head_version)
+    } else if buf[0..8] == HEAD_COMMITLOG[0..8] {
+        FileType::CommitLog(head_version)
     } else {
         return ReadError::err("not a known Pippin file format", pos, (0, 16));
     };
@@ -156,10 +189,11 @@ pub fn write_head(header: &FileHeader, writer: &mut io::Write) -> Result<()> {
     let mut w = sum::HashWriter::new256(writer);
     
     match header.ftype {
-        FileType::Snapshot => {
-            try!(w.write(&HEAD_SNAPSHOT[1]));
+        // Note: we always write in the latest version, even if we read from an old one
+        FileType::Snapshot(_) => {
+            try!(w.write(&HEAD_SNAPSHOT));
         },
-        FileType::CommitLog => {
+        FileType::CommitLog(_) => {
             try!(w.write(&HEAD_COMMITLOG));
         },
     };
@@ -239,7 +273,7 @@ fn read_header() {
     // Note: checksum calculated with Python 3:
     // import hashlib
     // hashlib.sha256(b"PIPPINSS20150929...").digest()
-    let head = b"PIPPINSS20150929\
+    let head = b"PIPPINSS20160201\
                 test AbC \xce\xb1\xce\xb2\xce\xb3\x00\
                 HRemark 12345678\
                 HOoptional rule\x00\
@@ -248,8 +282,8 @@ fn read_header() {
                 y pointless text\
                 H123456789ABCDEF\
                 HSUM SHA-2 256\x00\x00\
-                \x16\x0c\xafcWm\xe3i\xb8\xf6T\x92\x05\xb7\xd98\
-                \x92\x86\xb8\xb6\x15>\x00\x86\"\xfd\xff\x97\xfcAp\xa1";
+                \xe9:\x83\xa4\xb7}\x04\xd0\x0b9\xd3-\x1cgA\xca\
+                \x85\x13\x8f\x18M\xd0L\xcff\xa9nii\xf8;b";
     let header = read_head(&mut &head[..]).unwrap();
     assert_eq!(header.name, "test AbC αβγ");
     assert_eq!(header.remarks, vec!["Remark 12345678", "REM  completely pointless text"]);
@@ -259,7 +293,7 @@ fn read_header() {
 #[test]
 fn write_header() {
     let header = FileHeader {
-        ftype: FileType::Snapshot,
+        ftype: FileType::Snapshot(0 /*version should be ignored*/),
         name: "Ähnliche Unsinn".to_string(),
         part_id: None,
         remarks: vec!["Remark ω".to_string(), "R Quatsch Quatsch Quatsch".to_string()],
@@ -267,7 +301,7 @@ fn write_header() {
     };
     let mut buf = Vec::new();
     write_head(&header, &mut buf).unwrap();
-    let expected = b"PIPPINSS20160105\
+    let expected = b"PIPPINSS20160201\
             \xc3\x84hnliche Unsinn\
             HRemark \xcf\x89\x00\x00\x00\x00\x00\x00\
             Q2R Quatsch Quatsch \
@@ -275,7 +309,7 @@ fn write_header() {
             Q2U rsei noasr a\
             uyv 10()% xovn\x00\x00\
             HSUM SHA-2 256\x00\x00\
-            (q9\xff\xbb/\x8d\xd0\xfb\x9dDxys\xedw\
-            \x9c8\xfd\xba\x9f40\xdaK\xad\xcbm\xdf\x9cs\xbc";
+            j6\xd7MF\xc7\xaf\xcexh&B\xa4z\x8de\
+            u\xa4\x0f\xab\xf3\xc3\x9f\xf5=\xa9\xee\xc2\xf7\xca\xa2\\";
     assert_eq!(&buf[..], &expected[..]);
 }

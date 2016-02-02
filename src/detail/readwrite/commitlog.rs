@@ -74,6 +74,8 @@ pub fn read_log<E: ElementT>(reader_: &mut Read, receiver: &mut CommitReceiver<E
                 b"DEL\x00" => { Change::Delete },
                 b"INS\x00" => { Change::Insert },
                 b"REPL" => { Change::Replace },
+                b"MOVO" => { Change::MovedOut },
+                b"MOV\x00" => { Change::Moved },
                 _ => {
                     return ReadError::err("unexpected contents (expected one \
                         of DEL\\x00, INS\\x00, REPL)", pos, (4, 8));
@@ -114,6 +116,14 @@ pub fn read_log<E: ElementT>(reader_: &mut Read, receiver: &mut CommitReceiver<E
                         Change::Replace => EltChange::replacement(elt),
                         _ => panic!()
                     }
+                },
+                Change::MovedOut | Change::Moved => {
+                    try!(fill(&mut r, &mut buf[0..16], pos));
+                    if buf[0..8] != *b"NEW ELT\x00" {
+                        return ReadError::err("unexpected contents (expected NEW ELT)", pos, (0, 8));
+                    }
+                    let new_id = try!((&buf[8..16]).read_u64::<BigEndian>()).into();
+                    EltChange::moved(new_id, change_t == Change::MovedOut)
                 }
             };
             changes.insert(elt_id, change);
@@ -136,8 +146,9 @@ pub fn read_log<E: ElementT>(reader_: &mut Read, receiver: &mut CommitReceiver<E
         if !cont { break; }
     }
     
+    #[derive(Eq, PartialEq, Copy, Clone, Debug)]
     enum Change {
-        Delete, Insert, Replace
+        Delete, Insert, Replace, MovedOut, Moved
     }
     
     Ok(())
@@ -171,6 +182,8 @@ pub fn write_commit<E: ElementT>(commit: &Commit<E>, writer: &mut Write) -> Resu
             &EltChange::Deletion => b"ELT DEL\x00",
             &EltChange::Insertion(_) => b"ELT INS\x00",
             &EltChange::Replacement(_) => b"ELT REPL",
+            &EltChange::MovedOut(_) => b"ELT MOVO",
+            &EltChange::Moved(_) => b"ELT MOV\x00",
         };
         try!(w.write(marker));
         try!(w.write_u64::<BigEndian>((*elt_id).into()));
@@ -188,6 +201,10 @@ pub fn write_commit<E: ElementT>(commit: &Commit<E>, writer: &mut Write) -> Resu
             }
             
             try!(elt.sum().write(&mut w));
+        }
+        if let Some(new_id) = change.moved_id() {
+            try!(w.write(b"NEW ELT\x00"));
+            try!(w.write_u64::<BigEndian>(new_id.into()));
         }
     }
     

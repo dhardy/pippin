@@ -230,7 +230,7 @@ impl<E: ElementT> Partition<E> {
         try!(validate_repo_name(name));
         let state = PartitionState::new(part_id);
         let header = FileHeader {
-            ftype: FileType::Snapshot,
+            ftype: FileType::Snapshot(0),
             name: name.to_string(),
             part_id: Some(part_id),
             remarks: Vec::new(),
@@ -701,7 +701,7 @@ impl<E: ElementT> Partition<E> {
                 if let Some(mut writer) = try!(self.io.new_ss_cl(self.ss_num, cl_num)) {
                     // Write a header since this is a new file:
                     let header = FileHeader {
-                        ftype: FileType::CommitLog,
+                        ftype: FileType::CommitLog(0),
                         name: self.repo_name.clone(),
                         part_id: Some(self.part_id),
                         remarks: Vec::new(),
@@ -754,7 +754,7 @@ impl<E: ElementT> Partition<E> {
             // Try to get a writer for this snapshot number:
             if let Some(mut writer) = try!(self.io.new_ss(ss_num)) {
                 let header = FileHeader {
-                    ftype: FileType::Snapshot,
+                    ftype: FileType::Snapshot(0),
                     name: self.repo_name.clone(),
                     part_id: Some(self.part_id),
                     remarks: Vec::new(),

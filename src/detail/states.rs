@@ -31,7 +31,8 @@ pub struct PartitionState<E: ElementT> {
     part_id: PartId,
     parent: Sum,
     statesum: Sum,
-    elts: EltMap<E>
+    elts: EltMap<E>,
+    moved: HashMap<EltId, EltId>,
 }
 
 impl<E: ElementT> PartitionState<E> {
@@ -40,17 +41,13 @@ impl<E: ElementT> PartitionState<E> {
     /// The partition's identifier must be given; this is used to assign new
     /// element identifiers. Panics if the partition identifier is invalid.
     pub fn new(part_id: PartId) -> PartitionState<E> {
-        PartitionState { part_id: part_id, parent: Sum::zero(),
-            statesum: Sum::zero(), elts: HashMap::new() }
-    }
-    /// Create from a map of elements.
-    /// 
-    /// The partition's identifier must be given; this is used to assign new
-    /// element identifiers. Panics if the partition identifier is invalid.
-    pub fn from_hash_map(part_id: PartId, parent: Sum,
-        map: EltMap<E>, statesum: Sum) -> PartitionState<E>
-    {
-        PartitionState { part_id: part_id, parent: parent, statesum: statesum, elts: map }
+        PartitionState {
+            part_id: part_id,
+            parent: Sum::zero(),
+            statesum: Sum::zero(),
+            elts: HashMap::new(),
+            moved: HashMap::new(),
+        }
     }
     
     /// Get the state sum
@@ -62,9 +59,16 @@ impl<E: ElementT> PartitionState<E> {
     pub fn map(&self) -> &EltMap<E> {
         &self.elts
     }
-    /// Destroy the PartitionState, extracting its map of elements
-    pub fn into_map(self) -> EltMap<E> {
-        self.elts
+    /// Destroy the PartitionState, extracting its maps
+    /// 
+    /// First is map of elements (`self.map()`), second is map of moved elements
+    /// (`self.moved_map()`).
+    pub fn into_maps(self) -> (EltMap<E>, HashMap<EltId, EltId>) {
+        (self.elts, self.moved)
+    }
+    /// Get access to the map of moved elements to new identifiers
+    pub fn moved_map(&self) -> &HashMap<EltId, EltId> {
+        &self.moved
     }
     
     /// Get some element, still in its Element wrapper (which can be cloned if required).
@@ -107,7 +111,7 @@ impl<E: ElementT> PartitionState<E> {
         let initial = self.part_id.elt_id(random::<u32>() & 0xFF_FFFF);
         let mut id = initial;
         loop {
-            if !self.elts.contains_key(&id) { break; }
+            if !self.elts.contains_key(&id) && !self.moved.contains_key(&id) { break; }
             id = id.next_elt();
             //TODO: is this too many to check exhaustively? We could use a
             // lower limit, and possibly resample a few times.
@@ -124,7 +128,9 @@ impl<E: ElementT> PartitionState<E> {
         let mut id = try!(self.gen_id());
         let mut tries = 1000;
         loop {
-            if !self.elts.contains_key(&id) && !s2.elts.contains_key(&id) {
+            if !self.elts.contains_key(&id) && !s2.elts.contains_key(&id) &&
+                !self.moved.contains_key(&id) && !s2.moved.contains_key(&id)
+            {
                 break;
             }
             id = id.next_elt();
@@ -205,9 +211,35 @@ impl<E: ElementT> PartitionState<E> {
     /// to another identifier (usually under another partition).
     pub fn remove_to(&mut self, id: EltId, new_id: EltId) -> Result<Rc<E>, ElementOp> {
         let removed = try!(self.remove_elt(id));
-        //TODO: add memo about new_id
-        panic!("not implemented");
+        self.moved.insert(id, new_id);
         Ok(removed)
+    }
+    
+    /// Check our notes tracking moved elements, and return a new `EltId` if
+    /// we have one. Note that this method ignores stored elements.
+    pub fn is_moved(&self, id: EltId) -> Option<EltId> {
+        self.moved.get(&id).map(|id| *id) // Some(value) or None
+    }
+    /// Update notes about where an element has been moved to (like
+    /// `remove_to()` but without trying to remove the element). Used both to
+    /// notify that an already-moved element has been moved again, and when
+    /// reading stored data.
+    /// 
+    /// This *should* be called when an element is moved again, but probably
+    /// won't be until `locate()` is called since we don't currently track
+    /// elements' old identities.
+    /// 
+    /// In the case the element has been moved back to this partition, the
+    /// current code may or may not give it its original identity back
+    /// (depending on whether the element number part has already been
+    /// changed).
+    /// 
+    /// In theory a prerequisite of calling this should be that there is
+    /// already a note that `id` was moved, but we have no reason to enforce
+    /// this so do not. `self.is_moved(id)` is the only method which checks
+    /// these notes in any case.
+    pub fn set_move(&mut self, id: EltId, new_id: EltId) {
+        self.moved.insert(id, new_id);
     }
     
     // Also see #0021 about commit creation.
@@ -226,7 +258,9 @@ impl<E: ElementT> PartitionState<E> {
             part_id: self.part_id,
             parent: self.statesum.clone(),
             statesum: self.statesum.clone(),
-            elts: self.elts.clone() }
+            elts: self.elts.clone(),
+            moved: self.moved.clone(),
+        }
     }
     
     /// Clone the state, creating an exact copy. The new state will have the
@@ -239,7 +273,9 @@ impl<E: ElementT> PartitionState<E> {
             part_id: self.part_id,
             parent: self.parent.clone(),
             statesum: self.statesum.clone(),
-            elts: self.elts.clone() }
+            elts: self.elts.clone(),
+            moved: self.moved.clone(),
+        }
     }
 }
 

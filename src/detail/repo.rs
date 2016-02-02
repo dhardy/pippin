@@ -226,26 +226,48 @@ impl<C: ClassifierT> RepoState<C> {
     /// `Repo::load_all()` then call this again on a fresh `RepoState` or after
     /// synchronising). This method does search all loaded partitions when
     /// other strategies fail.
-    pub fn locate(&self, id: EltId) -> Result<EltId, ElementOp> {
-        let mut error = ElementOp::not_found(id);
-        let part_id = id.part_id();
-        if let Some(state) = self.states.get(&part_id) {
-            if state.has_elt(id) {
-                return Ok(id);  // Partition is loaded and has element
+    pub fn locate(&mut self, mut id: EltId) -> Result<EltId, ElementOp> {
+        let mut to_update = Vec::<EltId>::new();
+        loop {
+            let part_id = id.part_id();
+            if let Some(state) = self.states.get(&part_id) {
+                if state.has_elt(id) {
+                    // Partition is loaded and has element
+                    /*TODO: should we do this? Need to resolve lifetime issue if so.
+                    if to_update.len() > 1 {
+                        // Update notes in loaded partitions, excepting the last
+                        // which is already correct:
+                        to_update.pop();
+                        for old_id in to_update{
+                            let part_id = old_id.part_id();
+                            if let Some(mut state) = self.states.get_mut(&part_id) {
+                                state.set_move(old_id, id);
+                            }
+                        }
+                    }*/
+                    return Ok(id);
+                } else if let Some(new_id) = state.is_moved(id) {
+                    // We have a new lead, check whether the element is in fact
+                    // there. Remember this note.
+                    to_update.push(id);
+                    id = new_id;
+                    continue;
+                }
+                // else: Partition is loaded but does not have element!
+            } else {
+                return Err(ElementOp::not_loaded(part_id));
             }
-            // Partition is loaded but does not have element!
-            error = ElementOp::not_loaded(part_id);
-            // TODO: add support for partitions tracking where their elements moved to and use here
+            break;
         }
         
-        // Partition is not loaded or not found. In this case we could naively
-        // search all partitions, however there is currently no renaming and no
-        // chance that it would be in another partition with the wrong part_id,
-        // so no point.
-        // TODO: add support for renaming and tracking of an element's old names?
+        // We didn't find the element. In this case we could naively
+        // search all partitions, however if so it would have a new identifier.
+        // We *could* try finding another element with the same `elt_num()`,
+        // but might find the wrong element in this case.
+        // TODO: should elements remember their old names?
         
-        // No success; fail with the last set error state
-        Err(error)
+        // No success; fail
+        Err(ElementOp::not_found(id))
     }
     
     /// Get a reference to some element (which can be cloned if required).
@@ -325,7 +347,7 @@ impl<C: ClassifierT> RepoState<C> {
             // Different partition; we need to move.
             // 1: Confirm we have the source partition available or abort.
             let source_id = id.part_id();
-            try!(if let Some(mut source_state) = self.states.get_mut(&source_id) {
+            try!(if let Some(mut _source_state) = self.states.get_mut(&source_id) {
                 // TODO: do we want to notify that `id` is about to be moved?
                 Ok(())
             } else {

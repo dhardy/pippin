@@ -79,8 +79,20 @@ pub fn read_snapshot<T: ElementT>(reader: &mut Read, part_id: PartId) ->
     }
     
     try!(fill(&mut r, &mut buf[0..16], pos));
+    if buf[0..8] == *b"ELTMOVES" /*versions from 20160201, optional*/ {
+        let n_moves = try!((&buf[8..16]).read_u64::<BigEndian>()) as usize;    // #0015
+        for _ in 0..n_moves {
+            try!(fill(&mut r, &mut buf[0..16], pos));
+            let id0 = try!((&buf[0..8]).read_u64::<BigEndian>()).into();
+            let id1 = try!((&buf[8..16]).read_u64::<BigEndian>()).into();
+            state.set_move(id0, id1);
+        }
+        // re-fill buffer for next section:
+        try!(fill(&mut r, &mut buf[0..16], pos));
+    }
+    
     if buf[0..8] != *b"STATESUM" {
-        return ReadError::err("unexpected contents (expected STATESUM)", pos, (0, 8));
+        return ReadError::err("unexpected contents (expected STATESUM or ELTMOVES)", pos, (0, 8));
     }
     pos += 8;
     if (try!((&buf[8..16]).read_u64::<BigEndian>()) as usize) != num_elts {
@@ -117,18 +129,16 @@ pub fn write_snapshot<T: ElementT>(state: &PartitionState<T>,
     // A writer which calculates the checksum of what was written:
     let mut w = sum::HashWriter::new256(writer);
     
-    let elts = state.map();
-    
     // #0016: date shouldn't really be today but the time the snapshot was created
     try!(write!(&mut w, "SNAPSHOT{}", UTC::today().format("%Y%m%d")));
     
     try!(w.write(b"ELEMENTS"));
-    let num_elts = elts.len() as u64;  // #0015
+    let num_elts = state.map().len() as u64;  // #0015
     try!(w.write_u64::<BigEndian>(num_elts));
     
     let mut elt_buf = Vec::new();
     
-    for (ident, elt) in elts {
+    for (ident, elt) in state.map() {
         try!(w.write(b"ELEMENT\x00"));
         try!(w.write_u64::<BigEndian>((*ident).into()));
         
@@ -146,6 +156,16 @@ pub fn write_snapshot<T: ElementT>(state: &PartitionState<T>,
         
         let elt_sum = Sum::calculate(&elt_buf);
         try!(elt_sum.write(&mut w));
+    }
+    
+    let moved = state.moved_map();
+    if !moved.is_empty() {
+        try!(w.write(b"ELTMOVES"));
+        try!(w.write_u64::<BigEndian>(moved.len() as u64 /* #0015 */));
+        for (ident, new_ident) in moved {
+            try!(w.write_u64::<BigEndian>((*ident).into()));
+            try!(w.write_u64::<BigEndian>((*new_ident).into()));
+        }
     }
     
     // We write the checksum we kept in memory, the idea being that in-memory
