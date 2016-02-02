@@ -369,7 +369,9 @@ impl<C: ClassifierT> RepoState<C> {
             // again because `self.states` does not support simultaneous
             // mutable references to two of its elements.
             if let Some(mut source_state) = self.states.get_mut(&source_id) {
-                source_state.remove_to(id, new_id)
+                let removed = try!(source_state.remove_elt(id));
+                source_state.set_move(id, new_id);
+                Ok(removed)
             } else {
                 Err(ElementOp::not_loaded(source_id))
             }

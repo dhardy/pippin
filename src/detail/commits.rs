@@ -203,7 +203,8 @@ impl<E: ElementT> Commit<E> {
                     try!(state.replace_rc(*id, elt.clone()));
                 }
                 &EltChange::MovedOut(new_id) => {
-                    try!(state.remove_to(*id, new_id));
+                    try!(state.remove_elt(*id));
+                    state.set_move(*id, new_id);
                 }
                 &EltChange::Moved(new_id) => {
                     state.set_move(*id, new_id);

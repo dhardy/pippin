@@ -207,39 +207,29 @@ impl<E: ElementT> PartitionState<E> {
             }
         }
     }
-    /// Remove and return an element, but leave a memo that it has been moved
-    /// to another identifier (usually under another partition).
-    pub fn remove_to(&mut self, id: EltId, new_id: EltId) -> Result<Rc<E>, ElementOp> {
-        let removed = try!(self.remove_elt(id));
-        self.moved.insert(id, new_id);
-        Ok(removed)
-    }
     
-    /// Check our notes tracking moved elements, and return a new `EltId` if
-    /// we have one. Note that this method ignores stored elements.
-    pub fn is_moved(&self, id: EltId) -> Option<EltId> {
-        self.moved.get(&id).map(|id| *id) // Some(value) or None
-    }
-    /// Update notes about where an element has been moved to (like
-    /// `remove_to()` but without trying to remove the element). Used both to
-    /// notify that an already-moved element has been moved again, and when
-    /// reading stored data.
+    /// Add a note about where an element has been moved to.
     /// 
-    /// This *should* be called when an element is moved again, but probably
-    /// won't be until `locate()` is called since we don't currently track
-    /// elements' old identities.
+    /// The point of doing this is that someone looking for the element later
+    /// can find out via `is_moved(old_id)` where an element has been moved to.
+    /// 
+    /// This should be used when an element is moved to another partition,
+    /// after calling `remove_elt()` on this partition. It can also be used
+    /// when an element which was here has been moved *again* to inform of the
+    /// current name (though this is not currently easy to do, since we don't
+    /// track elements' old names).
     /// 
     /// In the case the element has been moved back to this partition, the
     /// current code may or may not give it its original identity back
     /// (depending on whether the element number part has already been
     /// changed).
-    /// 
-    /// In theory a prerequisite of calling this should be that there is
-    /// already a note that `id` was moved, but we have no reason to enforce
-    /// this so do not. `self.is_moved(id)` is the only method which checks
-    /// these notes in any case.
     pub fn set_move(&mut self, id: EltId, new_id: EltId) {
         self.moved.insert(id, new_id);
+    }
+    /// Check our notes tracking moved elements, and return a new `EltId` if
+    /// we have one. Note that this method ignores stored elements.
+    pub fn is_moved(&self, id: EltId) -> Option<EltId> {
+        self.moved.get(&id).map(|id| *id) // Some(value) or None
     }
     
     // Also see #0021 about commit creation.
