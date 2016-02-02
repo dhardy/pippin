@@ -9,7 +9,7 @@ single user-defined type. Pippin does not (currently) have a true index for
 searching its database, but does have partitioning to reduce searches to a
 smaller subset.
 
-For more, see the documentation in [src/lib.rs]() or take a look at the [examples]().
+For more, see the documentation in [src/lib.rs](src/lib.rs) or take a look at the [examples](examples/).
 
 
 Status
@@ -29,10 +29,10 @@ Some are only partially there:
 Doc
 ----
 
-The [doc]() directory contains some file-format documentation and various notes
+The [doc](doc/) directory contains some file-format documentation and various notes
 planning Pippin's development.
 
-The [doc/tickets]() directory contains a low-tech, distributed, off-line
+The [doc/tickets](doc/tickets/) directory contains a low-tech, distributed, off-line
 capable issue-tracker.
 
 
