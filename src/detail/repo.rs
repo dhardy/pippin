@@ -20,6 +20,7 @@
 use std::result;
 use std::collections::HashMap;
 use std::rc::Rc;
+use std::mem::swap;
 
 // Re-export these. We pretend these are part of the same module while keeping files smaller.
 pub use detail::repo_traits::{RepoIO, ClassifierT, ClassifyFallback, RepoT,
@@ -164,6 +165,9 @@ impl<C: ClassifierT, R: RepoT<C>> Repo<C, R> {
     /// changes from a `RepoState` but does not do low-level merge work (if
     /// required). This function does the low-level merging.
     /// 
+    /// If no merge work is required and you have your solver ready, calling
+    /// this should be roughly as efficient as calling `merge_required()`.
+    /// 
     /// TODO: clearer names, maybe move some of the work around.
     pub fn merge<S: TwoWaySolver<C::Element>>(&mut self, solver: &S) -> Result<()> {
         for (_, part) in &mut self.partitions {
@@ -181,13 +185,16 @@ impl<C: ClassifierT, R: RepoT<C>> Repo<C, R> {
     /// This operation is fairly cheap since elements are Copy-on-Write, but
     /// each partition's hash-map must still be copied.
     /// 
-    /// The operation can fail if a partition requires merging.
+    /// The operation can fail if a partition requires merging. Partitions not
+    /// loaded are omitted from the resulting `RepoState`.
     /// 
     /// TODO: a way to copy only some of the loaded partitions.
     pub fn clone_state(&self) -> result::Result<RepoState<C>, TipError> {
         let mut rs = RepoState::new(self.classifier.clone_classifier());
         for (num, part) in &self.partitions {
-            rs.add_part(*num, try!(part.tip()).clone_exact());
+            if part.is_loaded() {
+                rs.add_part(*num, try!(part.tip()).clone_exact());
+            }
         }
         Ok(rs)
     }
@@ -197,13 +204,16 @@ impl<C: ClassifierT, R: RepoT<C>> Repo<C, R> {
     /// 
     /// Returns true when any further merge work is required. In this case
     /// `merge()` should be called.
+    /// 
+    /// TODO: this operation should not fail, since failure might result in
+    /// data loss.
     pub fn merge_in(&mut self, state: RepoState<C>) -> Result<bool> {
         let mut merge_required = false;
         for (num, pstate) in state.states {
             let mut part = if let Some(p) = self.partitions.get_mut(&num) {
                 p
             } else {
-                panic!("partitions don't match!");
+                panic!("RepoState has a partition not found in the Repo");
                 //TODO: support for merging after a division/union/change of partitioning
             };
             if try!(part.push_state(pstate)) {
@@ -215,15 +225,57 @@ impl<C: ClassifierT, R: RepoT<C>> Repo<C, R> {
     
     /// Merge changes from a `RepoState` and update it to the latest state of
     /// the `Repo`.
-    pub fn sync(&mut self, _state: &mut RepoState<C>) {
-        panic!("not implemented");  // TODO
+    /// 
+    /// Returns true if further merge work is required. In this case, `merge()`
+    /// should be called on the `Repo`, then `sync()` again (until then, the
+    /// `RepoState` will have no access to any partitions with conflicts).
+    /// 
+    /// TODO: this operation should not fail, since failure might result in
+    /// data loss.
+    pub fn sync(&mut self, state: &mut RepoState<C>) -> Result<bool> {
+        let mut states = HashMap::new();
+        swap(&mut states, &mut state.states);
+        
+        let mut merge_required = false;
+        for (num, pstate) in states {
+            let mut part = if let Some(p) = self.partitions.get_mut(&num) {
+                p
+            } else {
+                panic!("RepoState has a partition not found in the Repo");
+                //TODO: support for merging after a division/union/change of partitioning
+            };
+            if let Ok(sum) = part.tip_key() {
+                if sum == pstate.statesum() {
+                    // (Presumably) no changes. Skip partition.
+                    state.add_part(num, pstate);
+                    continue;
+                }
+            }
+            if try!(part.push_state(pstate)) {
+                if part.merge_required() {
+                    merge_required = true;
+                } else {
+                    state.add_part(num, try!(part.tip()).clone_exact());
+                }
+            }
+        }
+        
+        for (num, part) in &self.partitions {
+            if !state.has_part(*num) {
+                state.add_part(*num, try!(part.tip()).clone_exact());
+            }
+        }
+        Ok(merge_required)
     }
 }
 
 /// Provides read-write access to some or all partitions in a non-blocking
-/// fashion. Has no access to historical states and is not able to load more
-/// data on demand. Has to be merged back in to the repo in order to record
-/// and synchronise edits.
+/// fashion. This does not know about any partitions not internally available,
+/// has no access to historical states and is not able to load more
+/// data on demand.
+/// 
+/// This should be merged back in to the repo in order to record and
+/// synchronise edits.
 pub struct RepoState<C: ClassifierT> {
     classifier: C,
     states: HashMap<PartId, PartitionState<C::Element>>,
@@ -237,6 +289,10 @@ impl<C: ClassifierT> RepoState<C> {
     /// Add a state from some partition
     fn add_part(&mut self, num: PartId, state: PartitionState<C::Element>) {
         self.states.insert(num, state);
+    }
+    /// Checks whether the given partition is present
+    pub fn has_part(&self, num: PartId) -> bool {
+        self.states.contains_key(&num)
     }
     
     /// Find an element that may have moved. This method returns an EltId on

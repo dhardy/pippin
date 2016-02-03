@@ -631,6 +631,9 @@ impl<E: ElementT> Partition<E> {
     /// the states and 'tips' stored internally by creating a new state from
     /// the commit, and returns true, unless the commit's state is already
     /// known, in which case this does nothing and returns false.
+    /// 
+    /// TODO: this operation should not fail, since failure might result in
+    /// data loss.
     pub fn push_commit(&mut self, commit: Commit<E>) -> Result<bool> {
         if self.states.contains(commit.statesum()) {
             return Ok(false);
@@ -653,6 +656,9 @@ impl<E: ElementT> Partition<E> {
     /// The commit is created from the state passed by finding the state's
     /// parent and comparing. If there are no changes, nothing happens and
     /// this function returns false, otherwise the function returns true.
+    /// 
+    /// TODO: this operation should not fail, since failure might result in
+    /// data loss.
     pub fn push_state(&mut self, state: PartitionState<E>) -> Result<bool> {
         // #0019: Commit::from_diff compares old and new states and code be slow.
         // #0019: Instead, we could record each alteration as it happens.
