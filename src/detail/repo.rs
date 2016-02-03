@@ -26,6 +26,7 @@ pub use detail::repo_traits::{RepoIO, ClassifierT, ClassifyFallback, RepoT,
     RepoDivideError, DummyClassifier};
 use partition::{Partition, PartitionState};
 use detail::{EltId};
+use merge::{TwoWaySolver};
 use PartId;
 use error::{Result, OtherError, TipError, ElementOp};
 
@@ -49,8 +50,7 @@ pub struct Repo<C: ClassifierT, R: RepoT<C>> {
     classifier: R,
     /// Descriptive identifier for the repository
     name: String,
-    /// List of loaded partitions, by in-memory (temporary numeric) identifier.
-    /// Identifier is TBD (TODO).
+    /// List of loaded partitions, by their `PartId`.
     partitions: HashMap<PartId, Partition<C::Element>>,
 }
 
@@ -148,6 +148,30 @@ impl<C: ClassifierT, R: RepoT<C>> Repo<C, R> {
         all
     }
     
+    /// Returns true if any merge is required. This may be required after
+    /// `merge_in()` or `sync()` is called, and can also be needed after
+    /// loading data from an external resource.
+    /// 
+    /// When this returns true, `merge()` should be called before further
+    /// action.
+    pub fn merge_required(&self) -> bool {
+        self.partitions.values().any(|p| p.merge_required())
+    }
+    
+    /// Does any merge work requried.
+    /// 
+    /// Note that this is not the same as `merge_in()`, which integrates
+    /// changes from a `RepoState` but does not do low-level merge work (if
+    /// required). This function does the low-level merging.
+    /// 
+    /// TODO: clearer names, maybe move some of the work around.
+    pub fn merge<S: TwoWaySolver<C::Element>>(&mut self, solver: &S) -> Result<()> {
+        for (_, part) in &mut self.partitions {
+            try!(part.merge(solver));
+        }
+        Ok(())
+    }
+    
     /// Get a `RepoState` with a copy of the state of all loaded partitions.
     /// 
     /// This is not required for reading elements but is the only way to edit
@@ -170,7 +194,11 @@ impl<C: ClassifierT, R: RepoT<C>> Repo<C, R> {
     
     /// Merge changes from a `RepoState` into the repo, consuming the
     /// `RepoState`.
-    pub fn merge_in(&mut self, state: RepoState<C>) -> Result<()> {
+    /// 
+    /// Returns true when any further merge work is required. In this case
+    /// `merge()` should be called.
+    pub fn merge_in(&mut self, state: RepoState<C>) -> Result<bool> {
+        let mut merge_required = false;
         for (num, pstate) in state.states {
             let mut part = if let Some(p) = self.partitions.get_mut(&num) {
                 p
@@ -179,13 +207,10 @@ impl<C: ClassifierT, R: RepoT<C>> Repo<C, R> {
                 //TODO: support for merging after a division/union/change of partitioning
             };
             if try!(part.push_state(pstate)) {
-                if part.merge_required() {
-                    panic!("merging not implemented");
-                    //TODO — but how? *Always* require merge machinery to be passed to this method?
-                }
+                if part.merge_required() { merge_required = true; }
             }
         }
-        Ok(())
+        Ok(merge_required)
     }
     
     /// Merge changes from a `RepoState` and update it to the latest state of
