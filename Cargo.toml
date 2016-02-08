@@ -10,38 +10,38 @@ authors = ["Diggory Hardy <github1@dhardy.name>"]
 [dependencies]
 
 # We need a SHA2 implementation:
-rust-crypto = "*"
+rust-crypto = "0.2"
 # possible alternatives: sha, shaman
 
 # For timestamps in commits/files.
-chrono = "*"
+chrono = "0.2"
 
 # This might make calculating "state sums" faster.
 # Not yet stable, and not essential:
 # simd = "*"
 
 # For reading and writing binary numbers with fixed endianness.
-byteorder = "*"
+byteorder = "0.4"
 
 # Data structure used internally.
-hashindexed = "*"
+hashindexed = "0.1"
 
 # Used to match paths in the 'discover' module.
-regex = "*"
+regex = "0.1"
 
 # Container seems like the best match for the job. There isn't any strong
 # reason to choose this over libstd containers however.
-vec_map = "*"
+vec_map = "0.4"
 
 # Used by `PartitionState::gen_id()` and the 'sequences' example
-rand = "*"
+rand = "0.3"
 
 # For the 'discover' module
-walkdir = "*"
+walkdir = "0.1"
 
 # Dependencies for examples below
 [dev-dependencies]
 
 # Command-line option handling for the examples:
-docopt = "*"
-rustc-serialize = "*" # for docopt
+docopt = "0.6"
+rustc-serialize = "0.3" # for docopt
