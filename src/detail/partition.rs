@@ -696,6 +696,10 @@ impl<E: ElementT> Partition<E> {
     /// maintenance operations will be carried out (e.g. creating a new
     /// snapshot when the current commit-log is long).
     /// 
+    /// Either way, this does nothing if no changes have been made and nothing
+    /// is loaded. If data has been loaded but no changes made it is still
+    /// possible that a snapshot will be written (when `fast == false`).
+    /// 
     /// Returns true if any commits were written (i.e. unsaved commits
     /// were found). Returns false if nothing needed doing.
     /// 
@@ -754,7 +758,7 @@ impl<E: ElementT> Partition<E> {
     /// Normally you can just call `write()` and let the library figure out
     /// when to write a new snapshot, though you can also call this directly.
     /// 
-    /// Fails when `tip()` fails.
+    /// Does nothing when `tip()` fails (returning `Ok(())`).
     pub fn write_snapshot(&mut self) -> Result<()> {
         // fail early if not ready:
         let tip_key = try!(self.tip_key()).clone();
@@ -770,6 +774,7 @@ impl<E: ElementT> Partition<E> {
                     remarks: Vec::new(),
                     user_fields: Vec::new(),
                 };
+                //TODO: also write classifier stuff
                 try!(write_head(&header, &mut writer));
                 try!(write_snapshot(self.states.get(&tip_key).unwrap(), &mut writer));
                 self.ss_num = ss_num;

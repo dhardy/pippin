@@ -11,16 +11,14 @@ extern crate rand;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::exit;
-use std::fs;
 
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use docopt::Docopt;
 use rand::Rng;
 use rand::distributions::{IndependentSample, Range, Normal, LogNormal};
 
-use pippin::{ElementT, PartId};
-use pippin::discover::DiscoverRepoFiles;
-use pippin::repo::*;
+use pippin::{ElementT, Partition, PartitionState, PartId};
+use pippin::discover::DiscoverPartitionFiles;
 use pippin::error::{Result, OtherError};
 
 
@@ -48,56 +46,6 @@ impl ElementT for Sequence {
             v.push(try!(r.read_f64::<LittleEndian>()));
         }
         Ok(Sequence{ v: v })
-    }
-}
-
-// —————  derived types for Repo  —————
-#[derive(Clone)]
-struct SeqClassifier;
-struct ReqRepo<R: RepoIO> {
-    csf: SeqClassifier,
-    io: R,
-}
-impl<R: RepoIO> ReqRepo<R> {
-    pub fn new(r: R) -> ReqRepo<R> {
-        ReqRepo { csf: SeqClassifier, io: r }
-    }
-}
-impl ClassifierT for SeqClassifier {
-    type Element = Sequence;
-    fn classify(&self, _elt: &Sequence) -> Option<PartId> {
-        // currently we do not partition
-        Some(PartId::from_num(1))
-    }
-    fn fallback(&self) -> ClassifyFallback {
-        ClassifyFallback::Default(PartId::from_num(1))
-    }
-}
-impl<R: RepoIO> ClassifierT for ReqRepo<R> {
-    type Element = Sequence;
-    fn classify(&self, elt: &Sequence) -> Option<PartId> { self.csf.classify(elt) }
-    fn fallback(&self) -> ClassifyFallback { self.csf.fallback() }
-}
-impl<R: RepoIO> RepoT<SeqClassifier> for ReqRepo<R> {
-    fn repo_io(&mut self) -> &mut RepoIO {
-        &mut self.io
-    }
-    fn clone_classifier(&self) -> SeqClassifier {
-        self.csf.clone()
-    }
-    fn divide(&mut self, _class: PartId) ->
-        Result<(Vec<PartId>, Vec<PartId>), RepoDivideError>
-    {
-        // currently we do not partition
-        Err(RepoDivideError::NotSubdivisible)
-    }
-    fn write_buf(&self, num: PartId, writer: &mut Write) -> Result<()> {
-        // currently nothing to write
-        Ok(())
-    }
-    fn read_buf(&mut self, num: PartId, buf: &[u8]) -> Result<()> {
-        // currently nothing to read
-        Ok(())
     }
 }
 
@@ -196,17 +144,8 @@ fn main() {
             .and_then(|d| d.decode())
             .unwrap_or_else(|e| e.exit());
     
-    let dir = PathBuf::from(match args.flag_directory {
-        Some(dir) => dir,
-        None => {
-            println!("Error: --directory option required (use --help for usage)");
-            exit(1);
-        },
-    });
-    if fs::create_dir_all(&dir).is_err() {
-        println!("Unable to create/find directory {}", dir.display());
-        exit(1);
-    }
+    let dir = PathBuf::from(args.flag_directory.expect("--directory required"));
+    assert!(dir.is_dir(), "DIR argument is not a valid directory");
     let mode = if let Some(num) = args.flag_generate {
         Mode::Generate(num)
     } else {
@@ -221,22 +160,24 @@ fn main() {
 }
 
 fn run(dir: &Path, mode: Mode, create: bool, snapshot: bool, repetitions: usize) -> Result<()> {
-    let discover = try!(DiscoverRepoFiles::from_dir(dir));
-    let rt = ReqRepo::new(discover);
-    
-    let mut repo = if create {
-        try!(Repo::create(rt, "sequences db"))
+    let io = Box::new(try!(DiscoverPartitionFiles::from_dir_basename(dir, "seqdb")));
+//     println!("Discovered: {:?}", *io);
+        
+    let mut part = if create {
+        try!(Partition::<Sequence>::create(io, "sequences db"))
     } else {
-        let mut repo = try!(Repo::open(rt));
-        try!(repo.load_all(false));
-        repo
+        //TODO: correct part_id
+        let part_id = PartId::from_num(1);
+        let mut part = Partition::<Sequence>::open(io, part_id);
+        try!(part.load(false));
+        part
     };
     
     let mut rng = rand::thread_rng();
     
     for _ in 0..repetitions {
-        let mut state = try!(repo.clone_state());
-        println!("Found {} partitions; with {} elements", state.num_parts(), state.num_elts());
+        let mut state = try!(part.tip()).clone_child();
+        println!("Found state {}; have {} elements", state.statesum(), state.num_elts());
         match mode {
             Mode::Generate(num) => {
                 match Range::new(0, 4).ind_sample(&mut rng) {
@@ -273,18 +214,18 @@ fn run(dir: &Path, mode: Mode, create: bool, snapshot: bool, repetitions: usize)
             Mode::None => {},
         }
         println!("Done modifying state");
-        try!(repo.merge_in(state));
-        try!(repo.write_all(false));
+        try!(part.push_state(state));
+        try!(part.write(false));
     }
     
     if snapshot {
-        try!(repo.write_snapshot_all());
+        try!(part.write_snapshot());
     }
     
     Ok(())
 }
 
-fn generate<R: Rng>(state: &mut RepoState<SeqClassifier>, rng: &mut R,
+fn generate<R: Rng>(state: &mut PartitionState<Sequence>, rng: &mut R,
     num: usize, generator: &Generator)
 {
     let len_range = LogNormal::new(2., 2.);

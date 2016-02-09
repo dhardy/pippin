@@ -287,8 +287,8 @@ impl DiscoverRepoFiles {
     pub fn from_dir(path: &Path) -> Result<DiscoverRepoFiles> {
         if !path.is_dir() { return PathError::err("not a directory", path.to_path_buf()); }
         
-        let ss_pat = try!(Regex::new("^(.*)pn(0|[1-9][0-9]*)-ss0|[1-9][0-9]*.pip$"));
-        let cl_pat = try!(Regex::new("^(.*)pn(0|[1-9][0-9]*)-ss0|[1-9][0-9]*-cl0|[1-9][0-9]*.piplog$"));
+        let ss_pat = try!(Regex::new("^(.*)pn(0|[1-9][0-9]*)-ss(0|[1-9][0-9]*).pip$"));
+        let cl_pat = try!(Regex::new("^(.*)pn(0|[1-9][0-9]*)-ss(0|[1-9][0-9]*)-cl(0|[1-9][0-9]*).piplog$"));
         
         let mut paths = HashMap::new();
         

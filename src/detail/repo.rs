@@ -67,7 +67,8 @@ impl<C: ClassifierT, R: RepoT<C>> Repo<C, R> {
     /// 
     /// This creates an initial 'partition' ready for use (all contents must
     /// be kept within a `Partition`).
-    pub fn create(mut classifier: R, name: String) -> Result<Repo<C, R>> {
+    pub fn create<S: Into<String>>(mut classifier: R, name: S) -> Result<Repo<C, R>> {
+        let name = name.into();
         let (num, part_io) = try!(classifier.first_part());
         let part = try!(Partition::create_part(part_io, &name, num));
         let mut partitions = HashMap::new();
@@ -83,26 +84,30 @@ impl<C: ClassifierT, R: RepoT<C>> Repo<C, R> {
     /// 
     /// This does not automatically load partition data, however it must load
     /// at least one header in order to identify the repository.
-    pub fn open(classifier: R, io: Box<RepoIO>) -> Result<Repo<C, R>> {
-        let mut part_nums = io.partitions().into_iter();
-        let num0 = if let Some(num) = part_nums.next() {
-            num
-        } else {
-            return OtherError::err("No repository files found");
+    pub fn open(mut classifier: R)-> Result<Repo<C, R>> {
+        let (name, parts) = {
+            let io = classifier.repo_io();
+            let mut part_nums = io.partitions().into_iter();
+            let num0 = if let Some(num) = part_nums.next() {
+                num
+            } else {
+                return OtherError::err("No repository files found");
+            };
+            
+            let part_io = try!(io.make_partition_io(num0));
+            let mut part0 = Partition::open(part_io, num0);
+            let name = try!(part0.get_repo_name()).to_string();
+            
+            let mut parts = HashMap::new();
+            parts.insert(num0, part0);
+            for n in part_nums {
+                let part_io = try!(io.make_partition_io(n));
+                let mut part = Partition::open(part_io, n);
+                try!(part.set_repo_name(&name));
+                parts.insert(n, part);
+            }
+            (name, parts)
         };
-        
-        let part_io = try!(io.make_partition_io(num0));
-        let mut part0 = Partition::open(part_io, num0);
-        let name = try!(part0.get_repo_name()).to_string();
-        
-        let mut parts = HashMap::new();
-        parts.insert(num0, part0);
-        for n in part_nums {
-            let part_io = try!(io.make_partition_io(n));
-            let mut part = Partition::open(part_io, n);
-            try!(part.set_repo_name(&name));
-            parts.insert(n, part);
-        }
         
         Ok(Repo{
             classifier: classifier,
@@ -119,7 +124,7 @@ impl<C: ClassifierT, R: RepoT<C>> Repo<C, R> {
     
     // TODO: some way to iterate or access partitions?
     
-    /// Convenience function to call `Partition::load(all_history)` on all partitions.
+    /// Call `Partition::load(all_history)` on all partitions.
     pub fn load_all(&mut self, all_history: bool) -> Result<()> {
         for (_, part) in &mut self.partitions {
             try!(part.load(all_history));
@@ -127,7 +132,7 @@ impl<C: ClassifierT, R: RepoT<C>> Repo<C, R> {
         Ok(())
     }
     
-    /// Convenience function to call `Partition::write(fast)` on all partitions.
+    /// Call `Partition::write(fast)` on all loaded partitions.
     pub fn write_all(&mut self, fast: bool) -> Result<()> {
         for (_, part) in &mut self.partitions {
             try!(part.write(fast));
@@ -135,7 +140,15 @@ impl<C: ClassifierT, R: RepoT<C>> Repo<C, R> {
         Ok(())
     }
     
-    /// Convenience function to call `Partition::unload(force)` on all partitions.
+    /// Call `Partition::write_snapshot()` on all loaded partitions.
+    pub fn write_snapshot_all(&mut self) -> Result<()> {
+        for (_, part) in &mut self.partitions {
+            try!(part.write_snapshot());
+        }
+        Ok(())
+    }
+    
+    /// Call `Partition::unload(force)` on all partitions.
     /// 
     /// If `force == true`, all data is unloaded (without saving any changes)
     /// and `true` is returned. If `force == false`, partitions with no unsaved
@@ -293,6 +306,10 @@ impl<C: ClassifierT> RepoState<C> {
     /// Checks whether the given partition is present
     pub fn has_part(&self, num: PartId) -> bool {
         self.states.contains_key(&num)
+    }
+    /// Counts the number of partitions represented
+    pub fn num_parts(&self) -> usize {
+        self.states.len()
     }
     
     /// Find an element that may have moved. This method returns an EltId on

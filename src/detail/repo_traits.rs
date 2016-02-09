@@ -126,8 +126,8 @@ pub trait RepoT<C: ClassifierT+Sized>: ClassifierT {
     /// It is allowed for this function to panic once there is more than one
     /// classification available.
     /// 
-    /// The default implementation uses number 1 and calls `add_partition` and
-    /// `make_partition_io`.
+    /// The default implementation uses `PartId::from_num(1)` and calls
+    /// `add_partition` and `make_partition_io`.
     fn first_part(&mut self) -> Result<(PartId, Box<PartitionIO>)> {
         let num = PartId::from_num(1);
         let mut io = self.repo_io();
