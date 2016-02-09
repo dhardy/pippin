@@ -279,7 +279,7 @@ impl PartitionIO for DiscoverPartitionFiles {
 pub struct DiscoverRepoFiles {
     // top directory
     dir: PathBuf,
-    // for each partition number, a path and base-name
+    // for each partition number, a path to the directory and a base-name
     partitions: HashMap<PartId, (PathBuf, String)>,
 }
 impl DiscoverRepoFiles {
@@ -308,8 +308,15 @@ impl DiscoverRepoFiles {
             if let Some(caps) = caps {
                 let num: u64 = try!(caps.at(2).expect("match should yield capture").parse());
                 let num = PartId::from_num(num);    //TODO: verify first for better error handling?
-                let basename = caps.at(1).expect("match should yield capture");
-                paths.insert(num, (entry.path().to_path_buf(), basename.to_string()));
+                // Ignore if we already have this partition number or have other error
+                if !paths.contains_key(&num) {
+                    let basename = format!("{}pn{}",
+                        caps.at(1).expect("match should yield capture"),
+                        caps.at(2).unwrap());
+                    if let Some(dir) = entry.path().parent() {
+                        paths.insert(num, (dir.to_path_buf(), basename));
+                    }
+                }
             }
         }
         
