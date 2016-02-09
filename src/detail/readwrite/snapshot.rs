@@ -120,6 +120,8 @@ pub fn read_snapshot<T: ElementT>(reader: &mut Read, part_id: PartId) ->
         return ReadError::err("checksum mismatch", pos, (0, 32));
     }
     
+    trace!("Read snapshot (partition {} with {} elements): {}",
+        part_id.into_num(), num_elts, state.statesum());
     Ok(state)
 }
 
@@ -130,6 +132,9 @@ pub fn read_snapshot<T: ElementT>(reader: &mut Read, part_id: PartId) ->
 pub fn write_snapshot<T: ElementT>(state: &PartitionState<T>,
     writer: &mut Write) -> Result<()>
 {
+    trace!("Writing snapshot (partition {} with {} elements): {}",
+        state.part_id().into_num(), state.num_elts(), state.statesum());
+    
     // A writer which calculates the checksum of what was written:
     let mut w = sum::HashWriter::new256(writer);
     

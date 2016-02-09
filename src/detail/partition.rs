@@ -232,6 +232,9 @@ impl<E: ElementT> Partition<E> {
         part_id: PartId) -> Result<Partition<E>>
     {
         try!(validate_repo_name(name));
+        let ss = 0;
+        info!("Creating partiton {}; writing snapshot {}", part_id.into_num(), ss);
+        
         let state = PartitionState::new(part_id);
         let header = FileHeader {
             ftype: FileType::Snapshot(0),
@@ -240,7 +243,7 @@ impl<E: ElementT> Partition<E> {
             remarks: Vec::new(),
             user_fields: Vec::new(),
         };
-        if let Some(mut writer) = try!(io.new_ss(0)) {
+        if let Some(mut writer) = try!(io.new_ss(ss)) {
             try!(write_head(&header, &mut writer));
             try!(write_snapshot(&state, &mut writer));
         } else {
@@ -286,6 +289,7 @@ impl<E: ElementT> Partition<E> {
     /// let partition = Partition::<String>::open(Box::new(io), part_id);
     /// ```
     pub fn open(io: Box<PartitionIO>, part_id: PartId) -> Partition<E> {
+        trace!("Opening partition {}", part_id.into_num());
         Partition {
             io: io,
             repo_name: "".to_string() /*temporary value; checked before usage elsewhere*/,
@@ -354,6 +358,7 @@ impl<E: ElementT> Partition<E> {
     /// tip (latest state), or a graph with multiple tips (requiring a merge
     /// operation).
     pub fn load(&mut self, all_history: bool) -> Result<()> {
+        info!("Loading partition {} data", self.part_id.into_num());
         let ss_len = self.io.ss_len();
         if ss_len == 0 {
             return make_io_err(ErrorKind::NotFound, "no snapshot files found");
@@ -488,6 +493,7 @@ impl<E: ElementT> Partition<E> {
     /// Returns true if data was unloaded, false if not (implies `!force` and 
     /// that unsaved changes exist).
     pub fn unload(&mut self, force: bool) -> bool {
+        trace!("Unloading partition {} data", self.part_id.into_num());
         if force || self.unsaved.is_empty() {
             self.states.clear();
             self.tips.clear();
@@ -681,6 +687,7 @@ impl<E: ElementT> Partition<E> {
     // Add a paired commit and state.
     // Assumptions: checksums match and parent state is present.
     fn add_pair(&mut self, commit: Commit<E>, state: PartitionState<E>) {
+        trace!("Partition {}: new commit {}", self.part_id.into_num(), commit.statesum());
         self.ss_policy.add_commits(1);
         self.ss_policy.add_edits(commit.num_changes());
         self.unsaved.push_back(commit);
@@ -709,6 +716,9 @@ impl<E: ElementT> Partition<E> {
         // First step: write commits
         let has_changes = !self.unsaved.is_empty();
         if has_changes {
+            trace!("Partition {}: writing {} commits to log",
+                self.part_id.into_num(), self.unsaved.len());
+            
             // #0012: extend existing logs instead of always writing a new log file.
             let mut cl_num = self.io.ss_cl_len(self.ss_num);
             loop {
@@ -767,6 +777,9 @@ impl<E: ElementT> Partition<E> {
         loop {
             // Try to get a writer for this snapshot number:
             if let Some(mut writer) = try!(self.io.new_ss(ss_num)) {
+                info!("Partition {}: writing snapshot {}: {}",
+                    self.part_id.into_num(), ss_num, tip_key);
+                
                 let header = FileHeader {
                     ftype: FileType::Snapshot(0),
                     name: self.repo_name.clone(),

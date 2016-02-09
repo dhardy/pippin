@@ -69,6 +69,7 @@ impl<C: ClassifierT, R: RepoT<C>> Repo<C, R> {
     /// be kept within a `Partition`).
     pub fn create<S: Into<String>>(mut classifier: R, name: S) -> Result<Repo<C, R>> {
         let name = name.into();
+        info!("Creating repository: {}", name);
         let (num, part_io) = try!(classifier.first_part());
         let part = try!(Partition::create_part(part_io, &name, num));
         let mut partitions = HashMap::new();
@@ -109,6 +110,7 @@ impl<C: ClassifierT, R: RepoT<C>> Repo<C, R> {
             (name, parts)
         };
         
+        info!("Opening repository with {} partitions: {}", parts.len(), name);
         Ok(Repo{
             classifier: classifier,
             name: name,

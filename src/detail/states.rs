@@ -58,6 +58,8 @@ impl<E: ElementT> PartitionState<E> {
     pub fn statesum(&self) -> &Sum { &self.statesum }
     /// Get the parent's sum
     pub fn parent(&self) -> &Sum { &self.parent }
+    /// Get the partition identifier
+    pub fn part_id(&self) -> PartId { self.part_id }
     
     /// Get access to the map holding elements
     pub fn map(&self) -> &EltMap<E> {

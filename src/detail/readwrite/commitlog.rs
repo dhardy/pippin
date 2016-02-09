@@ -146,6 +146,7 @@ pub fn read_log<E: ElementT>(reader_: &mut Read, receiver: &mut CommitReceiver<E
             return ReadError::err("checksum mismatch", pos, (0, 32));
         }
         
+        trace!("Read commit ({} changes): {}", changes.len(), commit_sum);
         let cont = receiver.receive(Commit::new(commit_sum, vec![parent_sum], changes));
         if !cont { break; }
     }
@@ -167,6 +168,9 @@ pub fn start_log(writer: &mut Write) -> Result<()> {
 
 /// Write a single commit to a stream
 pub fn write_commit<E: ElementT>(commit: &Commit<E>, writer: &mut Write) -> Result<()> {
+    trace!("Writing commit ({} changes): {}",
+        commit.num_changes(), commit.statesum());
+    
     // A writer which calculates the checksum of what was written:
     let mut w = sum::HashWriter::new256(writer);
     
