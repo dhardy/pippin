@@ -7,6 +7,9 @@ extern crate rustc_serialize;
 extern crate docopt;
 extern crate pippin;
 extern crate rand;
+#[macro_use]
+extern crate log;
+extern crate env_logger;
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -140,6 +143,8 @@ enum Mode {
 }
 
 fn main() {
+    env_logger::init().unwrap();
+    
     let args: Args = Docopt::new(USAGE)
             .and_then(|d| d.decode())
             .unwrap_or_else(|e| e.exit());

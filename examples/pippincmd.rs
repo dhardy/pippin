@@ -9,6 +9,9 @@
 extern crate pippin;
 extern crate rustc_serialize;
 extern crate docopt;
+#[macro_use]
+extern crate log;
+extern crate env_logger;
 
 use std::{fs, env, fmt, result};
 use std::process::{exit, Command};
@@ -106,6 +109,8 @@ enum Operation {
 }
 
 fn main() {
+    env_logger::init().unwrap();
+    
     let args: Args = Docopt::new(USAGE)
                             .and_then(|dopt| dopt.decode())
                             .unwrap_or_else(|e| e.exit());

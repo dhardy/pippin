@@ -42,6 +42,7 @@ impl DiscoverPartitionFiles {
     /// part of the file name, common to all files of this partition.
     pub fn from_dir_basename(path: &Path, basename: &str) -> Result<DiscoverPartitionFiles> {
         if !path.is_dir() { return PathError::err("not a directory", path.to_path_buf()); }
+        info!("Scanning for partition '{}...' files in: {}", basename, path.display());
         // Do basic validation of basename. As of now I am not sure exactly
         // which constraints it should conform to.
         if basename.contains('/') || basename.contains('\\') {
@@ -62,25 +63,26 @@ impl DiscoverPartitionFiles {
                 None => { /* ignore non-unicode names */ continue; },
             };
             if fname[0..blen] != *basename {
-//                 println!("ignoring (does not match basename): {}", fname);
+                trace!("Ignoring file (does not match basename): {}", fname);
                 continue;   // no match
             }
             let suffix = &fname[blen..];
             if let Some(caps) = ss_pat.captures(suffix) {
                 let ss: usize = try!(caps.at(1).expect("match should yield capture").parse());
+                trace!("Adding snapshot {}: {}", ss, entry.path().display());
                 if let Some(_replaced) = snapshots.insert(ss, (entry.path(), VecMap::new())) {
                     panic!("multiple files map to same basname/number");
                 }
             } else if let Some(caps) = cl_pat.captures(suffix) {
                 let ss: usize = try!(caps.at(1).expect("match should yield capture").parse());
                 let cl: usize = try!(caps.at(2).expect("match should yield capture").parse());
+                trace!("Adding snapshot {} log {}: {}", ss, cl, entry.path().display());
                 let s_vec = &mut snapshots.entry(ss).or_insert_with(|| (PathBuf::new(), VecMap::new()));
                 if let Some(_replaced) = s_vec.1.insert(cl, entry.path()) {
                     panic!("multiple files map to same basname/number");
                 }
             } else {
-//                 println!("ignoring (does not match regex): {}", fname);
-                // no match; ignore
+                trace!("Ignoring file (does not match regex): {}", fname);
             }
         }
         
@@ -286,6 +288,7 @@ impl DiscoverRepoFiles {
     /// Discover all repository files in some directory (including recursively).
     pub fn from_dir(path: &Path) -> Result<DiscoverRepoFiles> {
         if !path.is_dir() { return PathError::err("not a directory", path.to_path_buf()); }
+        info!("Scanning for repo files in: {}", path.display());
         
         let ss_pat = try!(Regex::new("^(.*)pn(0|[1-9][0-9]*)-ss(0|[1-9][0-9]*).pip$"));
         let cl_pat = try!(Regex::new("^(.*)pn(0|[1-9][0-9]*)-ss(0|[1-9][0-9]*)-cl(0|[1-9][0-9]*).piplog$"));
@@ -314,6 +317,7 @@ impl DiscoverRepoFiles {
                         caps.at(1).expect("match should yield capture"),
                         caps.at(2).unwrap());
                     if let Some(dir) = entry.path().parent() {
+                        trace!("Adding partition {}/{}...", dir.display(), basename);
                         paths.insert(num, (dir.to_path_buf(), basename));
                     }
                 }

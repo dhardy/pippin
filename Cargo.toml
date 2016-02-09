@@ -39,9 +39,15 @@ rand = "0.3"
 # For the 'discover' module
 walkdir = "0.1"
 
+# Logging
+log = "0.3"
+
 # Dependencies for examples below
 [dev-dependencies]
 
 # Command-line option handling for the examples:
 docopt = "0.6"
 rustc-serialize = "0.3" # for docopt
+
+# Logging (actually displaying the logs)
+env_logger = "0.3"

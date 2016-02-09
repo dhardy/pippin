@@ -7,6 +7,9 @@
 
 extern crate pippin;
 extern crate vec_map;
+#[macro_use]
+extern crate log;
+extern crate env_logger;
 
 use std::io::{Read, Write, ErrorKind};
 use std::any::Any;
@@ -79,6 +82,8 @@ impl PartitionIO for PartitionStreams {
 
 #[test]
 fn create_small() {
+    env_logger::init().unwrap();
+    
     let part_streams = PartitionStreams { ss: VecMap::new() };
     let part_id = PartId::from_num(56);
     let mut part = Partition::<String>::create_part(box part_streams,

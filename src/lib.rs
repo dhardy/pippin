@@ -82,6 +82,8 @@ extern crate regex;
 extern crate vec_map;
 extern crate rand;
 extern crate walkdir;
+#[macro_use]
+extern crate log;
 
 // Redundantly re-export some of the main types here:
 pub use repo::{Repo, RepoIO, RepoT, ClassifierT, RepoState};
