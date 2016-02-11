@@ -85,10 +85,9 @@ impl EltId {
     /// Get the next element identifier, wrapping to zero if necessary, but
     /// keeping the same partition identifier.
     pub fn next_elt(self) -> EltId {
-        EltId{ id:
-            (self.id & 0xFFFF_FFFF_FF00_0000) +
-                (self.id & 0xFF_FFFF + 1) & 0xFF_FFFF
-        }
+        let mut num = self.elt_num() + 1;
+        if num > Self::max() { num = 0; }
+        self.part_id().elt_id(num)
     }
     /// Maximum value which `elt_num()` can return and can be passed to
     /// `PartId::elt_id()`.
