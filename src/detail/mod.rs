@@ -7,6 +7,7 @@
 pub use self::element::{PartId, EltId, ElementT};
 pub use self::commits::{Commit, CommitQueue, LogReplay, EltChange};
 pub use self::sum::Sum;
+pub use self::sum::BYTES as SUM_BYTES;
 pub use self::repo::{Repo, RepoState};
 
 pub mod readwrite;

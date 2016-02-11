@@ -12,6 +12,7 @@ use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
 use PartId;
 use detail::readwrite::{sum, fill};
+use detail::SUM_BYTES;
 use error::{Result, ArgError, ReadError, make_io_err};
 use util::rtrim;
 
@@ -172,14 +173,12 @@ pub fn read_head(r: &mut io::Read) -> Result<FileHeader> {
         pos += block.len();
     }
     
-    // Read checksum (assume SHA-256)
-    let mut buf32 = [0u8; 32];
-    try!(fill(&mut sum_reader.inner(), &mut buf32, pos));
-    assert_eq!( sum_reader.digest().output_bytes(), 32 );
-    let mut sum32 = [0u8; 32];
-    sum_reader.digest().result(&mut sum32);
-    if buf32 != sum32 {
-        return ReadError::err("header checksum invalid", pos, (0, 32));
+    // Read checksum:
+    let sum = sum_reader.sum();
+    let mut r = sum_reader.into_inner();
+    try!(fill(&mut r, &mut buf[0..SUM_BYTES], pos));
+    if !sum.eq(&buf[0..SUM_BYTES]) {
+        return ReadError::err("header checksum invalid", pos, (0, SUM_BYTES));
     }
     
     Ok(header)
@@ -251,11 +250,8 @@ pub fn write_head(header: &FileHeader, writer: &mut io::Write) -> Result<()> {
     try!(w.write(&SUM_SHA256));
     
     // Write the checksum of everything above:
-    assert_eq!( w.digest().output_bytes(), 32 );
-    let mut sum32 = [0u8; 32];
-    w.digest().result(&mut sum32);
-    let w2 = w.into_inner();
-    try!(w2.write(&sum32));
+    let sum = w.sum();
+    try!(sum.write(&mut w.into_inner()));
     
     fn pad<W: Write>(w: &mut W, n1: usize) -> Result<()> {
         let zeros = [0u8; 16];
@@ -283,12 +279,11 @@ fn read_header() {
                 y pointless text\
                 H123456789ABCDEF\
                 HSUM SHA-2 256\x00\x00\
-                \xa1Ew\xb2OQ\x19\xf4\xa43\xf4\xaf\x8eUq\x1d\
-                S\xa1\xebP\x052J\xf2X\xe1\xff:\xfa\xd0\xab\x87";
+                a\xfc\xb5\x11p\x00\x92\xf7N\x11d'z\x1a\x08\x92";
     
-//     use ::Sum;
-//     let sum = Sum::calculate(&head[0..head.len() - 32]);
-//     println!("Checksum: '{}'", sum.byte_string());
+    use ::Sum;
+    let sum = Sum::calculate(&head[0..head.len() - SUM_BYTES]);
+    println!("Checksum: '{}'", sum.byte_string());
     let header = read_head(&mut &head[..]).unwrap();
     assert_eq!(header.name, "test AbC αβγ");
     assert_eq!(header.remarks, vec!["Remark 12345678", "REM  completely pointless text"]);
@@ -315,9 +310,8 @@ fn write_header() {
             Q2U rsei noasr a\
             uyv 10()% xovn\x00\x00\
             HSUM SHA-2 256\x00\x00\
-            &\x97\xcdG\x0f\xb1|T\xde:=\xc0y~B[\
-            }Iw\xfbm\xf7\x83#\xfatu\x1e\x879\x12\x12";
-//     use ::util::ByteFormatter;
-//     println!("Checksum: '{}'", ByteFormatter::from(&buf[buf.len()-32..buf.len()]));;
+            \x14\xa2\xbaO\x83\xabo\xfc\x96\x8e\xc7\xd6uh]\x1b";
+    use ::util::ByteFormatter;
+    println!("Checksum: '{}'", ByteFormatter::from(&buf[buf.len()-SUM_BYTES..buf.len()]));;
     assert_eq!(&buf[..], &expected[..]);
 }

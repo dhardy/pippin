@@ -10,12 +10,12 @@ use std::io::{Read, Write};
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use crypto::digest::Digest;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
 use detail::readwrite::{sum, fill};
 use detail::{Commit, EltChange};
 use {ElementT, Sum};
+use detail::SUM_BYTES;
 use error::{Result, ReadError};
 
 /// Implement this to use read_log().
@@ -55,9 +55,9 @@ pub fn read_log<E: ElementT>(reader_: &mut Read, receiver: &mut CommitReceiver<E
         // #0016: timestamp
         pos += 16;
         
-        try!(fill(&mut r, &mut buf[0..32], pos));
-        let parent_sum = Sum::load(&buf);
-        pos += 32;
+        try!(fill(&mut r, &mut buf[0..SUM_BYTES], pos));
+        let parent_sum = Sum::load(&buf[0..SUM_BYTES]);
+        pos += SUM_BYTES;
         
         try!(fill(&mut r, &mut buf[0..16], pos));
         if buf[0..8] != *b"ELEMENTS" {
@@ -108,11 +108,11 @@ pub fn read_log<E: ElementT>(reader_: &mut Read, receiver: &mut CommitReceiver<E
                     }
                     
                     let data_sum = Sum::calculate(&data);
-                    try!(fill(&mut r, &mut buf[0..32], pos));
-                    if !data_sum.eq(&buf[0..32]) {
-                        return ReadError::err("element checksum mismatch", pos, (0, 32));
+                    try!(fill(&mut r, &mut buf[0..SUM_BYTES], pos));
+                    if !data_sum.eq(&buf[0..SUM_BYTES]) {
+                        return ReadError::err("element checksum mismatch", pos, (0, SUM_BYTES));
                     }
-                    pos += 32;
+                    pos += SUM_BYTES;
                     
                     let elt = Rc::new(try!(E::from_vec(data)));
                     match change_t {
@@ -133,17 +133,15 @@ pub fn read_log<E: ElementT>(reader_: &mut Read, receiver: &mut CommitReceiver<E
             changes.insert(elt_id, change);
         }
         
-        try!(fill(&mut r, &mut buf[0..32], pos));
-        let commit_sum = Sum::load(&buf);
-        pos += 32;
+        try!(fill(&mut r, &mut buf[0..SUM_BYTES], pos));
+        let commit_sum = Sum::load(&buf[0..SUM_BYTES]);
+        pos += SUM_BYTES;
         
-        assert_eq!( r.digest().output_bytes(), 32 );
-        let mut sum32 = [0u8; 32];
-        r.digest().result(&mut sum32);
+        let sum = r.sum();
         reader = r.into_inner();
-        try!(fill(&mut reader, &mut buf[0..32], pos));
-        if sum32 != buf[0..32] {
-            return ReadError::err("checksum mismatch", pos, (0, 32));
+        try!(fill(&mut reader, &mut buf[0..SUM_BYTES], pos));
+        if !sum.eq(&buf[0..SUM_BYTES]) {
+            return ReadError::err("checksum invalid", pos, (0, SUM_BYTES));
         }
         
         trace!("Read commit ({} changes): {}", changes.len(), commit_sum);
@@ -218,11 +216,8 @@ pub fn write_commit<E: ElementT>(commit: &Commit<E>, writer: &mut Write) -> Resu
     
     try!(commit.statesum().write(&mut w));
     
-    assert_eq!( w.digest().output_bytes(), 32 );
-    let mut sum32 = [0u8; 32];
-    w.digest().result(&mut sum32);
-    let w2 = w.into_inner();
-    try!(w2.write(&sum32));
+    let sum = w.sum();
+    try!(sum.write(&mut w.into_inner()));
     
     Ok(())
 }
@@ -234,13 +229,13 @@ fn commit_write_read(){
     // Note that we can make up completely nonsense commits here. Element
     // checksums must still match but state sums don't need to since we won't
     // be reproducing states. So lets make some fun sums!
-    let mut v: Vec<u8> = (0u8..).take(32).collect();
+    let mut v: Vec<u8> = (0u8..).take(SUM_BYTES).collect();
     let seq = Sum::load(&v);
-    v = (0u8..).map(|x| x.wrapping_mul(x)).take(32).collect();
+    v = (0u8..).map(|x| x.wrapping_mul(x)).take(SUM_BYTES).collect();
     let squares = Sum::load(&v);
-    v = (1u8..).map(|x| x.wrapping_add(7u8).wrapping_mul(3u8)).take(32).collect();
+    v = (1u8..).map(|x| x.wrapping_add(7u8).wrapping_mul(3u8)).take(SUM_BYTES).collect();
     let nonsense = Sum::load(&v);
-    v = (1u8..).map(|x| x.wrapping_mul(x).wrapping_add(5u8.wrapping_mul(x)).wrapping_add(11u8)).take(32).collect();
+    v = (1u8..).map(|x| x.wrapping_mul(x).wrapping_add(5u8.wrapping_mul(x)).wrapping_add(11u8)).take(SUM_BYTES).collect();
     let quadr = Sum::load(&v);
     
     let p = PartId::from_num(1681);

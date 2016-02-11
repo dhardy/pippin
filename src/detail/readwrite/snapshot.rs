@@ -6,12 +6,12 @@
 
 use std::io::{Read, Write};
 use chrono::UTC;
-use crypto::digest::Digest;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
 use detail::readwrite::{sum, fill};
 use partition::PartitionState;
 use {ElementT, PartId, Sum};
+use detail::SUM_BYTES;
 use error::{Result, ReadError};
 
 /// Read a snapshot of a set of elements from a stream.
@@ -72,11 +72,11 @@ pub fn read_snapshot<T: ElementT>(reader: &mut Read, part_id: PartId) ->
         }
         
         let elt_sum = Sum::calculate(&data);
-        try!(fill(&mut r, &mut buf[0..32], pos));
-        if !elt_sum.eq(&buf[0..32]) {
-            return ReadError::err("element checksum mismatch", pos, (0, 32));
+        try!(fill(&mut r, &mut buf[0..SUM_BYTES], pos));
+        if !elt_sum.eq(&buf[0..SUM_BYTES]) {
+            return ReadError::err("element checksum mismatch", pos, (0, SUM_BYTES));
         }
-        pos += 32;
+        pos += SUM_BYTES;
         
         let elt = try!(T::from_vec(data));
         try!(state.insert_elt(ident, elt));
@@ -105,19 +105,17 @@ pub fn read_snapshot<T: ElementT>(reader: &mut Read, part_id: PartId) ->
     }
     pos += 8;
     
-    try!(fill(&mut r, &mut buf[0..32], pos));
-    if !state.statesum().eq(&buf[0..32]) {
-        return ReadError::err("state checksum mismatch", pos, (0, 32));
+    try!(fill(&mut r, &mut buf[0..SUM_BYTES], pos));
+    if !state.statesum().eq(&buf[0..SUM_BYTES]) {
+        return ReadError::err("state checksum mismatch", pos, (0, SUM_BYTES));
     }
-    pos += 32;
+    pos += SUM_BYTES;
     
-    assert_eq!( r.digest().output_bytes(), 32 );
-    let mut sum32 = [0u8; 32];
-    r.digest().result(&mut sum32);
-    let mut r2 = r.into_inner();
-    try!(fill(&mut r2, &mut buf[0..32], pos));
-    if sum32 != buf[0..32] {
-        return ReadError::err("checksum mismatch", pos, (0, 32));
+    let sum = r.sum();
+    let mut r = r.into_inner();
+    try!(fill(&mut r, &mut buf[0..SUM_BYTES], pos));
+    if !sum.eq(&buf[0..SUM_BYTES]) {
+        return ReadError::err("checksum invalid", pos, (0, SUM_BYTES));
     }
     
     trace!("Read snapshot (partition {} with {} elements): {}",
@@ -184,11 +182,8 @@ pub fn write_snapshot<T: ElementT>(state: &PartitionState<T>,
     try!(state.statesum().write(&mut w));
     
     // Write the checksum of everything above:
-    assert_eq!( w.digest().output_bytes(), 32 );
-    let mut sum32 = [0u8; 32];
-    w.digest().result(&mut sum32);
-    let w2 = w.into_inner();
-    try!(w2.write(&sum32));
+    let sum = w.sum();
+    try!(sum.write(&mut w.into_inner()));
     
     Ok(())
 }

@@ -10,22 +10,24 @@ use crypto::digest::Digest;
 // use crypto::sha2::Sha256;
 use crypto::blake2b::Blake2b;
 
+use detail::Sum;
+use detail::SUM_BYTES as BYTES;
+
+
 // Internal type / constructor for easy configuration.
 // type Hasher = Sha256;
 type Hasher = Blake2b;
 fn mk_hasher() -> Hasher {
 //     Hasher::new()
-    Hasher::new(32)
+    Hasher::new(BYTES)
 }
-
-use detail::Sum;
 
 impl Sum {
     /// Calculate from some data
     pub fn calculate(data: &[u8]) -> Sum {
         let mut hasher = mk_hasher();
         hasher.input(&data);
-        let mut buf = [0u8; 32];
+        let mut buf = [0u8; BYTES];
         assert_eq!(hasher.output_bytes(), buf.len());
         hasher.result(&mut buf);
         Sum::load(&buf)
@@ -51,6 +53,13 @@ impl<R: Read> HashReader<R> {
 impl<R: Read> HashReader<R> {
     /// Get the hasher's Digest interface
     pub fn digest(&mut self) -> &mut Digest { &mut self.hasher }
+    /// Make a Sum from the digest
+    pub fn sum(&mut self) -> Sum {
+        let mut buf = [0u8; BYTES];
+        assert_eq!(self.hasher.output_bytes(), buf.len());
+        self.hasher.result(&mut buf);
+        Sum::load(&buf)
+    }
     
     /// Get the inner reader
     pub fn inner(&mut self) -> &mut R { &mut self.inner }
@@ -83,6 +92,13 @@ impl<W: Write> HashWriter<W> {
 impl<W: Write> HashWriter<W> {
     /// Get the hasher's Digest interface
     pub fn digest(&mut self) -> &mut Digest { &mut self.hasher }
+    /// Make a Sum from the digest
+    pub fn sum(&mut self) -> Sum {
+        let mut buf = [0u8; BYTES];
+        assert_eq!(self.hasher.output_bytes(), buf.len());
+        self.hasher.result(&mut buf);
+        Sum::load(&buf)
+    }
     
     /// Get the inner reader
     pub fn inner(&mut self) -> &mut W { &mut self.inner }

@@ -11,6 +11,12 @@ use std::fmt;
 use ::util::ByteFormatter;
 
 
+/// Number of bytes in a Sum.
+// #0018: it might be possible to move this inside Sum in future versions of Rust
+pub const BYTES: usize = 16;
+const BYTES_U8: u8 = BYTES as u8;
+
+
 // #0018: when simd is stable, it could be used
 // use simd::u8x16;
 /// A convenient way to manage and manipulate a checksum.
@@ -19,20 +25,21 @@ use ::util::ByteFormatter;
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct Sum {
 //     s1: u8x16, s2: u8x16
-    s: [u8; 32]
+    s: [u8; BYTES]
 }
 
 impl Sum {
+    
     /// A "sum" containing all zeros
     pub fn zero() -> Sum {
 //         Sum { s1: u8x16::splat(0), s2: u8x16::splat(0) }
-        Sum { s: [0u8; 32] }
+        Sum { s: [0u8; BYTES] }
     }
     
     /// True if sum equals that in a buffer
     pub fn eq(&self, arr: &[u8]) -> bool {
-        assert_eq!(arr.len(), 32);
-        for i in 0..32 {
+        assert_eq!(arr.len(), BYTES);
+        for i in 0..BYTES {
             if self.s[i] != arr[i] { return false; }
         }
         return true;
@@ -40,11 +47,11 @@ impl Sum {
     
     /// Load from a u8 array
     pub fn load(arr: &[u8]) -> Sum {
-        assert_eq!(arr.len(), 32);
+        assert_eq!(arr.len(), BYTES);
 //         Sum { s1: u8x16::load(&arr, 0), s2: u8x16::load(&arr, 16) }
         // #0018 : how to do a fixed-size array copy?
         let mut result = Sum::zero();
-        for i in 0..32 {
+        for i in 0..BYTES {
             result.s[i] = arr[i];
         }
         result
@@ -71,11 +78,11 @@ impl Sum {
     /// of chars (i.e. between every byte).
     pub fn as_string(&self, separate_pairs: bool) -> String {
         let step = if separate_pairs { 3 } else { 2 };
-        let mut buf = vec![b' '; 32 * step];
-        for i in 0..32 {
+        let mut buf = vec![b' '; BYTES * step];
+        for i in 0..BYTES {
             let byte = self.s[i];
-            buf[i*step] = HEX_CHARS[(byte / 16) as usize];
-            buf[i*step + 1] = HEX_CHARS[(byte % 16) as usize];
+            buf[i*step] = HEX_CHARS[(byte / BYTES_U8) as usize];
+            buf[i*step + 1] = HEX_CHARS[(byte % BYTES_U8) as usize];
         }
         String::from_utf8(buf).unwrap()
     }
@@ -93,20 +100,20 @@ impl Sum {
     /// all letters of the string before calling this function.
     // #0019: I'm sure this function could be faster (in particular, by not using write!())
     pub fn matches_string(&self, string: &[u8]) -> bool {
-        if string.len() > 2 * 32 {
+        if string.len() > 2 * BYTES {
             return false;
         }
         let mut buf = [0u8; 2];
         for i in 0..string.len() / 2 /*note: rounds down*/ {
             let byte = self.s[i];
-            buf[0] = HEX_CHARS[(byte / 16) as usize];
-            buf[1] = HEX_CHARS[(byte % 16) as usize];
+            buf[0] = HEX_CHARS[(byte / BYTES_U8) as usize];
+            buf[1] = HEX_CHARS[(byte % BYTES_U8) as usize];
             if string[i*2..i*2+2] != buf[..] {
                 return false;
             }
         }
         if string.len() % 2 == 1 {
-            buf[0] = HEX_CHARS[(self.s[string.len() / 2] / 16) as usize];
+            buf[0] = HEX_CHARS[(self.s[string.len() / 2] / BYTES_U8) as usize];
             if string[string.len() - 1] != buf[0] {
                 return false;
             }
@@ -122,7 +129,7 @@ impl<'a> ops::BitXor for &'a Sum {
     fn bitxor(self, rhs: &'a Sum) -> Sum {
         // #0018: optimise XOR operation
         let mut result = Sum::zero();
-        for i in 0..32 {
+        for i in 0..BYTES {
             result.s[i] = self.s[i] ^ rhs.s[i];
         }
         result
