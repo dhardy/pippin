@@ -139,24 +139,16 @@ impl<'a> ops::BitXor for &'a Sum {
 impl fmt::Display for Sum {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{:02X}{:02X}{:02X}{:02X}{:02X}{:02X}{:02X}{:02X}\
-            {:02X}{:02X}{:02X}{:02X}{:02X}{:02X}{:02X}{:02X}\
-            {:02X}{:02X}{:02X}{:02X}{:02X}{:02X}{:02X}{:02X}\
             {:02X}{:02X}{:02X}{:02X}{:02X}{:02X}{:02X}{:02X}",
             self.s[ 0], self.s[ 1], self.s[ 2], self.s[ 3], self.s[ 4], self.s[ 5], self.s[ 6], self.s[ 7],
-            self.s[ 8], self.s[ 9], self.s[10], self.s[11], self.s[12], self.s[13], self.s[14], self.s[15],
-            self.s[16], self.s[17], self.s[18], self.s[19], self.s[20], self.s[21], self.s[22], self.s[23],
-            self.s[24], self.s[25], self.s[26], self.s[27], self.s[28], self.s[29], self.s[30], self.s[31])
+            self.s[ 8], self.s[ 9], self.s[10], self.s[11], self.s[12], self.s[13], self.s[14], self.s[15])
     }
 }
 impl fmt::Debug for Sum {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{:02X} {:02X} {:02X} {:02X} {:02X} {:02X} {:02X} {:02X} \
-            {:02X} {:02X} {:02X} {:02X} {:02X} {:02X} {:02X} {:02X} \
-            {:02X} {:02X} {:02X} {:02X} {:02X} {:02X} {:02X} {:02X} \
             {:02X} {:02X} {:02X} {:02X} {:02X} {:02X} {:02X} {:02X}",
             self.s[ 0], self.s[ 1], self.s[ 2], self.s[ 3], self.s[ 4], self.s[ 5], self.s[ 6], self.s[ 7],
-            self.s[ 8], self.s[ 9], self.s[10], self.s[11], self.s[12], self.s[13], self.s[14], self.s[15],
-            self.s[16], self.s[17], self.s[18], self.s[19], self.s[20], self.s[21], self.s[22], self.s[23],
-            self.s[24], self.s[25], self.s[26], self.s[27], self.s[28], self.s[29], self.s[30], self.s[31])
+            self.s[ 8], self.s[ 9], self.s[10], self.s[11], self.s[12], self.s[13], self.s[14], self.s[15])
     }
 }
