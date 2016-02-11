@@ -98,10 +98,7 @@ impl EltId {
 }
 impl From<u64> for EltId {
     fn from(n: u64) -> EltId {
-        assert!(n != 0, "invalid EltId");
-        EltId {
-            id: n
-        }
+        EltId { id: n }
     }
 }
 impl Into<u64> for EltId {

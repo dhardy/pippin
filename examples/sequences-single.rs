@@ -14,6 +14,8 @@ extern crate env_logger;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::exit;
+use std::fs;
+use std::cmp::min;
 
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use docopt::Docopt;
@@ -149,8 +151,17 @@ fn main() {
             .and_then(|d| d.decode())
             .unwrap_or_else(|e| e.exit());
     
-    let dir = PathBuf::from(args.flag_directory.expect("--directory required"));
-    assert!(dir.is_dir(), "DIR argument is not a valid directory");
+    let dir = PathBuf::from(match args.flag_directory {
+        Some(dir) => dir,
+        None => {
+            println!("Error: --directory option required (use --help for usage)");
+            exit(1);
+        },
+    });
+    if fs::create_dir_all(&dir).is_err() {
+        println!("Unable to create/find directory {}", dir.display());
+        exit(1);
+    }
     let mode = if let Some(num) = args.flag_generate {
         Mode::Generate(num)
     } else {
@@ -234,10 +245,11 @@ fn generate<R: Rng>(state: &mut PartitionState<Sequence>, rng: &mut R,
     num: usize, generator: &Generator)
 {
     let len_range = LogNormal::new(2., 2.);
+    let max_len = 20_000;
     let mut longest = 0;
     let mut total = 0;
     for _ in 0..num {
-        let len = len_range.ind_sample(rng) as usize;
+        let len = min(len_range.ind_sample(rng) as usize, max_len);
         if len > longest { longest = len; }
         total += len;
         let seq = Sequence{ v: generator.generate(len) };

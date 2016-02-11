@@ -232,14 +232,20 @@ impl PartitionIO for DiscoverPartitionFiles {
     fn read_ss<'a>(&self, ss_num: usize) -> Result<Option<Box<Read+'a>>> {
         // Cannot replace `match` with `map` since `try!()` cannot be used in a closure
         Ok(match self.ss.get(&ss_num) {
-            Some(&(ref p, _)) => Some(box try!(File::open(p))),
+            Some(&(ref p, _)) => {
+                trace!("Reading snapshot file: {}", p.display());
+                Some(box try!(File::open(p)))
+            },
             None => None
         })
     }
     
     fn read_ss_cl<'a>(&self, ss_num: usize, cl_num: usize) -> Result<Option<Box<Read+'a>>> {
         Ok(match self.ss.get(&ss_num).and_then(|&(_, ref logs)| logs.get(&cl_num)) {
-            Some(p) => Some(box try!(File::open(p))),
+            Some(p) => {
+                trace!("Reading log file: {}", p.display());
+                Some(box try!(File::open(p)))
+            },
             None => None,
         })
     }
@@ -249,6 +255,7 @@ impl PartitionIO for DiscoverPartitionFiles {
         if self.ss.get(&ss_num).map_or(false, |&(ref p, _)| *p != PathBuf::new()) || p.exists() {
             return Ok(None);
         }
+        trace!("Creating snapshot file: {}", p.display());
         let stream = try!(File::create(&p));
         if self.ss.contains_key(&ss_num) {
             self.ss.get_mut(&ss_num).unwrap().0 = p;
@@ -260,7 +267,10 @@ impl PartitionIO for DiscoverPartitionFiles {
     
     fn append_ss_cl<'a>(&mut self, ss_num: usize, cl_num: usize) -> Result<Option<Box<Write+'a>>> {
         Ok(match self.ss.get(&ss_num).and_then(|&(_, ref logs)| logs.get(&cl_num)) {
-            Some(p) => Some(box try!(OpenOptions::new().write(true).append(true).open(p))),
+            Some(p) => {
+                trace!("Appending to log file: {}", p.display());
+                Some(box try!(OpenOptions::new().write(true).append(true).open(p)))
+            },
             None => None
         })
     }
@@ -270,6 +280,7 @@ impl PartitionIO for DiscoverPartitionFiles {
             return Ok(None);
         }
         let p = self.dir.join(PathBuf::from(format!("{}-ss{}-cl{}.piplog", self.basename, ss_num, cl_num)));
+        trace!("Creating log file: {}", p.display());
         let stream = try!(OpenOptions::new().create(true).write(true).append(true).open(&p));
         logs.insert(cl_num, p);
         Ok(Some(box stream))
