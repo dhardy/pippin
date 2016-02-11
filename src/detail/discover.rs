@@ -70,9 +70,16 @@ impl DiscoverPartitionFiles {
             if let Some(caps) = ss_pat.captures(suffix) {
                 let ss: usize = try!(caps.at(1).expect("match should yield capture").parse());
                 trace!("Adding snapshot {}: {}", ss, entry.path().display());
-                if let Some(_replaced) = snapshots.insert(ss, (entry.path(), VecMap::new())) {
-                    panic!("multiple files map to same basname/number");
-                }
+                match snapshots.entry(ss) {
+                    Entry::Occupied(e) => {
+                        let e: &mut (PathBuf, VecMap<PathBuf>) = e.into_mut();
+                        assert!(e.0 == PathBuf::new(), "multiple files map to same basname/number");
+                        e.0 = entry.path();
+                    },
+                    Entry::Vacant(e) => {
+                        e.insert((entry.path(), VecMap::new()));
+                    },
+                };
             } else if let Some(caps) = cl_pat.captures(suffix) {
                 let ss: usize = try!(caps.at(1).expect("match should yield capture").parse());
                 let cl: usize = try!(caps.at(2).expect("match should yield capture").parse());
