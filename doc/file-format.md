@@ -125,7 +125,8 @@ the header.
 Originally supported: `SUM SHA-2 256`. Now, only `SUM BLAKE2 16` is supported.
 
 TODO: should we go back to SHA-256 for the file integrity stuff ((b) above),
-or maybe Blake-2 with length 32 or even 64 bytes?
+or maybe Blake-2 with length 32 or even 64 bytes? Should we use more than 16
+bytes for the state-sum stuff?
 
 #### Partition number
 

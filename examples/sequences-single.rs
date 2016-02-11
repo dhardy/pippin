@@ -244,8 +244,8 @@ fn run(dir: &Path, mode: Mode, create: bool, snapshot: bool, repetitions: usize)
 fn generate<R: Rng>(state: &mut PartitionState<Sequence>, rng: &mut R,
     num: usize, generator: &Generator)
 {
-    let len_range = LogNormal::new(2., 2.);
-    let max_len = 20_000;
+    let len_range = LogNormal::new(1., 2.);
+    let max_len = 1_000;
     let mut longest = 0;
     let mut total = 0;
     for _ in 0..num {
