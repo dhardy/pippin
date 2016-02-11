@@ -112,13 +112,20 @@ recognised.
 #### Checksum format
 
 Block starts `SUM`.
-It is used to specify the checksum algorithm used for state checksums.
-(Note that the checksum used for verifying the file's header contents, snapshot
-and commit contents as written in the file is fixed to SHA-256.) This section
-is special in that it must be the last section of the header; i.e. the next n
-bytes (32 in the case of SHA-256) are the checksum and terminate the header.
+It is used to specify the checksum algorithm used for (a) calculating state
+checksums and (b) verifying the file's header contents, snapshot
+and commit contents. (Originally (b) was fixed since it was impractical to
+change at run-time, but (a) is also impractical to change at run-time, hence
+this currently indicates what the program is compiled to work with.)
 
-Currently only `SUM SHA-2 256` is supported.
+This section is special in that it must be the last section of the header; i.e.
+the next n bytes (32 in the case of SHA-256) are the checksum and terminate
+the header.
+
+Originally supported: `SUM SHA-2 256`. Now, only `SUM BLAKE2 16` is supported.
+
+TODO: should we go back to SHA-256 for the file integrity stuff ((b) above),
+or maybe Blake-2 with length 32 or even 64 bytes?
 
 #### Partition number
 
@@ -228,8 +235,7 @@ Contents now depend on the previous identifier:
 
 *   `DEL`: no extra content
 *   `INS`: identifier `ELT DATA`, data length (u64), data (padded to 16-byte
-    boundary with \\x00), data checksum (32 bytes, used to calculate the state
-    sum)
+    boundary with \\x00), data checksum (used to calculate the state sum)
 *   `REPL`: contents is identical to `INS`, but `INS` is only allowed when the
     element identifier was free while `REPL` is only allowed when the
     identifier pointed to an element in the previous state.
