@@ -274,9 +274,6 @@ pub fn write_head(header: &FileHeader, writer: &mut io::Write) -> Result<()> {
 
 #[test]
 fn read_header() {
-    // Note: checksum calculated with Python 3:
-    // import hashlib
-    // hashlib.sha256(b"PIPPINSS20150929...").digest()
     let head = b"PIPPINSS20160201\
                 test AbC \xce\xb1\xce\xb2\xce\xb3\x00\
                 HRemark 12345678\
@@ -286,8 +283,12 @@ fn read_header() {
                 y pointless text\
                 H123456789ABCDEF\
                 HSUM SHA-2 256\x00\x00\
-                \xe9:\x83\xa4\xb7}\x04\xd0\x0b9\xd3-\x1cgA\xca\
-                \x85\x13\x8f\x18M\xd0L\xcff\xa9nii\xf8;b";
+                \xa1Ew\xb2OQ\x19\xf4\xa43\xf4\xaf\x8eUq\x1d\
+                S\xa1\xebP\x052J\xf2X\xe1\xff:\xfa\xd0\xab\x87";
+    
+//     use ::Sum;
+//     let sum = Sum::calculate(&head[0..head.len() - 32]);
+//     println!("Checksum: '{}'", sum.byte_string());
     let header = read_head(&mut &head[..]).unwrap();
     assert_eq!(header.name, "test AbC αβγ");
     assert_eq!(header.remarks, vec!["Remark 12345678", "REM  completely pointless text"]);
@@ -305,6 +306,7 @@ fn write_header() {
     };
     let mut buf = Vec::new();
     write_head(&header, &mut buf).unwrap();
+    
     let expected = b"PIPPINSS20160201\
             \xc3\x84hnliche Unsinn\
             HRemark \xcf\x89\x00\x00\x00\x00\x00\x00\
@@ -313,7 +315,9 @@ fn write_header() {
             Q2U rsei noasr a\
             uyv 10()% xovn\x00\x00\
             HSUM SHA-2 256\x00\x00\
-            j6\xd7MF\xc7\xaf\xcexh&B\xa4z\x8de\
-            u\xa4\x0f\xab\xf3\xc3\x9f\xf5=\xa9\xee\xc2\xf7\xca\xa2\\";
+            &\x97\xcdG\x0f\xb1|T\xde:=\xc0y~B[\
+            }Iw\xfbm\xf7\x83#\xfatu\x1e\x879\x12\x12";
+//     use ::util::ByteFormatter;
+//     println!("Checksum: '{}'", ByteFormatter::from(&buf[buf.len()-32..buf.len()]));;
     assert_eq!(&buf[..], &expected[..]);
 }

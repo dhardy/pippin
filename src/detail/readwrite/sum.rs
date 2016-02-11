@@ -7,12 +7,15 @@
 use std::io::{Read, Write, Result};
 
 use crypto::digest::Digest;
-use crypto::sha2::Sha256;
+// use crypto::sha2::Sha256;
+use crypto::blake2b::Blake2b;
 
 // Internal type / constructor for easy configuration.
-type Hasher = Sha256;
+// type Hasher = Sha256;
+type Hasher = Blake2b;
 fn mk_hasher() -> Hasher {
-    Hasher::new()
+//     Hasher::new()
+    Hasher::new(32)
 }
 
 use detail::Sum;

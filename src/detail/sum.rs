@@ -8,6 +8,8 @@ use std::io::{Write, Result};
 use std::ops;
 use std::fmt;
 
+use ::util::ByteFormatter;
+
 
 // #0018: when simd is stable, it could be used
 // use simd::u8x16;
@@ -76,6 +78,11 @@ impl Sum {
             buf[i*step + 1] = HEX_CHARS[(byte % 16) as usize];
         }
         String::from_utf8(buf).unwrap()
+    }
+    
+    /// Allow formatting as a byte string
+    pub fn byte_string(&self) -> ByteFormatter {
+        ByteFormatter::from(&self.s)
     }
     
     /// Return true if the given string is equivalent to the whole or an

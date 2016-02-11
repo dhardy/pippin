@@ -120,6 +120,8 @@ on 64-bit hardware.
 Following [this advice](http://stackoverflow.com/a/5003438/314345) I will use
 SHA-256 for now.
 
+Update: switched to [Blake2b](https://blake2.net/) for speed.
+
 Git and many other DVCSs use SHA-1 and store the full 160-bit output. Where
 security is not important, I don't see any issue with using this or even MD5;
 SHA-2 256 or SHA-3 256 would however seem a sensible default as the algorithms
