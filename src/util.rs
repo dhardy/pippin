@@ -42,6 +42,10 @@ impl<'a> fmt::Display for ByteFormatter<'a> {
         for b in self.bytes {
             if *b == b'\\' {
                 try!(write!(f, "\\\\"));
+            } else if *b == b'"' {
+                try!(write!(f, "\\\""));
+            } else if *b == b'\'' {
+                try!(write!(f, "\\\'"));
             } else if *b >= b' ' && *b <= b'~' {
                 // TODO: this is a horrible way to write a char!
                 let v = vec![*b];

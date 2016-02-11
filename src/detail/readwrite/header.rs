@@ -33,6 +33,7 @@ const HEAD_VERSIONS : [u32; 3] = [
     2016_02_01, // add memory of new names of moved elements
 ];
 const SUM_SHA256 : [u8; 16] = *b"HSUM SHA-2 256\x00\x00";
+const SUM_BLAKE2_16 : [u8; 16] = *b"HSUM BLAKE2 16\x00\x00";
 const PARTID : [u8; 8] = *b"HPARTID ";
 
 /// File type and version.
@@ -141,9 +142,12 @@ pub fn read_head(r: &mut io::Read) -> Result<FileHeader> {
         };
         
         if block[0..3] == *b"SUM" {
-            if rtrim(&block[3..], 0) == &SUM_SHA256[4..14] {
-                /* we don't support any other checksum else yet, so don't need
+            if rtrim(&block[3..], 0) == &SUM_BLAKE2_16[4..14] {
+                /* we don't support any other checksum at run-time, so don't need
                  * to configure anything here */
+            } else if rtrim(&block[3..], 0) == &SUM_SHA256[4..14] {
+                return ReadError::err("file uses SHA256 checksum; program not configured for this",
+                    pos, (3+off, 13+off))
             }else {
                 return ReadError::err("unknown checksum format", pos, (3+off, 13+off))
             };
@@ -247,7 +251,7 @@ pub fn write_head(header: &FileHeader, writer: &mut io::Write) -> Result<()> {
         }
     }
     
-    try!(w.write(&SUM_SHA256));
+    try!(w.write(&SUM_BLAKE2_16));
     
     // Write the checksum of everything above:
     let sum = w.sum();
@@ -278,13 +282,16 @@ fn read_header() {
                 Q2REM  completel\
                 y pointless text\
                 H123456789ABCDEF\
-                HSUM SHA-2 256\x00\x00\
-                a\xfc\xb5\x11p\x00\x92\xf7N\x11d'z\x1a\x08\x92";
+                HSUM BLAKE2 16\x00\x00\
+                !u\x80\xae\xfd\xd1\xeb\xd3\xf6^\"M\xb9A{c";
     
     use ::Sum;
     let sum = Sum::calculate(&head[0..head.len() - SUM_BYTES]);
     println!("Checksum: '{}'", sum.byte_string());
-    let header = read_head(&mut &head[..]).unwrap();
+    let header = match read_head(&mut &head[..]) {
+        Ok(h) => h,
+        Err(e) => { panic!("{}", e); }
+    };
     assert_eq!(header.name, "test AbC αβγ");
     assert_eq!(header.remarks, vec!["Remark 12345678", "REM  completely pointless text"]);
     assert_eq!(header.user_fields, vec![b"user rule"]);
@@ -309,8 +316,8 @@ fn write_header() {
             Quatsch\x00\x00\x00\x00\x00\x00\x00\x00\x00\
             Q2U rsei noasr a\
             uyv 10()% xovn\x00\x00\
-            HSUM SHA-2 256\x00\x00\
-            \x14\xa2\xbaO\x83\xabo\xfc\x96\x8e\xc7\xd6uh]\x1b";
+            HSUM BLAKE2 16\x00\x00\
+            \'\x843O\xe6\x86\xda\xa8\x8d\xc1k`5d\x9a\xb7";
     use ::util::ByteFormatter;
     println!("Checksum: '{}'", ByteFormatter::from(&buf[buf.len()-SUM_BYTES..buf.len()]));;
     assert_eq!(&buf[..], &expected[..]);
