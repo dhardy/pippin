@@ -43,7 +43,7 @@ pub fn read_log<E: ElementT>(reader_: &mut Read, receiver: &mut CommitReceiver<E
     // condition where encountering EOF is not an error.
     loop {
         // A reader which calculates the checksum of what was read:
-        let mut r = sum::HashReader::new256(reader);
+        let mut r = sum::HashReader::new(reader);
         
         let l = try!(r.read(&mut buf[0..16]));
         if l == 0 { break; /*end of file (EOF)*/ }
@@ -172,7 +172,7 @@ pub fn write_commit<E: ElementT>(commit: &Commit<E>, writer: &mut Write) -> Resu
         commit.num_changes(), commit.statesum());
     
     // A writer which calculates the checksum of what was written:
-    let mut w = sum::HashWriter::new256(writer);
+    let mut w = sum::HashWriter::new(writer);
     
     // #0016: replace dots with timestamp or whatever...
     try!(w.write(b"COMMIT\x00\x00........"));

@@ -9,12 +9,18 @@ use std::io::{Read, Write, Result};
 use crypto::digest::Digest;
 use crypto::sha2::Sha256;
 
+// Internal type / constructor for easy configuration.
+type Hasher = Sha256;
+fn mk_hasher() -> Hasher {
+    Hasher::new()
+}
+
 use detail::Sum;
 
 impl Sum {
     /// Calculate from some data
     pub fn calculate(data: &[u8]) -> Sum {
-        let mut hasher = Sha256::new();
+        let mut hasher = mk_hasher();
         hasher.input(&data);
         let mut buf = [0u8; 32];
         assert_eq!(hasher.output_bytes(), buf.len());
@@ -26,20 +32,20 @@ impl Sum {
 
 // —————  hash calculators  —————
 
-pub struct HashReader<H, R> {
-    hasher: H,
+pub struct HashReader<R> {
+    hasher: Hasher,
     inner: R
 }
 
-impl<R: Read> HashReader<Sha256, R> {
+impl<R: Read> HashReader<R> {
     /// Create
-    pub fn new256(r: R) -> HashReader<Sha256, R> {
-        HashReader { hasher: Sha256::new(), inner: r }
+    pub fn new(r: R) -> HashReader<R> {
+        HashReader { hasher: mk_hasher(), inner: r }
     }
 }
 
 #[allow(dead_code)]
-impl<H: Digest, R: Read> HashReader<H, R> {
+impl<R: Read> HashReader<R> {
     /// Get the hasher's Digest interface
     pub fn digest(&mut self) -> &mut Digest { &mut self.hasher }
     
@@ -49,7 +55,7 @@ impl<H: Digest, R: Read> HashReader<H, R> {
     pub fn into_inner(self) -> R { self.inner }
 }
 
-impl<H: Digest, R: Read> Read for HashReader<H, R> {
+impl<R: Read> Read for HashReader<R> {
     fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
         let len = try!(self.inner.read(buf));
         self.hasher.input(&buf[..len]);
@@ -58,20 +64,20 @@ impl<H: Digest, R: Read> Read for HashReader<H, R> {
 }
 
 
-pub struct HashWriter<H, W> {
-    hasher: H,
+pub struct HashWriter<W> {
+    hasher: Hasher,
     inner: W
 }
 
-impl<W: Write> HashWriter<Sha256, W> {
+impl<W: Write> HashWriter<W> {
     /// Create
-    pub fn new256(w: W) -> HashWriter<Sha256, W> {
-        HashWriter { hasher: Sha256::new(), inner: w }
+    pub fn new(w: W) -> HashWriter<W> {
+        HashWriter { hasher: mk_hasher(), inner: w }
     }
 }
 
 #[allow(dead_code)]
-impl<H: Digest, W: Write> HashWriter<H, W> {
+impl<W: Write> HashWriter<W> {
     /// Get the hasher's Digest interface
     pub fn digest(&mut self) -> &mut Digest { &mut self.hasher }
     
@@ -81,7 +87,7 @@ impl<H: Digest, W: Write> HashWriter<H, W> {
     pub fn into_inner(self) -> W { self.inner }
 }
 
-impl<H: Digest, W: Write> Write for HashWriter<H, W> {
+impl<W: Write> Write for HashWriter<W> {
     fn write(&mut self, buf: &[u8]) -> Result<usize> {
         let len = try!(self.inner.write(buf));
         if len > 0 {

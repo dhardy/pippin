@@ -85,7 +85,7 @@ pub fn validate_repo_name(name: &str) -> stdResult<(), ArgError> {
 /// Read a file header.
 pub fn read_head(r: &mut io::Read) -> Result<FileHeader> {
     // A reader which also calculates a checksum:
-    let mut sum_reader = sum::HashReader::new256(r);
+    let mut sum_reader = sum::HashReader::new(r);
     
     let mut pos: usize = 0;
     let mut buf = vec![0; 16];
@@ -190,7 +190,7 @@ pub fn write_head(header: &FileHeader, writer: &mut io::Write) -> Result<()> {
     use std::io::Write;
     
     // A writer which calculates the checksum of what was written:
-    let mut w = sum::HashWriter::new256(writer);
+    let mut w = sum::HashWriter::new(writer);
     
     match header.ftype {
         // Note: we always write in the latest version, even if we read from an old one

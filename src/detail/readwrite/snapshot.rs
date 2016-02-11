@@ -25,7 +25,7 @@ pub fn read_snapshot<T: ElementT>(reader: &mut Read, part_id: PartId) ->
     Result<PartitionState<T>>
 {
     // A reader which calculates the checksum of what was read:
-    let mut r = sum::HashReader::new256(reader);
+    let mut r = sum::HashReader::new(reader);
     
     let mut pos: usize = 0;
     let mut buf = vec![0; 32];
@@ -136,7 +136,7 @@ pub fn write_snapshot<T: ElementT>(state: &PartitionState<T>,
         state.part_id().into_num(), state.num_elts(), state.statesum());
     
     // A writer which calculates the checksum of what was written:
-    let mut w = sum::HashWriter::new256(writer);
+    let mut w = sum::HashWriter::new(writer);
     
     // #0016: date shouldn't really be today but the time the snapshot was created
     try!(write!(&mut w, "SNAPSHOT{}", UTC::today().format("%Y%m%d")));
