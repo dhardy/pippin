@@ -119,14 +119,10 @@ change at run-time, but (a) is also impractical to change at run-time, hence
 this currently indicates what the program is compiled to work with.)
 
 This section is special in that it must be the last section of the header; i.e.
-the next n bytes (32 in the case of SHA-256) are the checksum and terminate
+the next n bytes (16 in the case of BLAKE2 16) are the checksum and terminate
 the header.
 
 Originally supported: `SUM SHA-2 256`. Now, only `SUM BLAKE2 16` is supported.
-
-TODO: should we go back to SHA-256 for the file integrity stuff ((b) above),
-or maybe Blake-2 with length 32 or even 64 bytes? Should we use more than 16
-bytes for the state-sum stuff?
 
 #### Partition number
 

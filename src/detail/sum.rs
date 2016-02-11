@@ -13,7 +13,7 @@ use ::util::ByteFormatter;
 
 /// Number of bytes in a Sum.
 // #0018: it might be possible to move this inside Sum in future versions of Rust
-pub const BYTES: usize = 16;
+pub const BYTES: usize = 32;
 const BYTES_U8: u8 = BYTES as u8;
 
 

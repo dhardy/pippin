@@ -90,7 +90,7 @@ pub fn read_head(r: &mut io::Read) -> Result<FileHeader> {
     let mut sum_reader = sum::HashReader::new(r);
     
     let mut pos: usize = 0;
-    let mut buf = vec![0; 16];
+    let mut buf = vec![0; 32];
     
     try!(fill(&mut sum_reader, &mut buf[0..16], pos));
     let head_version = read_head_version(&buf[8..16]);
@@ -283,7 +283,8 @@ fn read_header() {
                 y pointless text\
                 H123456789ABCDEF\
                 HSUM BLAKE2 16\x00\x00\
-                !u\x80\xae\xfd\xd1\xeb\xd3\xf6^\"M\xb9A{c";
+                \xe8\xbb\xcd\xd2Jl\xac=\x9a\xc8\xdf\x90>\xc8D\x0f\
+                \xd8\x1dG\xef\xae\x05\xd8\xf7,z\xbacc\xf9y\xff";
     
     use ::Sum;
     let sum = Sum::calculate(&head[0..head.len() - SUM_BYTES]);
@@ -317,7 +318,8 @@ fn write_header() {
             Q2U rsei noasr a\
             uyv 10()% xovn\x00\x00\
             HSUM BLAKE2 16\x00\x00\
-            \'\x843O\xe6\x86\xda\xa8\x8d\xc1k`5d\x9a\xb7";
+            N\xf6\xa3\xefBK\xc6\xab#\xdeM\xdarm\xa7\x9b\
+            \xda\x97d\x8bP7\x82\x83\xc61,\x94\xa0\xb9\xaf\xd7";
     use ::util::ByteFormatter;
     println!("Checksum: '{}'", ByteFormatter::from(&buf[buf.len()-SUM_BYTES..buf.len()]));;
     assert_eq!(&buf[..], &expected[..]);

@@ -115,26 +115,50 @@ Algorithms: MD5 (and MD4) are sufficient for checksums. SHA-1 offered
 security against collision attacks, but is now considered weak. SHA-2 and SHA-3
 are more secure; SHA-2 is a little slower and SHA-3 possibly not yet
 standardised. SHA-256 is much faster on 32-bit hardware but slower than SHA-512
-on 64-bit hardware.
+on 64-bit hardware. [BLAKE2](https://blake2.net/) is faster than SHA-256
+(likely also SHA-512) on 64-bit hardware, is apparently "at least as secure as
+SHA-3" and can generate a digest of any size (up to 64 bytes).
 
-Following [this advice](http://stackoverflow.com/a/5003438/314345) I will use
-SHA-256 for now.
+My amateur thoughts on this:
 
-Update: switched to [Blake2b](https://blake2.net/) for speed.
+1.  The "state sum" thing is used for identifying commits so there *may* be
+    some security issues with choosing a weak checksum; the other uses of the
+    checksum are really only for detecting accidental corruption of data so are
+    not important for security considerations.
+2.  If a "good" and a "malicious" element can be generated with the same
+    checksum there may be some exploits, assuming commits are fetched from a
+    third party somehow, however currently it is impossible to say for certain.
+3.  16 bytes has 2^(8*16) ~= 10^38 possiblities (one hundred million million
+    million million million million values), so it seems unlikely that anyone
+    could brute-force calculate an intentional clash with a given sum,
+    *assuming there are no further weaknesses in the algorithm*. Note that the
+    birthday paradox means that you would expect a brute-force attack to find a
+    collision after 2^(8*16/2) = 2^64 ~= 2*10^19 attempts, or a good/bad pair
+    after ~ 4*10^19 hash calculations, which may be computationally feasible.
+3.  SHA-1 uses 160 bits (20 bytes), with theoretical attacks reducing an attack
+    to around 2^60 hash calculations, and is considered insecure, with one
+    demonstrated collision to date.
 
-Git and many other DVCSs use SHA-1 and store the full 160-bit output. Where
-security is not important, I don't see any issue with using this or even MD5;
-SHA-2 256 or SHA-3 256 would however seem a sensible default as the algorithms
-are significantly more secure without upping storage requirements massively.
+Therefore using a 16-byte checksum for state sums seems like it would be
+sufficient to withstand casual attacks but not necessarily serious ones.
+SHA-256 uses 32 bytes and is generally considered secure. If the cost of using
+32 bytes per object does not turn out to be too significant, we should probably
+not use less.
 
-At the moment I see maybe a little reason to consider security (with low
-security it might be possible to rewrite history when a merge is done from a
-compromised host; I don't know), and little reason to skimp on security
-(for corruption detection SHA-3 is excessive; I don't know whether CPU
-performance or storage of large checksums will be significant).
+As to costs, one million elements with 32-bytes each is 32 MB. If the elements
+average 400 bytes (a "paragraph") then the checksum is less than 10% overhead,
+however if elements are mostly very short (e.g. 10 bytes) then the overhead is
+proportionally large and might be significant. Obviously this depends on the
+application.
 
-Use the best available algorithm for now, review later. Also review security
-implications for each usage.
+Ideally we would let the user choose the checksum length; failing
+this 32 bytes does not seem like a bad default.
+
+References:
+[some advice on Stack Overflow](http://stackoverflow.com/a/5003438/314345),
+[another comment](http://stackoverflow.com/a/23444843/314345),
+[Birthday paradox / attack](https://en.wikipedia.org/wiki/Birthday_attack),
+[SHA-1 attacks](https://en.wikipedia.org/wiki/SHA-1#Attacks).
 
 ### State checksums
 
