@@ -5,11 +5,12 @@
 //! Support for reading and writing Rust snapshots
 
 use std::io::{Read, Write};
+use std::rc::Rc;
 use chrono::UTC;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
 use detail::readwrite::{sum, fill};
-use partition::PartitionState;
+use partition::{PartitionState, State};
 use {ElementT, PartId, Sum};
 use detail::SUM_BYTES;
 use error::{Result, ReadError};
@@ -79,7 +80,7 @@ pub fn read_snapshot<T: ElementT>(reader: &mut Read, part_id: PartId) ->
         pos += SUM_BYTES;
         
         let elt = try!(T::from_vec(data));
-        try!(state.insert_elt(ident, elt));
+        try!(state.insert_with_id(ident, Rc::new(elt)));
     }
     
     try!(fill(&mut r, &mut buf[0..16], pos));
@@ -131,7 +132,7 @@ pub fn write_snapshot<T: ElementT>(state: &PartitionState<T>,
     writer: &mut Write) -> Result<()>
 {
     trace!("Writing snapshot (partition {} with {} elements): {}",
-        state.part_id().into_num(), state.num_elts(), state.statesum());
+        state.part_id().into_num(), state.num_avail(), state.statesum());
     
     // A writer which calculates the checksum of what was written:
     let mut w = sum::HashWriter::new(writer);
@@ -207,11 +208,11 @@ fn snapshot_writing() {
         advantage from it? But who has any right to find fault with a man who \
         chooses to enjoy a pleasure that has no annoying consequences, or one \
         who avoids a pain that produces no resultant pleasure?";
-    state.new_elt(data.to_string()).unwrap();
+    state.insert(data.to_string()).unwrap();
     let data = "arstneio[()]123%αρστνειο\
         qwfpluy-QWFPLUY—<{}>456+5≤≥φπλθυ−\
         zxcvm,./ZXCVM;:?`\"ç$0,./ζχψωμ~·÷";
-    state.new_elt(data.to_string()).unwrap();
+    state.insert(data.to_string()).unwrap();
     
     let mut result = Vec::new();
     assert!(write_snapshot(&state, &mut result).is_ok());

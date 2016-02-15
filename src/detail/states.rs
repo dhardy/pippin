@@ -15,9 +15,92 @@ use rand::random;
 use {ElementT, Sum, PartId, EltId};
 use error::ElementOp;
 
-
-/// Type of map used internally
-pub type EltMap<E> = HashMap<EltId, Rc<E>>;
+/// Trait abstracting over operations on the state of a partition or
+/// repository.
+pub trait State<E: ElementT> {
+    /// Returns true when any elements are available.
+    /// 
+    /// In a single partition this means that the partition is not empty; in a
+    /// repository it means that at least one *loaded* partition is not empty.
+    fn any_avail(&self) -> bool;
+    /// Returns the number of elements available.
+    /// 
+    /// In a single partition this is the number of elements contained; in a
+    /// repository it is the number of elements contained in *loaded*
+    /// partitions.
+    fn num_avail(&self) -> usize;
+    /// Returns true if and only if an element with a given key is available.
+    /// 
+    /// Note that this only refers to *in-memory* partitions. If the element in
+    /// question is contained in a partition which is not loaded or not
+    /// contained in the "repo state" in question, this will return false.
+    fn is_avail(&self, id: EltId) -> bool;
+    
+    /// Get a reference to some element (which can be cloned if required).
+    /// 
+    /// This fails if the relevant partition is not loaded or the element is
+    /// not found. In the case of a multi-partition repository it is possible
+    /// that the element has been moved, in which case `RepoState::locate(id)`
+    /// may be helpful.
+    /// 
+    /// Note that elements can't be modified directly but must instead be
+    /// replaced with a new version, hence there is no version of this function
+    /// returning a mutable reference.
+    fn get(&self, id: EltId) -> Result<&E, ElementOp> {
+        self.get_rc(id).map(|rc| &**rc)
+    }
+    /// Low-level version of `get(id)`: returns a reference to the
+    /// reference-counter wrapped container of the element.
+    fn get_rc(&self, id: EltId) -> Result<&Rc<E>, ElementOp>;
+    
+    /// Insert a new element and return the identifier.
+    /// 
+    /// This fails if the relevant partition is not loaded or if the relevant
+    /// partition is unable to find a free identifier. In the latter case
+    /// (`ElementOp::IdGenFailure`) presumably the partition is rather full,
+    /// however simply trying again may succeed.
+    /// 
+    /// Note: on a single partition, the lower-level function `insert(id, elt)`
+    /// allows the identifier to be speciifed. On a repository this is not
+    /// allowed since the partition is determined automatically and the
+    /// partition number becomes part of the element identifier.
+    fn insert(&mut self, elt: E) -> Result<EltId, ElementOp> {
+        self.insert_rc(Rc::new(elt))
+    }
+    /// Low-level version of `insert(id)`: takes a reference-counter wrapper
+    /// for an element.
+    fn insert_rc(&mut self, elt: Rc<E>) -> Result<EltId, ElementOp>;
+    
+    /// Replace an existing element and return the identifier of the newly
+    /// inserted element and the replaced element. Note that the identifier
+    /// returned can be different on a repository where the replacement element
+    /// is classified under a different partition.
+    /// 
+    /// This fails if the relevant partition is not loaded or the element is
+    /// not found. In the case of a multi-partition repository it is possible
+    /// that the element has been moved, in which case `RepoState::locate(id)`
+    /// may be helpful.
+    /// 
+    /// Note that the returned `Rc<E>` cannot be unwrapped automatically since
+    /// we do not know that we have the only reference.
+    fn replace(&mut self, id: EltId, elt: E) -> Result<Rc<E>, ElementOp> {
+        self.replace_rc(id, Rc::new(elt))
+    }
+    /// Low-level version of `replace(id, elt)` which takes an Rc-wrapped
+    /// element.
+    fn replace_rc(&mut self, id: EltId, elt: Rc<E>) -> Result<Rc<E>, ElementOp>;
+    
+    /// Remove an element, returning the element removed or failing.
+    /// 
+    /// This fails if the relevant partition is not loaded or the element is
+    /// not found. In the case of a multi-partition repository it is possible
+    /// that the element has been moved, in which case `RepoState::locate(id)`
+    /// may be helpful.
+    /// 
+    /// Note that the returned `Rc<E>` cannot be unwrapped automatically since
+    /// we do not know that we have the only reference.
+    fn remove(&mut self, id: EltId) -> Result<Rc<E>, ElementOp>;
+}
 
 /// A state of elements within a partition.
 /// 
@@ -35,7 +118,7 @@ pub struct PartitionState<E: ElementT> {
     part_id: PartId,
     parent: Sum,
     statesum: Sum,
-    elts: EltMap<E>,
+    elts: HashMap<EltId, Rc<E>>,
     moved: HashMap<EltId, EltId>,
 }
 
@@ -62,46 +145,19 @@ impl<E: ElementT> PartitionState<E> {
     pub fn part_id(&self) -> PartId { self.part_id }
     
     /// Get access to the map holding elements
-    pub fn map(&self) -> &EltMap<E> {
+    pub fn map(&self) -> &HashMap<EltId, Rc<E>> {
         &self.elts
     }
     /// Destroy the PartitionState, extracting its maps
     /// 
     /// First is map of elements (`self.map()`), second is map of moved elements
     /// (`self.moved_map()`).
-    pub fn into_maps(self) -> (EltMap<E>, HashMap<EltId, EltId>) {
+    pub fn into_maps(self) -> (HashMap<EltId, Rc<E>>, HashMap<EltId, EltId>) {
         (self.elts, self.moved)
     }
     /// Get access to the map of moved elements to new identifiers
     pub fn moved_map(&self) -> &HashMap<EltId, EltId> {
         &self.moved
-    }
-    
-    /// Get some element, still in its Element wrapper (which can be cloned if required).
-    /// 
-    /// Note that elements can't be modified directly but must instead be
-    /// replaced, hence there is no version of this function returning a
-    /// mutable reference.
-    pub fn get_rc(&self, id: EltId) -> Option<&Rc<E>> {
-        self.elts.get(&id)
-    }
-    /// Get a reference to some element (which can be cloned if required).
-    /// 
-    /// Note that elements can't be modified directly but must instead be
-    /// replaced, hence there is no version of this function returning a
-    /// mutable reference.
-    pub fn get_elt(&self, id: EltId) -> Option<&E> {
-        self.elts.get(&id).map(|rc| &**rc)
-    }
-    /// True if there are no elements
-    pub fn is_empty(&self) -> bool { self.elts.is_empty() }
-    /// Get the number of elements
-    pub fn num_elts(&self) -> usize {
-        self.elts.len()
-    }
-    /// Is an element with a given key present?
-    pub fn has_elt(&self, id: EltId) -> bool {
-        self.elts.contains_key(&id)
     }
     /// Get the element keys
     pub fn elt_ids(&self) -> Keys<EltId, Rc<E>> {
@@ -122,7 +178,7 @@ impl<E: ElementT> PartitionState<E> {
             //TODO: is this too many to check exhaustively? We could use a
             // lower limit, and possibly resample a few times.
             if id == initial {
-                return Err(ElementOp::id_gen_failure());
+                return Err(ElementOp::IdGenFailure);
             }
         }
         Ok(id)
@@ -142,76 +198,24 @@ impl<E: ElementT> PartitionState<E> {
             id = id.next_elt();
             tries -= 1;
             if tries == 0 {
-                return Err(ElementOp::id_gen_failure());
+                return Err(ElementOp::IdGenFailure);
             }
         }
         Ok(id)
     }
     
-    /// Insert an element, generating an identifier. Returns the new
-    /// identifier on success.
-    /// 
-    /// This is a convenience version of `self.insert_elt(try!(self.gen_id(), elt))`.
-    /// 
-    /// This function should succeed provided that not all usable identifiers
-    /// are taken (2^24), though when approaching full it may be slow.
-    pub fn new_elt(&mut self, elt: E) -> Result<EltId, ElementOp> {
-        self.new_rc(Rc::new(elt))
-    }
-    /// As `new_elt()`, but accept an Rc-wrapped element.
-    pub fn new_rc(&mut self, elt: Rc<E>) -> Result<EltId, ElementOp> {
-        let id = try!(self.gen_id());
-        try!(self.insert_rc(id, elt));
-        Ok(id)
-    }
     /// Insert an element and return the id (the one inserted).
     /// 
     /// Fails if the id does not have the correct partition identifier part or
     /// if the id is already in use.
-    /// It is suggested to use new_elt() instead if you do not need to specify
+    /// It is suggested to use insert() instead if you do not need to specify
     /// the identifier.
-    pub fn insert_elt(&mut self, id: EltId, elt: E) -> Result<EltId, ElementOp> {
-        try!(self.insert_rc(id, Rc::new(elt)));
-        Ok(id)
-    }
-    /// As `insert_elt()`, but accept an Rc-wrapped element.
-    pub fn insert_rc(&mut self, id: EltId, elt: Rc<E>) -> Result<EltId, ElementOp> {
-        if self.elts.contains_key(&id) { return Err(ElementOp::insertion_failure(id)); }
+    pub fn insert_with_id(&mut self, id: EltId, elt: Rc<E>) -> Result<EltId, ElementOp> {
+        if id.part_id() != self.part_id { return Err(ElementOp::WrongPartition); }
+        if self.elts.contains_key(&id) { return Err(ElementOp::IdClash); }
         self.statesum.permute(&elt.sum());
         self.elts.insert(id, elt);
         Ok(id)
-    }
-    /// Replace an existing element and return the replaced element, unless the
-    /// id is not already used in which case the function stops with an error.
-    /// 
-    /// Since elements cannot be edited directly, this is the next best way of
-    /// changing an element's contents.
-    /// 
-    /// Note that the returned `Rc<E>` cannot be unwrapped automatically since
-    /// we do not know that we have the only reference.
-    pub fn replace_elt(&mut self, id: EltId, elt: E) -> Result<Rc<E>, ElementOp> {
-        self.replace_rc(id, Rc::new(elt))
-    }
-    /// As `replace_elt()`, but accept an Rc-wrapped element.
-    pub fn replace_rc(&mut self, id: EltId, elt: Rc<E>) -> Result<Rc<E>, ElementOp> {
-        self.statesum.permute(&elt.sum());
-        match self.elts.insert(id, elt) {
-            None => Err(ElementOp::replacement_failure(id)),
-            Some(removed) => {
-                self.statesum.permute(&removed.sum());
-                Ok(removed)
-            }
-        }
-    }
-    /// Remove an element, returning the element removed or failing.
-    pub fn remove_elt(&mut self, id: EltId) -> Result<Rc<E>, ElementOp> {
-        match self.elts.remove(&id) {
-            None => Err(ElementOp::deletion_failure(id)),
-            Some(removed) => {
-                self.statesum.permute(&removed.sum());
-                Ok(removed)
-            }
-        }
     }
     
     /// Add a note about where an element has been moved to.
@@ -271,6 +275,45 @@ impl<E: ElementT> PartitionState<E> {
             statesum: self.statesum.clone(),
             elts: self.elts.clone(),
             moved: self.moved.clone(),
+        }
+    }
+}
+
+impl<E: ElementT> State<E> for PartitionState<E> {
+    fn any_avail(&self) -> bool {
+        !self.elts.is_empty()
+    }
+    fn num_avail(&self) -> usize {
+        self.elts.len()
+    }
+    fn is_avail(&self, id: EltId) -> bool {
+        self.elts.contains_key(&id)
+    }
+    fn get_rc(&self, id: EltId) -> Result<&Rc<E>, ElementOp> {
+        self.elts.get(&id).ok_or(ElementOp::NotFound)
+    }
+    fn insert_rc(&mut self, elt: Rc<E>) -> Result<EltId, ElementOp> {
+        let id = try!(self.gen_id());
+        try!(self.insert_with_id(id, elt));
+        Ok(id)
+    }
+    fn replace_rc(&mut self, id: EltId, elt: Rc<E>) -> Result<Rc<E>, ElementOp> {
+        self.statesum.permute(&elt.sum());
+        match self.elts.insert(id, elt) {
+            None => Err(ElementOp::NotFound),
+            Some(removed) => {
+                self.statesum.permute(&removed.sum());
+                Ok(removed)
+            }
+        }
+    }
+    fn remove(&mut self, id: EltId) -> Result<Rc<E>, ElementOp> {
+        match self.elts.remove(&id) {
+            None => Err(ElementOp::NotFound),
+            Some(removed) => {
+                self.statesum.permute(&removed.sum());
+                Ok(removed)
+            }
         }
     }
 }

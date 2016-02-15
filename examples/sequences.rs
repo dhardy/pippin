@@ -21,7 +21,7 @@ use docopt::Docopt;
 use rand::Rng;
 use rand::distributions::{IndependentSample, Range, Normal, LogNormal};
 
-use pippin::{ElementT, PartId};
+use pippin::{ElementT, PartId, State};
 use pippin::discover::DiscoverRepoFiles;
 use pippin::repo::*;
 use pippin::error::{Result, OtherError};
@@ -241,7 +241,7 @@ fn run(dir: &Path, mode: Mode, create: bool, snapshot: bool, repetitions: usize)
     
     for _ in 0..repetitions {
         let mut state = try!(repo.clone_state());
-        println!("Found {} partitions; with {} elements", state.num_parts(), state.num_elts());
+        println!("Found {} partitions; with {} elements", state.num_parts(), state.num_avail());
         match mode {
             Mode::Generate(num) => {
                 match Range::new(0, 4).ind_sample(&mut rng) {
@@ -289,7 +289,7 @@ fn run(dir: &Path, mode: Mode, create: bool, snapshot: bool, repetitions: usize)
     Ok(())
 }
 
-fn generate<R: Rng>(state: &mut RepoState<SeqClassifier>, rng: &mut R,
+fn generate<R: Rng>(state: &mut State<Sequence>, rng: &mut R,
     num: usize, generator: &Generator)
 {
     let len_range = LogNormal::new(2., 2.);
@@ -300,7 +300,7 @@ fn generate<R: Rng>(state: &mut RepoState<SeqClassifier>, rng: &mut R,
         if len > longest { longest = len; }
         total += len;
         let seq = Sequence{ v: generator.generate(len) };
-        state.new_elt(seq).expect("insert element");
+        state.insert(seq).expect("insert element");
     }
     println!("Generated {} sequences; longest length {}, average {}", num, longest, (total as f64) / (num as f64));
 }

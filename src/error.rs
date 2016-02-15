@@ -8,8 +8,6 @@ use std::{io, fmt, result};
 use std::path::PathBuf;
 use std::cmp::{min, max};
 
-use {PartId, EltId};
-
 /// Our custom result type
 pub type Result<T, E = Error> = result::Result<T, E>;
 
@@ -129,109 +127,41 @@ impl fmt::Display for ArgError {
     }
 }
 
-/// Element operation error details
-#[derive(PartialEq, Debug)]
-pub struct ElementOp {
-    /// Identity of element
-    id: EltId,
-    /// Classification of failure
-    class: ElementOpClass,
-}
-impl ErrorTrait for ElementOp {
-    fn description(&self) -> &str { self.description() }
-}
-
-/// Classification of element operation failure
+/// Reason for an element retrieval/insertion/deletion/etc. operation failing.
 #[derive(PartialEq, Eq, Debug, Clone, Copy)]
-pub enum ElementOpClass {
-    /// Unable to find any new element identifier
-    IdGenFailure,
-    /// Insertion failed due to identity clash (element identifier)
-    InsertionFailure,
-    /// Replacement failed due to missing element (element identifier)
-    ReplacementFailure,
-    /// Deletion failed due to missing element (element identifier)
-    DeletionFailure,
-    /// Classification failed and the fallback is to fail
-    ClassifyFailure,
-    /// The (presumably) relevant partition is not loaded
-    NotLoaded,
+pub enum ElementOp {
     /// The element was simply not found
     NotFound,
+    /// Unable to find a free element identifier for a new element
+    IdGenFailure,
+    /// Wrong partition identifier. This should only be returned for operations
+    /// on a specified partition, and indicates that the given identifier is
+    /// from another partition.
+    WrongPartition,
+    /// Identifier already in use. An insertion failed since the given
+    /// identifier is already in use.
+    IdClash,
+    /// Unable to proceed because classification failed
+    ClassifyFailure,
+    /// The relevant partition is not loaded within a repository
+    NotLoaded,
 }
-impl ElementOp {
-    /// Get the class of the error
-    pub fn class(&self) -> ElementOpClass {
-        self.class
-    }
-    /// Get the `EltId` associated with this error. This is only meaningful
-    /// for those classes where an `EltId` is passed when creating, or where
-    /// a `PartId` is passed, the `EltId` should be converted back
-    /// (`id.part_id()`).
-    pub fn elt_id(&self) -> EltId {
-        self.id
-    }
-    /// Get the description string corresponding to the classification
-    pub fn description(&self) -> &'static str {
-        match self.class {
-            ElementOpClass::IdGenFailure => "id generation failed to find a free identifier",
-            ElementOpClass::InsertionFailure => "insertion failed: identifier already in use",
-            ElementOpClass::ReplacementFailure => "replacement failed: cannot find element to replace",
-            ElementOpClass::DeletionFailure => "deletion failed: element not found",
-            ElementOpClass::ClassifyFailure => "classification of element failed",
-            ElementOpClass::NotLoaded => "partition must be loaded",
-            ElementOpClass::NotFound => "element not found",
+impl ErrorTrait for ElementOp {
+    fn description(&self) -> &'static str {
+        match *self {
+            ElementOp::NotFound => "element not found",
+            ElementOp::IdGenFailure => "id generation failed to find a free identifier",
+            ElementOp::WrongPartition => "operation on a partition uses element identifier from another partition",
+            ElementOp::IdClash => "identifier already in use",
+            ElementOp::ClassifyFailure => "classification of element failed",
+            ElementOp::NotLoaded => "partition must be loaded",
         }
     }
-    /// Create an instance
-    pub fn id_gen_failure() -> ElementOp {
-        let dummy_id = PartId::from_num(1).elt_id(0);
-        ElementOp { id: dummy_id, class: ElementOpClass::IdGenFailure }
-    }
-    /// Create an instance
-    pub fn insertion_failure(id: EltId) -> ElementOp {
-        ElementOp { id: id, class: ElementOpClass::InsertionFailure }
-    }
-    /// Create an instance
-    pub fn replacement_failure(id: EltId) -> ElementOp {
-        ElementOp { id: id, class: ElementOpClass::ReplacementFailure }
-    }
-    /// Create an instance
-    pub fn deletion_failure(id: EltId) -> ElementOp {
-        ElementOp { id: id, class: ElementOpClass::DeletionFailure }
-    }
-    /// Create an instance
-    pub fn classify_failure() -> ElementOp {
-        let dummy_id = PartId::from_num(1).elt_id(0);
-        ElementOp { id: dummy_id, class: ElementOpClass::ClassifyFailure }
-    }
-    /// Create an instance
-    pub fn not_loaded(part_id: PartId) -> ElementOp {
-        ElementOp { id: part_id.elt_id(0), class: ElementOpClass::NotLoaded }
-    }
-    /// Create an instance
-    pub fn not_found(id: EltId) -> ElementOp {
-        ElementOp { id: id, class: ElementOpClass::NotFound }
-    }
 }
+
 impl fmt::Display for ElementOp {
     fn fmt(&self, f: &mut fmt::Formatter) -> result::Result<(), fmt::Error> {
-        match self.class {
-            ElementOpClass::IdGenFailure | ElementOpClass::ClassifyFailure => {
-                write!(f, "{}", self.description())
-            },
-            ElementOpClass::InsertionFailure |
-                ElementOpClass::ReplacementFailure |
-                ElementOpClass::DeletionFailure |
-                ElementOpClass::NotFound =>
-            {
-                let n: u64 = self.id.into();
-                write!(f, "{}: {}", self.description(), n)
-            },
-            ElementOpClass::NotLoaded => {
-                write!(f, "{}: {}", self.description(), self.id.part_id().into_num())
-            },
-        }
+        write!(f, "{}", self.description())
     }
 }
 

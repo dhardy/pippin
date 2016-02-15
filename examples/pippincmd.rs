@@ -20,9 +20,9 @@ use std::io::{Read, Write};
 use std::ffi::OsStr;
 use std::os::unix::ffi::OsStrExt;
 use docopt::Docopt;
-use pippin::{Partition, PartitionIO, ElementT, PartId};
+use pippin::{Partition, PartitionIO, ElementT, PartId, State};
 use pippin::discover::DiscoverPartitionFiles;
-use pippin::error::{Result, PathError};
+use pippin::error::{Result, PathError, ErrorTrait};
 use pippin::util::rtrim;
 
 const USAGE: &'static str = "
@@ -235,12 +235,12 @@ fn inner(files: Vec<String>, op: Operation, args: Rest) -> Result<()>
                         },
                         PartitionOp::EltGet(elt) => {
                             let id: u64 = try!(elt.parse());
-                            match state.get_elt(id.into()) {
-                                None => { println!("No element {}", id); },
-                                Some(d) => {
+                            match state.get(id.into()) {
+                                Ok(d) => {
                                     println!("Element {}:", id);
                                     println!("{}", d);
-                                }
+                                },
+                                Err(e) => { println!("Element {} {}", id, e.description()); },
                             }
                         },
                         PartitionOp::EltEdit(elt, editor) => {
@@ -260,7 +260,7 @@ fn inner(files: Vec<String>, op: Operation, args: Rest) -> Result<()>
                             
                             let id: u64 = try!(elt.parse());
                             {
-                                let elt_data: &DataElt = if let Some(d) = state.get_elt(id.into()) {
+                                let elt_data: &DataElt = if let Ok(d) = state.get(id.into()) {
                                     &d
                                 } else {
                                     panic!("element not found");
@@ -281,7 +281,7 @@ fn inner(files: Vec<String>, op: Operation, args: Rest) -> Result<()>
                             let mut file = try!(fs::File::open(&tmp_path));
                             let mut buf = Vec::new();
                             try!(file.read_to_end(&mut buf));
-                            try!(state.replace_elt(id.into(), DataElt::from(buf)));
+                            try!(state.replace(id.into(), DataElt::from(buf)));
                             try!(fs::remove_file(tmp_path));
                         },
                         PartitionOp::EltDelete(elt) => {
@@ -289,7 +289,7 @@ fn inner(files: Vec<String>, op: Operation, args: Rest) -> Result<()>
                                 panic!("Do you really want to make an edit from a historical state? If so specify '--force'.");
                             }
                             let id: u64 = try!(elt.parse());
-                            try!(state.remove_elt(id.into()));
+                            try!(state.remove(id.into()));
                         },
                     }
                 }       // destroy reference `state`

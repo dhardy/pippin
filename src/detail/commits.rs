@@ -11,7 +11,7 @@ use hashindexed::HashIndexed;
 
 use detail::states::PartitionStateSumComparator;
 use detail::readwrite::CommitReceiver;
-use partition::PartitionState;
+use partition::{PartitionState, State};
 use {ElementT, EltId, Sum};
 use error::{Result, ReplayError};
 
@@ -140,7 +140,7 @@ impl<E: ElementT> Commit<E> {
         let mut state = new_state.clone_exact();
         let mut changes = HashMap::new();
         for (id, old_elt) in old_state.map() {
-            match state.remove_elt(*id) {
+            match state.remove(*id) {
                 Ok(new_elt) => {
                     if new_elt == *old_elt {
                         /* no change */
@@ -198,16 +198,16 @@ impl<E: ElementT> Commit<E> {
         for (id, ref change) in self.changes.iter() {
             match *change {
                 &EltChange::Deletion => {
-                    try!(state.remove_elt(*id));
+                    try!(state.remove(*id));
                 },
                 &EltChange::Insertion(ref elt) => {
-                    try!(state.insert_rc(*id, elt.clone()));
+                    try!(state.insert_with_id(*id, elt.clone()));
                 }
                 &EltChange::Replacement(ref elt) => {
                     try!(state.replace_rc(*id, elt.clone()));
                 }
                 &EltChange::MovedOut(new_id) => {
-                    try!(state.remove_elt(*id));
+                    try!(state.remove(*id));
                     state.set_move(*id, new_id);
                 }
                 &EltChange::Moved(new_id) => {
@@ -323,31 +323,36 @@ mod tests {
     
     #[test]
     fn commit_creation_and_replay(){
-        use PartId;
+        use {PartId, State};
+        use std::rc::Rc;
         
         let p = PartId::from_num(1);
         let mut commits = CommitQueue::<String>::new();
         
+        let insert = |state: &mut PartitionState<_>, num, string: &str| -> Result<_, _> {
+            state.insert_with_id(p.elt_id(num), Rc::new(string.to_string()))
+        };
+        
         let mut state_a = PartitionState::new(p);
-        state_a.insert_elt(p.elt_id(1), "one".to_string()).unwrap();
-        state_a.insert_elt(p.elt_id(2), "two".to_string()).unwrap();
+        insert(&mut state_a, 1, "one").unwrap();
+        insert(&mut state_a, 2, "two").unwrap();
         
         let mut state_b = state_a.clone_child();
-        state_b.insert_elt(p.elt_id(3), "three".to_string()).unwrap();
-        state_b.insert_elt(p.elt_id(4), "four".to_string()).unwrap();
-        state_b.insert_elt(p.elt_id(5), "five".to_string()).unwrap();
+        insert(&mut state_b, 3, "three").unwrap();
+        insert(&mut state_b, 4, "four").unwrap();
+        insert(&mut state_b, 5, "five").unwrap();
         commits.push(Commit::from_diff(&state_a, &state_b).unwrap());
         
         let mut state_c = state_b.clone_child();
-        state_c.insert_elt(p.elt_id(6), "six".to_string()).unwrap();
-        state_c.insert_elt(p.elt_id(7), "seven".to_string()).unwrap();
-        state_c.remove_elt(p.elt_id(4)).unwrap();
-        state_c.replace_elt(p.elt_id(3), "half six".to_string()).unwrap();
+        insert(&mut state_c, 6, "six").unwrap();
+        insert(&mut state_c, 7, "seven").unwrap();
+        state_c.remove(p.elt_id(4)).unwrap();
+        state_c.replace(p.elt_id(3), "half six".to_string()).unwrap();
         commits.push(Commit::from_diff(&state_b, &state_c).unwrap());
         
         let mut state_d = state_c.clone_child();
-        state_d.insert_elt(p.elt_id(8), "eight".to_string()).unwrap();
-        state_d.insert_elt(p.elt_id(4), "half eight".to_string()).unwrap();
+        insert(&mut state_d, 8, "eight").unwrap();
+        insert(&mut state_d, 4, "half eight").unwrap();
         commits.push(Commit::from_diff(&state_c, &state_d).unwrap());
         
         let (mut states, mut tips) = (HashIndexed::new(), HashSet::new());

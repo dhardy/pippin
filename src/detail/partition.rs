@@ -10,7 +10,7 @@ use std::result;
 use std::any::Any;
 use hashindexed::HashIndexed;
 
-pub use detail::states::PartitionState;
+pub use detail::states::{State, PartitionState};
 
 use detail::readwrite::{FileHeader, FileType, read_head, write_head, validate_repo_name};
 use detail::readwrite::{read_snapshot, write_snapshot};
@@ -859,15 +859,15 @@ fn on_new_partition() {
     assert_eq!(part.push_state(state).expect("committing"), false);
     
     let mut state = part.tip().expect("getting tip").clone_child();
-    assert!(state.is_empty());
+    assert!(!state.any_avail());
     assert_eq!(state.statesum(), &Sum::zero());
     
     let elt1 = "This is element one.".to_string();
     let elt2 = "Element two data.".to_string();
     let mut key = elt1.sum().clone();
     key.permute(&elt2.sum());
-    let e1id = state.new_elt(elt1).expect("inserting elt");
-    let e2id = state.new_elt(elt2).expect("inserting elt");
+    let e1id = state.insert(elt1).expect("inserting elt");
+    let e2id = state.insert(elt2).expect("inserting elt");
     assert_eq!(state.statesum(), &key);
     
     assert_eq!(part.push_state(state).expect("comitting"), true);
@@ -875,8 +875,8 @@ fn on_new_partition() {
     assert_eq!(part.states.len(), 2);
     {
         let state = part.state(&key).expect("getting state by key");
-        assert!(state.has_elt(e1id));
-        assert_eq!(state.get_elt(e2id), Some(&"Element two data.".to_string()));
+        assert!(state.is_avail(e1id));
+        assert_eq!(state.get(e2id), Ok(&"Element two data.".to_string()));
     }   // `state` goes out of scope
     assert_eq!(part.tips.len(), 1);
     let state = part.tip().expect("getting tip").clone_child();

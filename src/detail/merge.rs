@@ -35,7 +35,7 @@ use std::marker::PhantomData;
 use std::rc::Rc;
 
 use detail::{EltId, Commit, EltChange};
-use partition::PartitionState;
+use partition::{PartitionState, State};
 use {ElementT, Sum};
 
 /// This struct controls the merging of two states into one.
@@ -88,7 +88,7 @@ impl<'a, E: ElementT> TwoWayMerge<'a, E> {
     pub fn solve<S>(&mut self, s: &S) where S: TwoWaySolver<E> {
         for &mut (id, ref mut result) in self.v.iter_mut() {
             if *result == EltMerge::NoResult {
-                *result = s.solve(self.a.get_rc(id), self.b.get_rc(id), self.c.get_rc(id));
+                *result = s.solve(self.a.get_rc(id).ok(), self.b.get_rc(id).ok(), self.c.get_rc(id).ok());
             }
         }
     }
@@ -115,7 +115,7 @@ impl<'a, E: ElementT> TwoWayMerge<'a, E> {
     /// Operation is `O(1)`.
     pub fn solve_one<S>(&mut self, i: usize, s: &S) where S: TwoWaySolver<E> {
         let id = self.v[i].0;
-        self.v[i].1 = s.solve(self.a.get_rc(id), self.b.get_rc(id), self.c.get_rc(id));
+        self.v[i].1 = s.solve(self.a.get_rc(id).ok(), self.b.get_rc(id).ok(), self.c.get_rc(id).ok());
     }
     
     /// Get the number of unsolved conflicts.
@@ -151,8 +151,8 @@ impl<'a, E: ElementT> TwoWayMerge<'a, E> {
             let b = self.b.get_rc(id);
             match result {
                 EltMerge::A => {
-                    if let Some(elt1) = a {
-                        if let Some(elt2) = b {
+                    if let Ok(elt1) = a {
+                        if let Ok(elt2) = b {
                             c2.insert(id, EltChange::replacement(elt1.clone()));
                             sum2.permute(&elt2.sum());
                             sum2.permute(&elt1.sum());
@@ -161,15 +161,15 @@ impl<'a, E: ElementT> TwoWayMerge<'a, E> {
                             sum2.permute(&elt1.sum());
                         }
                     } else {
-                        if let Some(elt2) = b {
+                        if let Ok(elt2) = b {
                             c2.insert(id, EltChange::deletion());
                             sum2.permute(&elt2.sum());
                         }
                     }
                 },
                 EltMerge::B => {
-                    if let Some(elt1) = a {
-                        if let Some(elt2) = b {
+                    if let Ok(elt1) = a {
+                        if let Ok(elt2) = b {
                             c1.insert(id, EltChange::replacement(elt2.clone()));
                             sum1.permute(&elt1.sum());
                             sum1.permute(&elt2.sum());
@@ -178,14 +178,14 @@ impl<'a, E: ElementT> TwoWayMerge<'a, E> {
                             sum1.permute(&elt1.sum());
                         }
                     } else {
-                        if let Some(elt2) = b {
+                        if let Ok(elt2) = b {
                             c1.insert(id, EltChange::insertion(elt2.clone()));
                             sum1.permute(&elt2.sum());
                         }
                     }
                 },
                 EltMerge::Elt(elt) => {
-                    if let Some(elt1) = a {
+                    if let Ok(elt1) = a {
                         if *elt1 != elt {
                             sum1.permute(&elt1.sum());
                             sum1.permute(&elt.sum());
@@ -195,7 +195,7 @@ impl<'a, E: ElementT> TwoWayMerge<'a, E> {
                         sum1.permute(&elt.sum());
                         c1.insert(id, EltChange::insertion(elt.clone()));
                     }
-                    if let Some(elt2) = b {
+                    if let Ok(elt2) = b {
                         if *elt2 != elt {
                             sum2.permute(&elt2.sum());
                             sum2.permute(&elt.sum());
@@ -207,18 +207,18 @@ impl<'a, E: ElementT> TwoWayMerge<'a, E> {
                     }
                 },
                 EltMerge::NoElt => {
-                    if let Some(elt1) = a {
+                    if let Ok(elt1) = a {
                         c1.insert(id, EltChange::deletion());
                         sum1.permute(&elt1.sum());
                     }
-                    if let Some(elt2) = b {
+                    if let Ok(elt2) = b {
                         c2.insert(id, EltChange::deletion());
                         sum2.permute(&elt2.sum());
                     }
                 },
                 EltMerge::Rename => {
-                    if let Some(elt1) = a {
-                        if let Some(elt2) = b {
+                    if let Ok(elt1) = a {
+                        if let Ok(elt2) = b {
                             let new_id = match self.a.gen_id_binary(self.b) {
                                 Ok(id) => id,
                                 Err(_) => { /*#0017: warn about failure*/
@@ -235,7 +235,7 @@ impl<'a, E: ElementT> TwoWayMerge<'a, E> {
                             sum2.permute(&elt1.sum());
                         }
                     } else {
-                        if let Some(elt2) = b {
+                        if let Ok(elt2) = b {
                             c1.insert(id, EltChange::insertion(elt2.clone()));
                             sum1.permute(&elt2.sum());
                         }

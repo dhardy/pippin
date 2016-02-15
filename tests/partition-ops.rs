@@ -82,6 +82,7 @@ impl PartitionIO for PartitionStreams {
 
 #[test]
 fn create_small() {
+    use pippin::State;
     env_logger::init().unwrap();
     
     let part_streams = PartitionStreams { ss: VecMap::new() };
@@ -91,23 +92,23 @@ fn create_small() {
     
     // 2 Add a few elements over multiple commits
     let mut state = part.tip().expect("has tip").clone_child();
-    state.new_elt("thirty five".to_string()).expect("inserting elt 35");
-    state.new_elt("six thousand, five hundred and thirteen"
+    state.insert("thirty five".to_string()).expect("inserting elt 35");
+    state.insert("six thousand, five hundred and thirteen"
             .to_string()).expect("inserting elt 6513");
-    state.new_elt("five million, six hundred and ninety eight \
+    state.insert("five million, six hundred and ninety eight \
             thousand, one hundred and thirty one".to_string())
             .expect("inserting elt 5698131");
     part.push_state(state).expect("committing");
     let state1 = part.tip().expect("has tip").clone_exact();
     
     let mut state = part.tip().expect("getting tip").clone_child();
-    state.new_elt("sixty eight thousand, one hundred and sixty eight"
+    state.insert("sixty eight thousand, one hundred and sixty eight"
             .to_string()).expect("inserting elt 68168");
     part.push_state(state).expect("committing");
     
     let mut state = part.tip().expect("getting tip").clone_child();
-    state.new_elt("eighty nine".to_string()).expect("inserting elt 89");
-    state.new_elt("one thousand and sixty three".to_string())
+    state.insert("eighty nine".to_string()).expect("inserting elt 89");
+    state.insert("one thousand and sixty three".to_string())
             .expect("inserting elt 1063");
     part.push_state(state).expect("committing");
     let state3 = part.tip().expect("has tip").clone_exact();
