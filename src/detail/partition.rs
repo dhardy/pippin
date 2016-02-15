@@ -365,27 +365,42 @@ impl<E: ElementT> Partition<E> {
         }
         let mut num = ss_len - 1;
         
-        if all_history {
-            let mut num_commits = 0;
-            let mut num_edits = 0;
-            for ss in 0..ss_len {
-                if let Some(mut r) = try!(self.io.read_ss(ss)) {
-                    let head = try!(read_head(&mut r));
-                    try!(Self::verify_head(head, &mut self.repo_name, self.part_id));
-                    let state = try!(read_snapshot(&mut r, self.part_id));
-                    
-                    self.tips.insert(state.statesum().clone());
-                    self.states.insert(state);
-                }
+        // Load a snapshot (if found); return Ok(true) if successful, Ok(false)
+        // if not found.
+        let load_ss = |p: &mut Partition<E>, ss: usize| -> Result<bool> {
+            if let Some(mut r) = try!(p.io.read_ss(ss)) {
+                let head = try!(read_head(&mut r));
+                try!(Self::verify_head(head, &mut p.repo_name, p.part_id));
+                let state = try!(read_snapshot(&mut r, p.part_id));
                 
-                let mut queue = CommitQueue::new();
-                for c in 0..self.io.ss_cl_len(ss) {
-                    if let Some(mut r) = try!(self.io.read_ss_cl(ss, c)) {
+                p.tips.insert(state.statesum().clone());
+                p.states.insert(state);
+                Ok(true)
+            } else { Ok(false) }
+        };
+        // Load all found log files for the given range of snapshot numbers
+        let load_cl = |p: &mut Partition<E>, range| -> Result<_> {
+            let mut queue = CommitQueue::new();
+            for ss in range {
+                for cl in 0..p.io.ss_cl_len(ss) {
+                    if let Some(mut r) = try!(p.io.read_ss_cl(ss, cl)) {
                         let head = try!(read_head(&mut r));
-                        try!(Self::verify_head(head, &mut self.repo_name, self.part_id));
+                        try!(Self::verify_head(head, &mut p.repo_name, p.part_id));
                         try!(read_log(&mut r, &mut queue));
                     }
                 }
+            }
+            Ok(queue)
+        };
+        
+        if all_history {
+            // All history: load all snapshots and commits in order
+            let mut num_commits = 0;
+            let mut num_edits = 0;
+            for ss in 0..ss_len {
+                try!(load_ss(self, ss));
+                
+                let queue = try!(load_cl(self, ss..(ss+1)));
                 num_commits = queue.len();  // final value is number of commits after last snapshot
                 let mut replayer = LogReplay::from_sets(&mut self.states, &mut self.tips);
                 num_edits = try!(replayer.replay(queue));
@@ -393,17 +408,11 @@ impl<E: ElementT> Partition<E> {
             self.ss_policy.add_commits(num_commits);
             self.ss_policy.add_edits(num_edits);
         } else {
+            // Latest only: load only the latest snapshot and subsequent commits
             loop {
-                if let Some(mut r) = try!(self.io.read_ss(num)) {
-                    let head = try!(read_head(&mut r));
-                    try!(Self::verify_head(head, &mut self.repo_name, self.part_id));
-                    let state = try!(read_snapshot(&mut r, self.part_id));
-                    
-                    self.tips.insert(state.statesum().clone());
-                    self.states.insert(state);
+                if try!(load_ss(self, num)) {
                     break;  // we stop at the most recent snapshot we find
                 }
-                
                 if num == 0 {
                     // no more snapshot numbers to try; below we insert an empty state
                     // #0017: we should warn about the missing snapshot file
@@ -412,16 +421,7 @@ impl<E: ElementT> Partition<E> {
                 num -= 1;
             }
             
-            let mut queue = CommitQueue::new();
-            for ss in num..ss_len {
-                for c in 0..self.io.ss_cl_len(ss) {
-                    if let Some(mut r) = try!(self.io.read_ss_cl(ss, c)) {
-                        let head = try!(read_head(&mut r));
-                        try!(Self::verify_head(head, &mut self.repo_name, self.part_id));
-                        try!(read_log(&mut r, &mut queue));
-                    }
-                }
-            }
+            let queue = try!(load_cl(self, num..ss_len));
             self.ss_policy.add_commits(queue.len());
             if self.tips.is_empty() {
                 // Only for the case we couldn't find a snapshot file (see "num == 0" above)
