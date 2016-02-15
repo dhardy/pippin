@@ -49,8 +49,8 @@ impl DiscoverPartitionFiles {
             return ArgError::err("basename must not contain any path separators");
         }
         
-        let ss_pat = try!(Regex::new("^-ss(0|[1-9][0-9]*).pip$"));
-        let cl_pat = try!(Regex::new("^-ss(0|[1-9][0-9]*)-cl(0|[1-9][0-9]*).piplog$"));
+        let ss_pat = Regex::new("^-ss(0|[1-9][0-9]*).pip$").expect("valid regex");
+        let cl_pat = Regex::new("^-ss(0|[1-9][0-9]*)-cl(0|[1-9][0-9]*).piplog$").expect("valid regex");
         let blen = basename.len();
         
         let mut snapshots = VecMap::new();
@@ -222,6 +222,24 @@ impl DiscoverPartitionFiles {
             .and_then(|&(_, ref logs)| logs.get(&cl))
             .map(|p| p.as_path())
     }
+    
+    /// Use `discover_part_num()` to try to guess our partition number
+    pub fn guess_part_num(&self) -> Option<PartId> {
+        for &(ref ss, ref logs) in self.ss.values() {
+            if let Some(n) = ss.file_name()
+                    .and_then(|s| s.to_str())
+                    .and_then(|s| discover_part_num(s))
+            { return Some(n); }
+            
+            for ref cl in logs.values() {
+                if let Some(n) = cl.file_name()
+                        .and_then(|s| s.to_str())
+                        .and_then(|s| discover_part_num(s))
+                { return Some(n); }
+            }
+        }
+        None
+    }
 }
 
 impl PartitionIO for DiscoverPartitionFiles {
@@ -294,6 +312,25 @@ impl PartitionIO for DiscoverPartitionFiles {
     }
 }
 
+/// A helper to discover a partition number from a file name (e.g.
+/// `thing-pn15-ss12-cl0.piplog` has partition number 15).
+pub fn discover_part_num(fname: &str) -> Option<PartId> {
+    let ss_pat = Regex::new("^(.*)pn(0|[1-9][0-9]*)-ss(0|[1-9][0-9]*).pip$")
+            .expect("valid regex");
+    let cl_pat = Regex::new("^(.*)pn(0|[1-9][0-9]*)-ss(0|[1-9][0-9]*)-cl(0|[1-9][0-9]*).piplog$")
+            .expect("valid regex");
+    
+    let caps = if let Some(caps) = ss_pat.captures(fname) {
+        Some(caps)
+    } else if let Some(caps) = cl_pat.captures(fname) {
+        Some(caps)
+    } else {
+        None
+    };
+    caps.and_then(|caps| caps.at(2).expect("match should yield capture")
+            .parse().ok().map(|n| PartId::from_num(n)))
+}
+
 
 /// A helper struct for finding repository files.
 pub struct DiscoverRepoFiles {
@@ -308,8 +345,10 @@ impl DiscoverRepoFiles {
         if !path.is_dir() { return PathError::err("not a directory", path.to_path_buf()); }
         info!("Scanning for repo files in: {}", path.display());
         
-        let ss_pat = try!(Regex::new("^(.*)pn(0|[1-9][0-9]*)-ss(0|[1-9][0-9]*).pip$"));
-        let cl_pat = try!(Regex::new("^(.*)pn(0|[1-9][0-9]*)-ss(0|[1-9][0-9]*)-cl(0|[1-9][0-9]*).piplog$"));
+        let ss_pat = Regex::new("^(.*)pn(0|[1-9][0-9]*)-ss(0|[1-9][0-9]*).pip$")
+                .expect("valid regex");
+        let cl_pat = Regex::new("^(.*)pn(0|[1-9][0-9]*)-ss(0|[1-9][0-9]*)-cl(0|[1-9][0-9]*).piplog$")
+                .expect("valid regex");
         
         let mut paths = HashMap::new();
         
