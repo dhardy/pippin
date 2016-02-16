@@ -96,12 +96,12 @@ pub use detail::{ElementT, PartId, EltId, Sum};
 pub use detail::repo;
 pub use detail::partition;
 pub use detail::merge;
-pub use detail::discover;
 
 // Most Pippin code is put in this private module to allow inter-module
 // dependencies without making the details public. In the future there may
 // be other ways to do this (i.e. better privacy control).
 mod detail;
+pub mod discover;
 pub mod error;
 pub mod util;
 

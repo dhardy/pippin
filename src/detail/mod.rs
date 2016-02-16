@@ -12,7 +12,6 @@ pub use self::repo::{Repo, RepoState};
 
 pub mod readwrite;
 pub mod partition;
-pub mod discover;
 pub mod repo;
 pub mod merge;
 
