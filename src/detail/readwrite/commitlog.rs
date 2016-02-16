@@ -144,7 +144,7 @@ pub fn read_log<E: ElementT>(reader_: &mut Read, receiver: &mut CommitReceiver<E
             return ReadError::err("checksum invalid", pos, (0, SUM_BYTES));
         }
         
-        trace!("Read commit ({} changes): {}", changes.len(), commit_sum);
+        trace!("Read commit ({} changes): {}; parent: {}", changes.len(), commit_sum, parent_sum);
         let cont = receiver.receive(Commit::new(commit_sum, vec![parent_sum], changes));
         if !cont { break; }
     }

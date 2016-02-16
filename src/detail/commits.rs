@@ -13,7 +13,7 @@ use detail::states::PartitionStateSumComparator;
 use detail::readwrite::CommitReceiver;
 use partition::{PartitionState, State};
 use {ElementT, EltId, Sum};
-use error::{Result, ReplayError};
+use error::{Result, ReplayError, PatchOp};
 
 
 /// Holds a set of commits, ordered by insertion order.
@@ -190,11 +190,12 @@ impl<E: ElementT> Commit<E> {
     /// 
     /// Fails if the given state's initial state-sum is not equal to this
     /// commit's parent or if there are any errors in applying this patch.
-    pub fn patch(&self, state: &mut PartitionState<E>) -> Result<()> {
-        if state.statesum() != self.parent() {
-            return ReplayError::err("cannot apply commit: state does not match parent checksum");
-        }
+    pub fn patch(&self, state: &mut PartitionState<E>) -> Result<(), PatchOp> {
+        if state.statesum() != self.parent() { return Err(PatchOp::WrongParent); }
         
+        // #0018: we cast ElementOp errors to PatchOp via a `From`
+        // implementation. Ideally we'd use a `try` block and only map here
+        // since in other cases we needn't map.
         for (id, ref change) in self.changes.iter() {
             match *change {
                 &EltChange::Deletion => {
@@ -216,9 +217,7 @@ impl<E: ElementT> Commit<E> {
             }
         }
         
-        if state.statesum() != self.statesum() {
-            return ReplayError::err("checksum failure of replayed commit");
-        }
+        if state.statesum() != self.statesum() { return Err(PatchOp::PatchApply); }
         Ok(())
     }
     

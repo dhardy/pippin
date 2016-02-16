@@ -25,6 +25,7 @@ use rand::distributions::{IndependentSample, Range, Normal, LogNormal};
 use pippin::{ElementT, PartId, Partition, State};
 use pippin::discover::*;
 use pippin::repo::*;
+use pippin::merge::*;
 use pippin::error::{Result, OtherError};
 
 
@@ -240,8 +241,11 @@ fn main() {
 fn run(dir: &Path, part_basename: Option<String>, mode: Mode, create: bool,
         snapshot: bool, repetitions: usize) -> Result<()>
 {
-    let mut rng = rand::thread_rng();
+    let solver1 = AncestorSolver2W::new();
+    let solver2 = RenamingSolver2W::new();
+    let merge_solver = TwoWaySolverChain::new(&solver1, &solver2);
     
+    let mut rng = rand::thread_rng();
     let mut generate = |state: &mut State<_>| match mode {
         Mode::Generate(num) => {
             match Range::new(0, 4).ind_sample(&mut rng) {
@@ -291,6 +295,10 @@ fn run(dir: &Path, part_basename: Option<String>, mode: Mode, create: bool,
             part
         };
         
+        if part.merge_required() {
+            try!(part.merge(&merge_solver));
+        }
+        
         for _ in 0..repetitions {
             let mut state = try!(part.tip()).clone_child();
             println!("Found state {}; have {} elements", state.statesum(), state.num_avail());
@@ -314,6 +322,10 @@ fn run(dir: &Path, part_basename: Option<String>, mode: Mode, create: bool,
             try!(repo.load_all(false));
             repo
         };
+        
+        if repo.merge_required() {
+            try!(repo.merge(&merge_solver));
+        }
         
         for _ in 0..repetitions {
             let mut state = try!(repo.clone_state());

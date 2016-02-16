@@ -19,7 +19,7 @@ use detail::states::{PartitionStateSumComparator};
 use detail::{Commit, CommitQueue, LogReplay};
 use merge::{TwoWayMerge, TwoWaySolver};
 use {ElementT, Sum, PartId};
-use error::{Result, ArgError, TipError, MatchError, OtherError, make_io_err};
+use error::{Result, TipError, PatchOp, MatchError, OtherError, make_io_err};
 
 /// An interface providing read and/or write access to a suitable location.
 /// 
@@ -582,6 +582,7 @@ impl<E: ElementT> Partition<E> {
     /// once. This function simply selects any two tips and merges, then
     /// repeats until done.
     pub fn merge<S: TwoWaySolver<E>>(&mut self, solver: &S) -> Result<()> {
+        trace!("Partition::merge ({} tips)", self.tips.len());
         while self.tips.len() > 1 {
             let c = {
                 let (tip1, tip2) = {
@@ -599,6 +600,7 @@ impl<E: ElementT> Partition<E> {
                 merger.make_commit()
             };
             if let Some(commit) = c {
+                trace!("Created merge commit: {} ({} changes)", commit.statesum(), commit.num_changes());
                 try!(self.push_commit(commit));
             } else {
                 return OtherError::err("merge failed");
@@ -630,26 +632,28 @@ impl<E: ElementT> Partition<E> {
             self.states.get(&common).unwrap()))
     }
     
-    // #0003: allow getting a reference to other states listing snapshots, commits, getting non-current states and
-    // getting diffs.
+    // #0003: allow getting a reference to other states listing snapshots,
+    // commits, getting non-current states and getting diffs.
     
     /// This adds a new commit to the list waiting to be written and updates
     /// the states and 'tips' stored internally by creating a new state from
-    /// the commit, and returns true, unless the commit's state is already
-    /// known, in which case this does nothing and returns false.
+    /// the commit.
+    /// 
+    /// Fails if there is a checksum collision or the patch does not apply.
     /// 
     /// TODO: this operation should not fail, since failure might result in
     /// data loss.
-    pub fn push_commit(&mut self, commit: Commit<E>) -> Result<bool> {
+    pub fn push_commit(&mut self, commit: Commit<E>) -> Result<(), PatchOp> {
         if self.states.contains(commit.statesum()) {
-            return Ok(false);
+            return Err(PatchOp::SumClash);
         }
-        let mut state = try!(self.states.get(commit.parent())
-                .ok_or(ArgError::new("parent state not found")))
-                .clone_child();
+        let mut state = match self.states.get(commit.parent()) {
+            Some(ref state) => state.clone_child(),
+            None => return Err(PatchOp::NoParent),
+        };
         try!(commit.patch(&mut state));
         self.add_pair(commit, state);
-        Ok(true)
+        Ok(())
     }
     
     /// This adds a new state to the partition, updating the 'tip', and adds a
@@ -665,16 +669,17 @@ impl<E: ElementT> Partition<E> {
     /// 
     /// TODO: this operation should not fail, since failure might result in
     /// data loss.
-    pub fn push_state(&mut self, state: PartitionState<E>) -> Result<bool> {
+    pub fn push_state(&mut self, state: PartitionState<E>) -> Result<bool, PatchOp> {
         // #0019: Commit::from_diff compares old and new states and code be slow.
         // #0019: Instead, we could record each alteration as it happens.
         let c = if state.statesum() == state.parent() {
             // #0022: compare states instead of sums to check for collisions?
             None
         } else {
-            let parent = try!(self.states.get(state.parent())
-                    .ok_or(ArgError::new("parent state not found")));
-            Commit::from_diff(parent, &state)
+            match self.states.get(state.parent()) {
+                Some(ref parent) => Commit::from_diff(parent, &state),
+                None => { return Err(PatchOp::NoParent); },
+            }
         };
         if let Some(commit) = c {
             self.add_pair(commit, state);
@@ -822,11 +827,15 @@ impl<E: ElementT> Partition<E> {
             a1.insert(k);
             if let Some(state) = s {
                 k = state.parent();
-            } else {
+            }
+            if a1.contains(k) {
                 // can't find any more ancestors of k
                 break;
             }
         }
+        
+        // We track ancestors of k2 just to check we don't end up in a loop.
+        let mut a2 = HashSet::new();
         
         k = k2;
         loop {
@@ -834,10 +843,11 @@ impl<E: ElementT> Partition<E> {
                 return Ok(k.clone());
             }
             let s = self.states.get(k);
-            // a2.insert(k);
+            a2.insert(k);
             if let Some(state) = s {
                 k = state.parent();
-            } else {
+            }
+            if a2.contains(k) {
                 // can't find any more ancestors of k
                 break;
             }

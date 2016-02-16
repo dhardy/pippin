@@ -158,10 +158,47 @@ impl ErrorTrait for ElementOp {
         }
     }
 }
-
 impl fmt::Display for ElementOp {
     fn fmt(&self, f: &mut fmt::Formatter) -> result::Result<(), fmt::Error> {
         write!(f, "{}", self.description())
+    }
+}
+
+/// Reason for a `push_commit` / `push_state` / commit patch operation failing.
+/// 
+/// Any ElementOp can automatically be converted to PatchOp::PatchApply.
+#[derive(PartialEq, Eq, Debug, Clone, Copy)]
+pub enum PatchOp {
+    /// State-sum of commit / state clashes with an existing one
+    SumClash,
+    /// Parent state not found
+    NoParent,
+    /// Incorrect parent supplied to patch operationn
+    WrongParent,
+    /// Patch fails to apply cleanly
+    PatchApply,
+}
+impl ErrorTrait for PatchOp {
+    fn description(&self) -> &'static str {
+        match *self {
+            PatchOp::SumClash => "state-sum of commit or state already used by partition",
+            PatchOp::NoParent => "parent state of commit not found",
+            PatchOp::WrongParent => "applying commit patch failed: wrong parent",
+            PatchOp::PatchApply => "applying commit patch failed: data mismatch",
+        }
+    }
+}
+impl fmt::Display for PatchOp {
+    fn fmt(&self, f: &mut fmt::Formatter) -> result::Result<(), fmt::Error> {
+        write!(f, "{}", self.description())
+    }
+}
+impl From<ElementOp> for PatchOp {
+    fn from(e: ElementOp) -> PatchOp {
+        // Possibly WrongPartition, ClassifyFailure and NotLoaded shouldn't map
+        // like this.
+        trace!("casting ElementOp '{}' to PatchOp::PatchApply", e.description());
+        PatchOp::PatchApply
     }
 }
 

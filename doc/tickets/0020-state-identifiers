@@ -27,3 +27,9 @@ an issue), but not checksum-collision.
 Do nothing. Does collision matter in the case of a revert? What happens in the
 case of an accidental collision? Intentional collision is not really possible
 with secure checksums.
+
+Add a "comment" field to commits, or a per-partition "commit number" element or
+some such. Include the value of this in the checksum. If the checksum clashes,
+mutate it. This leaves two problems: (1) given a commit to merge in with
+clashing sum, do we ignore it or mutate the sum and merge it, and (2) are there
+other exploits or issues involving sum clashes we can't (currently) spot?

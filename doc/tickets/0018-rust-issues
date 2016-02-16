@@ -15,3 +15,6 @@ Use NonZero optimisation?
 https://github.com/rust-lang/rust/issues/27730
 
 Associated constants (see #0025) and BYTES in sum.rs.
+
+Error handling: when new `try` blocks or similar are available some code could
+be improved.
