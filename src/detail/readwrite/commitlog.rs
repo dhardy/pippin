@@ -9,11 +9,12 @@
 use std::io::{Read, Write};
 use std::collections::HashMap;
 use std::rc::Rc;
+use std::u32;
 
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
 use detail::readwrite::{sum, fill};
-use detail::{Commit, EltChange};
+use detail::{Commit, EltChange, CommitMeta};
 use {ElementT, Sum};
 use detail::SUM_BYTES;
 use error::{Result, ReadError};
@@ -49,15 +50,72 @@ pub fn read_log<E: ElementT>(reader_: &mut Read, receiver: &mut CommitReceiver<E
         if l == 0 { break; /*end of file (EOF)*/ }
         if l < 16 { try!(fill(&mut r, &mut buf[l..16], pos)); /*not EOF, buf haven't filled buffer*/ }
         
-        if buf[0..8] != *b"COMMIT\x00\x00" {
-            return ReadError::err("unexpected contents (expected COMMIT\\x00\\x00)", pos, (0, 8));
-        }
-        // #0016: timestamp
-        pos += 16;
+        let n_parents = if buf[0..6] == *b"COMMIT" {
+            1
+        } else if buf[0..5] == *b"MERGE" {
+            let n: u8 = buf[5];
+            if n < 2 { return ReadError::err("bad number of parents", pos, (5, 6)); }
+            n as usize
+        } else {
+            return ReadError::err("unexpected contents (expected COMMIT or MERGE)", pos, (0, 6));
+        };
+        let meta = if buf[6..8] == *b"\x00\x00" {
+            // Compatibility mode (2016_02_01 and older): no timestamp etc.
+            pos += 16;
+            CommitMeta {
+                number: 1,
+                timestamp: 0,
+                extra: None
+            }
+        } else if buf[6..8] == *b"\x00U" {
+            let secs = try!((&buf[8..16]).read_i64::<BigEndian>());
+            pos += 16;
+            
+            try!(fill(&mut r, &mut buf[0..16], pos));
+            if buf[0..4] != *b"CNUM" {
+                return ReadError::err("unexpected contents (expected CNUM)", pos, (0, 4));
+            }
+            let cnum = try!((&buf[4..8]).read_u32::<BigEndian>());
+            
+            if buf[8..10] != *b"XM" {
+                return ReadError::err("unexpected contents (expected XM)", pos, (8, 10));
+            }
+            let xm_type_txt = buf[10..12] == *b"TT";
+            let xm_len = try!((&buf[12..16]).read_u32::<BigEndian>()) as usize;
+            pos += 16;
+            
+            let mut xm_data = vec![0; xm_len];
+            try!(fill(&mut r, &mut xm_data, pos));
+            let xm = if xm_type_txt {
+                Some(try!(String::from_utf8(xm_data)
+                    .map_err(|_| ReadError::new("content not valid UTF-8", pos, (0, xm_len)))))
+            } else {
+                // even if xm_len > 0 we ignore it
+                None
+            };
+            
+            pos += xm_len;
+            let pad_len = 16 * ((xm_len + 15) / 16) - xm_len;
+            if pad_len > 0 {
+                try!(fill(&mut r, &mut buf[0..pad_len], pos));
+                pos += pad_len;
+            }
+            
+            CommitMeta {
+                number: cnum,
+                timestamp: secs,
+                extra: xm,
+            }
+        } else {
+            return ReadError::err("unexpected contents (expected \\x00U or \\x00\\x00)", pos, (6, 8));
+        };
         
-        try!(fill(&mut r, &mut buf[0..SUM_BYTES], pos));
-        let parent_sum = Sum::load(&buf[0..SUM_BYTES]);
-        pos += SUM_BYTES;
+        let mut parents = Vec::with_capacity(n_parents);
+        for _ in 0..n_parents {
+            try!(fill(&mut r, &mut buf[0..SUM_BYTES], pos));
+            parents.push(Sum::load(&buf[0..SUM_BYTES]));
+            pos += SUM_BYTES;
+        }
         
         try!(fill(&mut r, &mut buf[0..16], pos));
         if buf[0..8] != *b"ELEMENTS" {
@@ -144,8 +202,8 @@ pub fn read_log<E: ElementT>(reader_: &mut Read, receiver: &mut CommitReceiver<E
             return ReadError::err("checksum invalid", pos, (0, SUM_BYTES));
         }
         
-        trace!("Read commit ({} changes): {}; parent: {}", changes.len(), commit_sum, parent_sum);
-        let cont = receiver.receive(Commit::new(commit_sum, vec![parent_sum], changes));
+        trace!("Read commit ({} changes): {}; first parent: {}", changes.len(), commit_sum, parents[0]);
+        let cont = receiver.receive(Commit::new(commit_sum, parents, changes, meta));
         if !cont { break; }
     }
     
@@ -172,11 +230,40 @@ pub fn write_commit<E: ElementT>(commit: &Commit<E>, writer: &mut Write) -> Resu
     // A writer which calculates the checksum of what was written:
     let mut w = sum::HashWriter::new(writer);
     
-    // #0016: replace dots with timestamp or whatever...
-    try!(w.write(b"COMMIT\x00\x00........"));
+    if commit.parents().len() == 1 {
+        try!(w.write(b"COMMIT\x00U"));
+    } else {
+        assert!(commit.parents().len() > 1 && commit.parents().len() < 0x100);
+        try!(w.write(b"MERGE"));
+        let n: [u8; 1] = [commit.parents().len() as u8];
+        try!(w.write(&n));
+        try!(w.write(b"\x00U"));
+    }
     
-    // Parent statesum:
-    try!(commit.parent().write(&mut w));
+    try!(w.write_i64::<BigEndian>(commit.meta().timestamp));
+    
+    try!(w.write(b"CNUM"));
+    try!(w.write_u32::<BigEndian>(commit.meta().number));
+    
+    if let Some(ref txt) = commit.meta().extra {
+        try!(w.write(b"XMTT"));
+        assert!(txt.len() <= u32::MAX as usize);
+        try!(w.write_u32::<BigEndian>(txt.len() as u32));
+        try!(w.write(txt.as_bytes()));
+        let pad_len = 16 * ((txt.len() + 15) / 16) - txt.len();
+        if pad_len > 0 {
+            let padding = [0u8; 15];
+            try!(w.write(&padding[0..pad_len]));
+        }
+    } else {
+        // last four zeros is 0u32 encoded in bytes
+        try!(w.write(b"XM\x00\x00\x00\x00\x00\x00"));
+    }
+    
+    // Parent statesums (we wrote the number above already):
+    for parent in commit.parents() {
+        try!(parent.write(&mut w));
+    }
     
     try!(w.write(b"ELEMENTS"));
     try!(w.write_u64::<BigEndian>(commit.num_changes() as u64));       // #0015
@@ -243,13 +330,15 @@ fn commit_write_read(){
     changes.insert(p.elt_id(3), EltChange::insertion(Rc::new("three".to_string())));
     changes.insert(p.elt_id(4), EltChange::insertion(Rc::new("four".to_string())));
     changes.insert(p.elt_id(5), EltChange::insertion(Rc::new("five".to_string())));
-    let commit_1 = Commit::new(seq, vec![squares], changes);
+    let meta1 = CommitMeta { number: 1, timestamp: 123456, extra: None };
+    let commit_1 = Commit::new(seq, vec![squares], changes, meta1);
     
     changes = HashMap::new();
     changes.insert(p.elt_id(1), EltChange::deletion());
     changes.insert(p.elt_id(9), EltChange::replacement(Rc::new("NINE!".to_string())));
     changes.insert(p.elt_id(5), EltChange::insertion(Rc::new("five again?".to_string())));
-    let commit_2 = Commit::new(nonsense, vec![quadr], changes);
+    let meta2 = CommitMeta { number: 1, timestamp: 321654, extra: Some("123".to_string()) };
+    let commit_2 = Commit::new(nonsense, vec![quadr], changes, meta2);
     
     let mut obj = Vec::new();
     assert!(start_log(&mut obj).is_ok());

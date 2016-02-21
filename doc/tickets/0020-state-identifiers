@@ -33,3 +33,32 @@ some such. Include the value of this in the checksum. If the checksum clashes,
 mutate it. This leaves two problems: (1) given a commit to merge in with
 clashing sum, do we ignore it or mutate the sum and merge it, and (2) are there
 other exploits or issues involving sum clashes we can't (currently) spot?
+
+
+Plan
+------
+
+Make a variant of `PartitionState` which can be used to construct a commit.
+
+Disallow pushing a "state" to a `Partition` (commits must be made).
+
+Add a pseudo-element storing some metadata, including the parent(s)'
+state-sums. This will be replaced by every commit. Thus the state-sum of a "no
+changes" commit cannot equal its parent's sum.
+Requirements: a commit must actively be made from a parent
+state, rather than simply pushing an altered state.
+
+Metadata:
+
+*   commit number (optional, convenient identifier like Mercurial provides)
+*   commit timestamp (optional, informative)
+*   commit author (optional, informative)
+*   primary parent's id (required)
+*   other parents' ids (important)
+
+Derived: checksum of pseudo-element (needed at creation, when commit is patched
+onto the parent state, when creating a child commit, when patcing a child
+commit).
+
+Simpler alternative: do not construct a pseudo-element and its sum, instead
+just use the parent's sum in the permutation calculation.

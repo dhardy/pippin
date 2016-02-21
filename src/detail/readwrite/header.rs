@@ -19,7 +19,7 @@ use util::rtrim;
 // Snapshot header. This is the latest version.
 const HEAD_SNAPSHOT : [u8; 16] = *b"PIPPINSS20160201";
 // Commit log header. This is the latest version.
-const HEAD_COMMITLOG : [u8; 16] = *b"PIPPINCL20160201";
+const HEAD_COMMITLOG : [u8; 16] = *b"PIPPINCL20160221";
 // Versions of header (all versions, including latest), encoded as an integer.
 // All restrictions to specific versions should mention `HEAD_VERSIONS` in
 // comments to aid searches.
@@ -27,10 +27,11 @@ const HEAD_COMMITLOG : [u8; 16] = *b"PIPPINCL20160201";
 // Note: new versions can be implemented just by updating the three HEAD_...
 // constants and updating code, so long as the code will still read old
 // versions. The file format documentation should also be updated.
-const HEAD_VERSIONS : [u32; 3] = [
+const HEAD_VERSIONS : [u32; 4] = [
     2015_09_29, // initial standardisation
     2016_01_05, // add 'PARTID' to header blocks (snapshot only)
     2016_02_01, // add memory of new names of moved elements
+    2016_02_21, // add metadata to commits
 ];
 const SUM_SHA256 : [u8; 16] = *b"HSUM SHA-2 256\x00\x00";
 const SUM_BLAKE2_16 : [u8; 16] = *b"HSUM BLAKE2 16\x00\x00";

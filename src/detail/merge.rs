@@ -33,8 +33,9 @@
 use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::rc::Rc;
+use std::cmp::max;
 
-use detail::{EltId, Commit, EltChange};
+use detail::{EltId, Commit, CommitMeta, EltChange};
 use partition::{PartitionState, State};
 use {ElementT, Sum};
 
@@ -135,6 +136,9 @@ impl<'a, E: ElementT> TwoWayMerge<'a, E> {
     /// Create a merge commit.
     /// 
     /// This succeeds if and only if `is_solved()` returns true.
+    /// 
+    /// A new metadata is created. This can be changed afterwards if necessary
+    /// (e.g. to set the `extra` field, which is simply set `None` here).
     /// 
     /// Operation is `O(X)`.
     pub fn make_commit(self) -> Option<Commit<E>> {
@@ -248,11 +252,16 @@ impl<'a, E: ElementT> TwoWayMerge<'a, E> {
         }
         assert_eq!(sum1, sum2); // sums must be equal
         
-        Some(if c1.len() < c2.len() {
-            Commit::new(sum1, vec![self.a.statesum().clone(), self.b.statesum().clone()], c1)
+        let (sum, parents, changes) = if c1.len() < c2.len() {
+            trace!("Created merge from first parent: {}", self.a.statesum());
+            (sum1, vec![self.a.statesum().clone(), self.b.statesum().clone()], c1)
         } else {
-            Commit::new(sum2, vec![self.b.statesum().clone(), self.a.statesum().clone()], c2)
-        })
+            trace!("Created merge from second parent: {}", self.b.statesum());
+            (sum2, vec![self.b.statesum().clone(), self.a.statesum().clone()], c2)
+        };
+        let cnum = max(self.a.meta().number, self.b.meta().number);
+        let meta = CommitMeta::new_from(cnum, None);
+        Some(Commit::new(sum, parents, changes, meta))
     }
     
     /* One could in theory just go through elements once, like this. This is

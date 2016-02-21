@@ -7,13 +7,61 @@
 use std::collections::{HashSet, HashMap, hash_map};
 use std::clone::Clone;
 use std::rc::Rc;
+use std::u32;
+
 use hashindexed::HashIndexed;
+use chrono::{DateTime, NaiveDateTime, UTC};
 
 use detail::states::PartitionStateSumComparator;
 use detail::readwrite::CommitReceiver;
 use partition::{PartitionState, State};
 use {ElementT, EltId, Sum};
 use error::{Result, ReplayError, PatchOp};
+
+
+/// Extra data about a commit
+#[derive(Eq, PartialEq, Clone, Debug)]
+pub struct CommitMeta {
+    /// Commit number. First (real) commit has number 1, each subsequent commit
+    /// has max-parent-number + 1. Can be used to identify commits but is not
+    /// necessarily unique.
+    pub number: u32,
+    /// Time of commit creation
+    /// 
+    /// This is a UNIX time-stamp: the number of non-leap seconds since January
+    /// 1, 1970 0:00:00 UTC. See `date_time()` or use
+    /// `chrono::NaiveDateTime::from_timestamp` directly.
+    /// 
+    /// In rare cases this may be zero. 
+    pub timestamp: i64,
+    /// Extra metadata (e.g. author, comments).
+    /// 
+    /// Currently this is either unicode text or nothing but there is a
+    /// possibility of allowing other types (probably by replacing `Option`
+    /// with a custom enum).
+    pub extra: Option<String>,
+}
+impl CommitMeta {
+    /// Create an instance. Set number to `prev_num` + 1 (but without
+    /// wrapping), timestamp to `timestamp_now()` and extra to `extra`.
+    pub fn new_from(prev_num: u32, extra: Option<String>) -> CommitMeta {
+        CommitMeta {
+            number: if prev_num < u32::MAX { prev_num + 1 } else { prev_num },
+            timestamp: Self::timestamp_now(),
+            extra: extra,
+        }
+    }
+    /// Convert the internal timestamp to a `DateTime`.
+    pub fn date_time(&self) -> DateTime<UTC> {
+        DateTime::<UTC>::from_utc(
+                NaiveDateTime::from_timestamp(self.timestamp, 0),
+                UTC)
+    }
+    /// Create a timestamp representing this moment.
+    pub fn timestamp_now() -> i64 {
+        UTC::now().timestamp()
+    }
+}
 
 
 /// Holds a set of commits, ordered by insertion order.
@@ -56,7 +104,9 @@ pub struct Commit<E: ElementT> {
     /// to; the rest are simply "additional parents".
     parents: Vec<Sum>,
     /// Per-element changes
-    changes: HashMap<EltId, EltChange<E>>
+    changes: HashMap<EltId, EltChange<E>>,
+    /// Meta-data
+    meta: CommitMeta,
 }
 
 /// Per-element changes
@@ -124,10 +174,14 @@ impl<E: ElementT> Commit<E> {
     /// Create a commit from parts. It is suggested not to use this unless you
     /// are sure all sums are correct.
     /// 
-    /// This also panics if parents.len() == 0.
-    pub fn new(statesum: Sum, parents: Vec<Sum>, changes: HashMap<EltId, EltChange<E>>) -> Commit<E> {
-        assert!(parents.len() >= 1);
-        Commit { statesum: statesum, parents: parents, changes: changes }
+    /// This panics if parents.len() == 0 or parents.len() >= 256.
+    pub fn new(statesum: Sum, parents: Vec<Sum>,
+            changes: HashMap<EltId, EltChange<E>>,
+            meta: CommitMeta) -> Commit<E>
+    {
+        assert!(parents.len() >= 1 && parents.len() < 0x100);
+        Commit { statesum: statesum, parents: parents, changes: changes,
+                meta: meta }
     }
     
     /// Create a commit from an old state and a new state. Return the commit if
@@ -181,7 +235,8 @@ impl<E: ElementT> Commit<E> {
             Some(Commit {
                 statesum: new_state.statesum().clone(),
                 parents: vec![old_state.statesum().clone()],
-                changes: changes
+                changes: changes,
+                meta: CommitMeta::new_from(old_state.meta().number, None),
             })
         }
     }
@@ -191,7 +246,7 @@ impl<E: ElementT> Commit<E> {
     /// Fails if the given state's initial state-sum is not equal to this
     /// commit's parent or if there are any errors in applying this patch.
     pub fn patch(&self, state: &mut PartitionState<E>) -> Result<(), PatchOp> {
-        if state.statesum() != self.parent() { return Err(PatchOp::WrongParent); }
+        if *state.statesum() != self.parents[0] { return Err(PatchOp::WrongParent); }
         
         // #0018: we cast ElementOp errors to PatchOp via a `From`
         // implementation. Ideally we'd use a `try` block and only map here
@@ -223,12 +278,17 @@ impl<E: ElementT> Commit<E> {
     
     /// Get the state checksum
     pub fn statesum(&self) -> &Sum { &self.statesum }
-    /// Get the first parent's `Sum`
-    pub fn parent(&self) -> &Sum { &self.parents[0] }
+    /// Get the parents. There must be at least one. The first is the primary,
+    /// which can be patched by this commit.
+    pub fn parents(&self) -> &Vec<Sum> { &self.parents }
     /// Get the number of changes in the "patch"
     pub fn num_changes(&self) -> usize { self.changes.len() }
     /// Get an iterator over changes
     pub fn changes_iter(&self) -> hash_map::Iter<EltId, EltChange<E>> { self.changes.iter() }
+    /// Access the commit's meta-data
+    pub fn meta(&self) -> &CommitMeta { &self.meta }
+    /// Write acces to the commit's meta-data
+    pub fn meta_mut(&mut self) -> &mut CommitMeta { &mut self.meta }
 }
 
 
@@ -261,7 +321,7 @@ impl<'a, E: ElementT> LogReplay<'a, E> {
     pub fn replay(&mut self, commits: CommitQueue<E>) -> Result<usize> {
         let mut edits = 0;
         for commit in commits.commits {
-            let mut state = try!(self.states.get(&commit.parent())
+            let mut state = try!(self.states.get(&commit.parents()[0])
                 .ok_or(ReplayError::new("parent state of commit not found")))
                 .clone_child();
             if self.states.contains(&commit.statesum) {
@@ -270,9 +330,11 @@ impl<'a, E: ElementT> LogReplay<'a, E> {
                 
                 // Since the state is already known, it either is already
                 // marked a tip or it has been unmarked. Do not set again!
-                // However, we now know that the parent state isn't a tip, which
+                // However, we now know that the parent states aren't tips, which
                 // might not have been known before (if new state is a snapshot).
-                self.tips.remove(&commit.parent());
+                for parent in commit.parents() {
+                    self.tips.remove(parent);
+                }
                 continue;
             }
             
@@ -289,7 +351,9 @@ impl<'a, E: ElementT> LogReplay<'a, E> {
                 self.states.insert(state);
             }
             
-            self.tips.remove(&commit.parent());
+            for parent in commit.parents() {
+                self.tips.remove(parent);
+            }
             self.tips.insert(commit.statesum);
             edits += commit.changes.len();
         }

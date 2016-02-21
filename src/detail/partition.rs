@@ -585,22 +585,13 @@ impl<E: ElementT> Partition<E> {
         trace!("Partition::merge ({} tips)", self.tips.len());
         while self.tips.len() > 1 {
             let c = {
-                let (tip1, tip2) = {
-                    let mut iter = self.tips.iter();
-                    let tip1 = iter.next().unwrap();
-                    let tip2 = iter.next().unwrap();
-                    (tip1, tip2)
-                };
-                let common = try!(self.latest_common_ancestor(tip1, tip2));
-                let mut merger = TwoWayMerge::new(
-                    self.states.get(tip1).unwrap(),
-                    self.states.get(tip2).unwrap(),
-                    self.states.get(&common).unwrap());
+                let mut merger = try!(self.merge_two());
                 merger.solve(solver);
                 merger.make_commit()
             };
             if let Some(commit) = c {
-                trace!("Created merge commit: {} ({} changes)", commit.statesum(), commit.num_changes());
+                trace!("Pushing merge commit: {} ({} changes)", commit.statesum(), commit.num_changes());
+                //FIXME: merge fails because merged state (and sum) equals one of the tips. What should we do?
                 try!(self.push_commit(commit));
             } else {
                 return OtherError::err("merge failed");
@@ -619,6 +610,8 @@ impl<E: ElementT> Partition<E> {
         if self.tips.len() < 2 {
             return OtherError::err("merge_two() called when no states need merging");
         }
+        // TODO: order is randomised (hash security). We want this operation to
+        // be reproducible, so should order tips or something.
         let (tip1, tip2) = {
             let mut iter = self.tips.iter();
             let tip1 = iter.next().unwrap();
@@ -647,8 +640,10 @@ impl<E: ElementT> Partition<E> {
         if self.states.contains(commit.statesum()) {
             return Err(PatchOp::SumClash);
         }
-        let mut state = match self.states.get(commit.parent()) {
-            Some(ref state) => state.clone_child(),
+        let mut state = match  commit.parents().iter().next()
+                .and_then(|p| self.states.get(p))
+        {
+            Some(ref state) => state.child_with_parents(commit.parents().clone()),
             None => return Err(PatchOp::NoParent),
         };
         try!(commit.patch(&mut state));
@@ -672,11 +667,16 @@ impl<E: ElementT> Partition<E> {
     pub fn push_state(&mut self, state: PartitionState<E>) -> Result<bool, PatchOp> {
         // #0019: Commit::from_diff compares old and new states and code be slow.
         // #0019: Instead, we could record each alteration as it happens.
-        let c = if state.statesum() == state.parent() {
+        let c = if state.parents().len() == 1 && state.parents()[0] == *state.statesum() {
+            // Checksum equals that of parent: no changes
             // #0022: compare states instead of sums to check for collisions?
             None
         } else {
-            match self.states.get(state.parent()) {
+            // `state` should have been created via `clone_child()` and should
+            // have one parent. If it wasn't, it doesn't matter except that
+            // someone pushing a merge result to create a commit will lose
+            // other parents. This shouldn't happen anyway.
+            match state.parents().iter().next().and_then(|p| self.states.get(p)) {
                 Some(ref parent) => Commit::from_diff(parent, &state),
                 None => { return Err(PatchOp::NoParent); },
             }
@@ -697,7 +697,9 @@ impl<E: ElementT> Partition<E> {
         self.ss_policy.add_edits(commit.num_changes());
         self.unsaved.push_back(commit);
         // This might fail (if the parent was not a tip), but it doesn't matter:
-        self.tips.remove(state.parent());
+        for parent in state.parents() {
+            self.tips.remove(parent);
+        }
         self.tips.insert(state.statesum().clone());
         self.states.insert(state);
     }
@@ -821,35 +823,41 @@ impl<E: ElementT> Partition<E> {
         // ancestors of one, then of the other. This simplifies lopic.
         let mut a1 = HashSet::new();
         
-        let mut k: &Sum = k1;
+        let mut next = VecDeque::new();
+        next.push_back(k1);
         loop {
-            let s = self.states.get(k);
+            let k = match next.pop_back() {
+                Some(k) => k,
+                None => { break; }
+            };
+            if a1.contains(k) { continue; }
             a1.insert(k);
-            if let Some(state) = s {
-                k = state.parent();
-            }
-            if a1.contains(k) {
-                // can't find any more ancestors of k
-                break;
+            if let Some(state) = self.states.get(k) {
+                for p in state.parents() {
+                    next.push_back(p);
+                }
             }
         }
         
         // We track ancestors of k2 just to check we don't end up in a loop.
         let mut a2 = HashSet::new();
         
-        k = k2;
+        // next is empty
+        next.push_back(k2);
         loop {
+            let k = match next.pop_back() {
+                Some(k) => k,
+                None => { break; }
+            };
+            if a2.contains(k) { continue; }
+            a2.insert(k);
             if a1.contains(k) {
                 return Ok(k.clone());
             }
-            let s = self.states.get(k);
-            a2.insert(k);
-            if let Some(state) = s {
-                k = state.parent();
-            }
-            if a2.contains(k) {
-                // can't find any more ancestors of k
-                break;
+            if let Some(state) = self.states.get(k) {
+                for p in state.parents() {
+                    next.push_back(p);
+                }
             }
         }
         
@@ -865,7 +873,7 @@ fn on_new_partition() {
     assert_eq!(part.tips.len(), 1);
     
     let state = part.tip().expect("getting tip").clone_child();
-    assert_eq!(state.parent(), &Sum::zero());
+    assert_eq!(state.parents()[0], Sum::zero());
     assert_eq!(part.push_state(state).expect("committing"), false);
     
     let mut state = part.tip().expect("getting tip").clone_child();
@@ -890,7 +898,8 @@ fn on_new_partition() {
     }   // `state` goes out of scope
     assert_eq!(part.tips.len(), 1);
     let state = part.tip().expect("getting tip").clone_child();
-    assert_eq!(state.parent(), &key);
+    assert_eq!(state.parents().len(), 1);
+    assert_eq!(state.parents()[0], key);
     
     assert_eq!(part.push_state(state).expect("committing"), false);
 }

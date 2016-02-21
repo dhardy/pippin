@@ -184,7 +184,7 @@ Header
 ---------
 
 The header has the same format as snapshot files except that the first 16 bytes
-are replaced with `PIPPINCL20160201`.
+are replaced with `PIPPINCL20160221`.
 
 Header content (`H...`, `Q...`,  `B...` sections) may differ.
 
@@ -201,16 +201,44 @@ may be listed in any order).
 
 NOTE: merge commits will look a little different!
 
-Each commit should start:
+Normal commits start with the identifier `COMMIT` (6 bytes).
+Merge commits start with the identifier `MERGE`, followed by a `u8` (unsigned
+byte) indicating the number of parents (must be at least two); again 6 bytes.
 
-*   with an idenfitier: `COMMIT`
-*   a timestamp TBD
-*   parent commit id / state sum
+This is followed by:
+
+*   `\x00U` (2 bytes: zero U), indicating that a UTC UNIX timestamp follows
+*   an `i64` (eight byte signed) UNIX timestamp (the number of non-leap seconds
+    since January 1, 1970 0:00:00 UTC) of the time the commit was made
+*   `CNUM` (commint number) followed by a `u32` (four byte) number, which is
+    the commit number (max parent number + 1; not guaranteed unique)
+*   `XM`, two more bytes, a `u32` (four bytes unsigned) number; this is the
+    "extra metadata" section, the two bytes may be zero-bytes (ignore data) or
+    `TT` (UTF-8 text) or anything else (future extensions; for now
+    implementations will probably ignore data), the four byte number is the
+    data length (next bit)
+*   Extra metadata: length is defined above; section is zero-padded to a
+    16-byte boundary. Generally it is safe to ignore this data, but users may
+    store extra things here (e.g. author and comment).
+*   for each parent (one for `CMIT`, two or more for `MRG`; see above), its
+    state sum; length depends on checksum algorithm
 *   length of commit data OR number to elements changed (?)
 *   PER ELEMENT DATA
 *   a state checksum
 *   a checksum of the commit data (from start of the commit to just before
     this checksum itself)
+
+Note that there must be at least one parent to a commit, and the first parent
+is the one to which this commit is the "diff" (can be patched onto to derive
+the commit's state).
+
+##### Backwards compatibility
+
+If the two bytes following `COMMIT` are zeros (instead of `\x00U`), the eight
+bytes of the timestamp should be assumed to be meaningless and the `CNUM`
+and `XM` (extra metadata) sections missing. A default timestamp of zero (i.e.
+1st Jan 1970), default commit number of 1 and no metadata (`XM\x00\x00`) should
+be assumed. `MERGE` (instead of `COMMIT`) never appears in this context.
 
 ### Per element data
 

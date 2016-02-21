@@ -137,6 +137,8 @@ pub fn write_snapshot<T: ElementT>(state: &PartitionState<T>,
     // A writer which calculates the checksum of what was written:
     let mut w = sum::HashWriter::new(writer);
     
+    //TODO: update format to persist metadata (including timestamp)
+    
     // #0016: date shouldn't really be today but the time the snapshot was created
     try!(write!(&mut w, "SNAPSHOT{}", UTC::today().format("%Y%m%d")));
     

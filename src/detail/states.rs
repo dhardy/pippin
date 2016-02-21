@@ -12,7 +12,7 @@ use std::rc::Rc;
 use hashindexed::KeyComparator;
 use rand::random;
 
-use {ElementT, Sum, PartId, EltId};
+use {ElementT, Sum, PartId, EltId, CommitMeta};
 use error::ElementOp;
 
 /// Trait abstracting over operations on the state of a partition or
@@ -116,10 +116,11 @@ pub trait State<E: ElementT> {
 #[derive(PartialEq, Debug)]
 pub struct PartitionState<E: ElementT> {
     part_id: PartId,
-    parent: Sum,
+    parents: Vec<Sum>,
     statesum: Sum,
     elts: HashMap<EltId, Rc<E>>,
     moved: HashMap<EltId, EltId>,
+    meta: CommitMeta,
 }
 
 impl<E: ElementT> PartitionState<E> {
@@ -130,19 +131,23 @@ impl<E: ElementT> PartitionState<E> {
     pub fn new(part_id: PartId) -> PartitionState<E> {
         PartitionState {
             part_id: part_id,
-            parent: Sum::zero(),
+            parents: Vec::new(),
             statesum: Sum::zero(),
             elts: HashMap::new(),
             moved: HashMap::new(),
+            meta: CommitMeta::new_from(0, None),
         }
     }
     
     /// Get the state sum
     pub fn statesum(&self) -> &Sum { &self.statesum }
-    /// Get the parent's sum
-    pub fn parent(&self) -> &Sum { &self.parent }
+    /// Get the parents' sums. Normally a state has one parent, but the initial
+    /// state has zero and merge outcomes have two (or more).
+    pub fn parents(&self) -> &Vec<Sum> { &self.parents }
     /// Get the partition identifier
     pub fn part_id(&self) -> PartId { self.part_id }
+    /// Get the commit meta-data associated with this state
+    pub fn meta(&self) -> &CommitMeta { &self.meta }
     
     /// Get access to the map holding elements
     pub fn map(&self) -> &HashMap<EltId, Rc<E>> {
@@ -254,27 +259,49 @@ impl<E: ElementT> PartitionState<E> {
     /// Elements are considered Copy-On-Write so cloning the
     /// state is not particularly expensive.
     pub fn clone_child(&self) -> Self {
+        //TODO: timestamp should probably be when a commit is created from
+        // changes, not now
+        let meta = CommitMeta::new_from(self.meta.number, None);
         PartitionState {
             part_id: self.part_id,
-            parent: self.statesum.clone(),
+            parents: vec![self.statesum.clone()],
             statesum: self.statesum.clone(),
             elts: self.elts.clone(),
             moved: self.moved.clone(),
+            meta: meta,
+        }
+    }
+    
+    /// As to `clone_child()` but specifying parents (first parent must be
+    /// self).
+    pub fn child_with_parents(&self, parents: Vec<Sum>) -> Self {
+        assert!(parents.len() > 0 && parents[0] == self.statesum);
+        //TODO: timestamp should probably be when a commit is created from
+        // changes, not now
+        let meta = CommitMeta::new_from(self.meta.number, None);
+        PartitionState {
+            part_id: self.part_id,
+            parents: parents,
+            statesum: self.statesum.clone(),
+            elts: self.elts.clone(),
+            moved: self.moved.clone(),
+            meta: meta,
         }
     }
     
     /// Clone the state, creating an exact copy. The new state will have the
-    /// same parent as the current one.
+    /// same parents as the current one.
     /// 
     /// Elements are considered Copy-On-Write so cloning the
     /// state is not particularly expensive.
     pub fn clone_exact(&self) -> Self {
         PartitionState {
             part_id: self.part_id,
-            parent: self.parent.clone(),
+            parents: self.parents.clone(),
             statesum: self.statesum.clone(),
             elts: self.elts.clone(),
             moved: self.moved.clone(),
+            meta: self.meta.clone(),
         }
     }
 }
