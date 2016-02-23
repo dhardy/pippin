@@ -13,7 +13,7 @@ use std::u32;
 
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
-use detail::readwrite::{sum, fill};
+use detail::readwrite::{sum};
 use detail::{Commit, EltChange, CommitMeta};
 use {ElementT, Sum};
 use detail::SUM_BYTES;
@@ -32,7 +32,7 @@ pub fn read_log<E: ElementT>(reader_: &mut Read, receiver: &mut CommitReceiver<E
     let mut pos: usize = 0;
     let mut buf = vec![0; 32];
     
-    try!(fill(&mut reader, &mut buf[0..16], pos));
+    try!(reader.read_exact(&mut buf[0..16]));
     if buf[0..16] != *b"COMMIT LOG\x00\x00\x00\x00\x00\x00" {
         return ReadError::err("unexpected contents (expected \
             COMMIT LOG\\x00\\x00\\x00\\x00\\x00\\x00)", pos, (0, 16));
@@ -48,7 +48,7 @@ pub fn read_log<E: ElementT>(reader_: &mut Read, receiver: &mut CommitReceiver<E
         
         let l = try!(r.read(&mut buf[0..16]));
         if l == 0 { break; /*end of file (EOF)*/ }
-        if l < 16 { try!(fill(&mut r, &mut buf[l..16], pos)); /*not EOF, buf haven't filled buffer*/ }
+        if l < 16 { try!(r.read_exact(&mut buf[l..16])); /*not EOF, buf haven't filled buffer*/ }
         
         let n_parents = if buf[0..6] == *b"COMMIT" {
             1
@@ -71,7 +71,7 @@ pub fn read_log<E: ElementT>(reader_: &mut Read, receiver: &mut CommitReceiver<E
             let secs = try!((&buf[8..16]).read_i64::<BigEndian>());
             pos += 16;
             
-            try!(fill(&mut r, &mut buf[0..16], pos));
+            try!(r.read_exact(&mut buf[0..16]));
             if buf[0..4] != *b"CNUM" {
                 return ReadError::err("unexpected contents (expected CNUM)", pos, (0, 4));
             }
@@ -85,7 +85,7 @@ pub fn read_log<E: ElementT>(reader_: &mut Read, receiver: &mut CommitReceiver<E
             pos += 16;
             
             let mut xm_data = vec![0; xm_len];
-            try!(fill(&mut r, &mut xm_data, pos));
+            try!(r.read_exact(&mut xm_data));
             let xm = if xm_type_txt {
                 Some(try!(String::from_utf8(xm_data)
                     .map_err(|_| ReadError::new("content not valid UTF-8", pos, (0, xm_len)))))
@@ -97,7 +97,7 @@ pub fn read_log<E: ElementT>(reader_: &mut Read, receiver: &mut CommitReceiver<E
             pos += xm_len;
             let pad_len = 16 * ((xm_len + 15) / 16) - xm_len;
             if pad_len > 0 {
-                try!(fill(&mut r, &mut buf[0..pad_len], pos));
+                try!(r.read_exact(&mut buf[0..pad_len]));
                 pos += pad_len;
             }
             
@@ -112,12 +112,12 @@ pub fn read_log<E: ElementT>(reader_: &mut Read, receiver: &mut CommitReceiver<E
         
         let mut parents = Vec::with_capacity(n_parents);
         for _ in 0..n_parents {
-            try!(fill(&mut r, &mut buf[0..SUM_BYTES], pos));
+            try!(r.read_exact(&mut buf[0..SUM_BYTES]));
             parents.push(Sum::load(&buf[0..SUM_BYTES]));
             pos += SUM_BYTES;
         }
         
-        try!(fill(&mut r, &mut buf[0..16], pos));
+        try!(r.read_exact(&mut buf[0..16]));
         if buf[0..8] != *b"ELEMENTS" {
             return ReadError::err("unexpected contents (expected ELEMENTS)", pos, (0, 8));
         }
@@ -127,7 +127,7 @@ pub fn read_log<E: ElementT>(reader_: &mut Read, receiver: &mut CommitReceiver<E
         let mut changes = HashMap::new();
         
         for _ in 0..num_elts {
-            try!(fill(&mut r, &mut buf[0..16], pos));
+            try!(r.read_exact(&mut buf[0..16]));
             if buf[0..4] != *b"ELT " {
                 return ReadError::err("unexpected contents (expected ELT\\x20)", pos, (0, 4));
             }
@@ -148,7 +148,7 @@ pub fn read_log<E: ElementT>(reader_: &mut Read, receiver: &mut CommitReceiver<E
             let change = match change_t {
                 Change::Delete => EltChange::deletion(),
                 Change::Insert | Change::Replace => {
-                    try!(fill(&mut r, &mut buf[0..16], pos));
+                    try!(r.read_exact(&mut buf[0..16]));
                     if buf[0..8] != *b"ELT DATA" {
                         return ReadError::err("unexpected contents (expected ELT DATA)", pos, (0, 8));
                     }
@@ -156,17 +156,17 @@ pub fn read_log<E: ElementT>(reader_: &mut Read, receiver: &mut CommitReceiver<E
                     pos += 16;
                     
                     let mut data = vec![0; data_len];
-                    try!(fill(&mut r, &mut data, pos));
+                    try!(r.read_exact(&mut data));
                     pos += data_len;
                     
                     let pad_len = 16 * ((data_len + 15) / 16) - data_len;
                     if pad_len > 0 {
-                        try!(fill(&mut r, &mut buf[0..pad_len], pos));
+                        try!(r.read_exact(&mut buf[0..pad_len]));
                         pos += pad_len;
                     }
                     
                     let data_sum = Sum::calculate(&data);
-                    try!(fill(&mut r, &mut buf[0..SUM_BYTES], pos));
+                    try!(r.read_exact(&mut buf[0..SUM_BYTES]));
                     if !data_sum.eq(&buf[0..SUM_BYTES]) {
                         return ReadError::err("element checksum mismatch", pos, (0, SUM_BYTES));
                     }
@@ -180,7 +180,7 @@ pub fn read_log<E: ElementT>(reader_: &mut Read, receiver: &mut CommitReceiver<E
                     }
                 },
                 Change::MovedOut | Change::Moved => {
-                    try!(fill(&mut r, &mut buf[0..16], pos));
+                    try!(r.read_exact(&mut buf[0..16]));
                     if buf[0..8] != *b"NEW ELT\x00" {
                         return ReadError::err("unexpected contents (expected NEW ELT)", pos, (0, 8));
                     }
@@ -191,13 +191,13 @@ pub fn read_log<E: ElementT>(reader_: &mut Read, receiver: &mut CommitReceiver<E
             changes.insert(elt_id, change);
         }
         
-        try!(fill(&mut r, &mut buf[0..SUM_BYTES], pos));
+        try!(r.read_exact(&mut buf[0..SUM_BYTES]));
         let commit_sum = Sum::load(&buf[0..SUM_BYTES]);
         pos += SUM_BYTES;
         
         let sum = r.sum();
         reader = r.into_inner();
-        try!(fill(&mut reader, &mut buf[0..SUM_BYTES], pos));
+        try!(reader.read_exact(&mut buf[0..SUM_BYTES]));
         if !sum.eq(&buf[0..SUM_BYTES]) {
             return ReadError::err("checksum invalid", pos, (0, SUM_BYTES));
         }

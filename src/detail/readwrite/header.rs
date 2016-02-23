@@ -4,14 +4,14 @@
 
 //! Read and write support for Pippin file headers.
 
-use std::{io};
+use std::io::{Read, Write, ErrorKind};
 use std::cmp::min;
 use std::result::Result as stdResult;
 
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
 use PartId;
-use detail::readwrite::{sum, fill};
+use detail::readwrite::{sum};
 use detail::SUM_BYTES;
 use error::{Result, ArgError, ReadError, make_io_err};
 use util::rtrim;
@@ -97,14 +97,14 @@ pub fn validate_repo_name(name: &str) -> stdResult<(), ArgError> {
 }
 
 /// Read a file header.
-pub fn read_head(r: &mut io::Read) -> Result<FileHeader> {
+pub fn read_head(r: &mut Read) -> Result<FileHeader> {
     // A reader which also calculates a checksum:
     let mut sum_reader = sum::HashReader::new(r);
     
     let mut pos: usize = 0;
     let mut buf = vec![0; 32];
     
-    try!(fill(&mut sum_reader, &mut buf[0..16], pos));
+    try!(sum_reader.read_exact(&mut buf[0..16]));
     let head_version = read_head_version(&buf[8..16]);
     if !HEAD_VERSIONS.contains(&head_version) {
         return ReadError::err("Pippin file of unknown version", pos, (0, 16));
@@ -118,7 +118,7 @@ pub fn read_head(r: &mut io::Read) -> Result<FileHeader> {
     };
     pos += 16;
     
-    try!(fill(&mut sum_reader, &mut buf[0..16], pos));
+    try!(sum_reader.read_exact(&mut buf[0..16]));
     let repo_name = match String::from_utf8(rtrim(&buf, 0).to_vec()) {
         Ok(name) => name,
         Err(_) => return ReadError::err("repo name not valid UTF-8", pos, (0, 16))
@@ -134,7 +134,7 @@ pub fn read_head(r: &mut io::Read) -> Result<FileHeader> {
     };
     
     loop {
-        try!(fill(&mut sum_reader, &mut buf[0..16], pos));
+        try!(sum_reader.read_exact(&mut buf[0..16]));
         let (block, off): (&[u8], usize) = if buf[0] == b'H' {
             pos += 1;
             (&buf[1..16], 1)
@@ -146,7 +146,7 @@ pub fn read_head(r: &mut io::Read) -> Result<FileHeader> {
             } as usize;
             let len = x * 16;
             if buf.len() < len { buf.resize(len, 0); }
-            try!(fill(&mut sum_reader, &mut buf[16..len], pos));
+            try!(sum_reader.read_exact(&mut buf[16..len]));
             pos += 2;
             (&buf[2..len], 2)
         } else {
@@ -195,7 +195,7 @@ pub fn read_head(r: &mut io::Read) -> Result<FileHeader> {
     // Read checksum:
     let sum = sum_reader.sum();
     let mut r = sum_reader.into_inner();
-    try!(fill(&mut r, &mut buf[0..SUM_BYTES], pos));
+    try!(r.read_exact(&mut buf[0..SUM_BYTES]));
     if !sum.eq(&buf[0..SUM_BYTES]) {
         return ReadError::err("header checksum invalid", pos, (0, SUM_BYTES));
     }
@@ -204,9 +204,7 @@ pub fn read_head(r: &mut io::Read) -> Result<FileHeader> {
 }
 
 /// Write a file header.
-pub fn write_head(header: &FileHeader, writer: &mut io::Write) -> Result<()> {
-    use std::io::Write;
-    
+pub fn write_head(header: &FileHeader, writer: &mut Write) -> Result<()> {
     // A writer which calculates the checksum of what was written:
     let mut w = sum::HashWriter::new(writer);
     
@@ -276,7 +274,7 @@ pub fn write_head(header: &FileHeader, writer: &mut io::Write) -> Result<()> {
         let mut n = n1;
         while n > 0 {
             n -= match try!(w.write(&zeros[0..min(n, zeros.len())])) {
-                0 => return make_io_err(io::ErrorKind::WriteZero, "write failed"),
+                0 => return make_io_err(ErrorKind::WriteZero, "write failed"),
                 x => x
             };
         }

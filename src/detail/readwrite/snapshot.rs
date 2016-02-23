@@ -10,7 +10,7 @@ use std::u32;
 
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
-use detail::readwrite::{sum, fill};
+use detail::readwrite::{sum};
 use partition::{PartitionState, State};
 use {ElementT, PartId, Sum, CommitMeta};
 use detail::SUM_BYTES;
@@ -35,7 +35,7 @@ pub fn read_snapshot<T: ElementT>(reader: &mut Read, part_id: PartId,
     let mut pos: usize = 0;
     let mut buf = vec![0; 32];
     
-    try!(fill(&mut r, &mut buf[0..16], pos));
+    try!(r.read_exact(&mut buf[0..16]));
     if buf[0..8] != *b"SNAPSHOT" {
         return ReadError::err("unexpected contents (expected SNAPSHOT)", pos, (0, 8));
     }
@@ -43,7 +43,7 @@ pub fn read_snapshot<T: ElementT>(reader: &mut Read, part_id: PartId,
     pos += 16;
     
     let meta = if file_ver >= 2016_02_22 {
-        try!(fill(&mut r, &mut buf[0..16], pos));
+        try!(r.read_exact(&mut buf[0..16]));
         if buf[0..4] != *b"CNUM" {
             return ReadError::err("unexpected contents (expected CNUM)", pos, (0, 4));
         }
@@ -57,7 +57,7 @@ pub fn read_snapshot<T: ElementT>(reader: &mut Read, part_id: PartId,
         pos += 16;
         
         let mut xm_data = vec![0; xm_len];
-        try!(fill(&mut r, &mut xm_data, pos));
+        try!(r.read_exact(&mut xm_data));
         let xm = if xm_type_txt {
             Some(try!(String::from_utf8(xm_data)
                 .map_err(|_| ReadError::new("content not valid UTF-8", pos, (0, xm_len)))))
@@ -69,7 +69,7 @@ pub fn read_snapshot<T: ElementT>(reader: &mut Read, part_id: PartId,
         pos += xm_len;
         let pad_len = 16 * ((xm_len + 15) / 16) - xm_len;
         if pad_len > 0 {
-            try!(fill(&mut r, &mut buf[0..pad_len], pos));
+            try!(r.read_exact(&mut buf[0..pad_len]));
             pos += pad_len;
         }
         
@@ -86,7 +86,7 @@ pub fn read_snapshot<T: ElementT>(reader: &mut Read, part_id: PartId,
         }
     };
     
-    try!(fill(&mut r, &mut buf[0..16], pos));
+    try!(r.read_exact(&mut buf[0..16]));
     if buf[0..8] != *b"ELEMENTS" {
         return ReadError::err("unexpected contents (expected ELEMENTS)", pos, (0, 8));
     }
@@ -97,7 +97,7 @@ pub fn read_snapshot<T: ElementT>(reader: &mut Read, part_id: PartId,
     // but since we won't be creating a commit from it it doesn't actually matter.
     let mut state = PartitionState::new(part_id, meta);
     for _ in 0..num_elts {
-        try!(fill(&mut r, &mut buf[0..32], pos));
+        try!(r.read_exact(&mut buf[0..32]));
         if buf[0..8] != *b"ELEMENT\x00" {
             println!("buf: \"{}\", {:?}", String::from_utf8_lossy(&buf[0..8]), &buf[0..8]);
             return ReadError::err("unexpected contents (expected ELEMENT\\x00)", pos, (0, 8));
@@ -112,17 +112,17 @@ pub fn read_snapshot<T: ElementT>(reader: &mut Read, part_id: PartId,
         pos += 16;
         
         let mut data = vec![0; data_len];
-        try!(fill(&mut r, &mut data, pos));
+        try!(r.read_exact(&mut data));
         pos += data_len;
         
         let pad_len = 16 * ((data_len + 15) / 16) - data_len;
         if pad_len > 0 {
-            try!(fill(&mut r, &mut buf[0..pad_len], pos));
+            try!(r.read_exact(&mut buf[0..pad_len]));
             pos += pad_len;
         }
         
         let elt_sum = Sum::calculate(&data);
-        try!(fill(&mut r, &mut buf[0..SUM_BYTES], pos));
+        try!(r.read_exact(&mut buf[0..SUM_BYTES]));
         if !elt_sum.eq(&buf[0..SUM_BYTES]) {
             return ReadError::err("element checksum mismatch", pos, (0, SUM_BYTES));
         }
@@ -132,17 +132,17 @@ pub fn read_snapshot<T: ElementT>(reader: &mut Read, part_id: PartId,
         try!(state.insert_with_id(ident, Rc::new(elt)));
     }
     
-    try!(fill(&mut r, &mut buf[0..16], pos));
+    try!(r.read_exact(&mut buf[0..16]));
     if buf[0..8] == *b"ELTMOVES" /*versions from 20160201, optional*/ {
         let n_moves = try!((&buf[8..16]).read_u64::<BigEndian>()) as usize;    // #0015
         for _ in 0..n_moves {
-            try!(fill(&mut r, &mut buf[0..16], pos));
+            try!(r.read_exact(&mut buf[0..16]));
             let id0 = try!((&buf[0..8]).read_u64::<BigEndian>()).into();
             let id1 = try!((&buf[8..16]).read_u64::<BigEndian>()).into();
             state.set_move(id0, id1);
         }
         // re-fill buffer for next section:
-        try!(fill(&mut r, &mut buf[0..16], pos));
+        try!(r.read_exact(&mut buf[0..16]));
     }
     
     if buf[0..8] != *b"STATESUM" {
@@ -155,7 +155,7 @@ pub fn read_snapshot<T: ElementT>(reader: &mut Read, part_id: PartId,
     }
     pos += 8;
     
-    try!(fill(&mut r, &mut buf[0..SUM_BYTES], pos));
+    try!(r.read_exact(&mut buf[0..SUM_BYTES]));
     if !state.statesum().eq(&buf[0..SUM_BYTES]) {
         return ReadError::err("state checksum mismatch", pos, (0, SUM_BYTES));
     }
@@ -163,7 +163,7 @@ pub fn read_snapshot<T: ElementT>(reader: &mut Read, part_id: PartId,
     
     let sum = r.sum();
     let mut r = r.into_inner();
-    try!(fill(&mut r, &mut buf[0..SUM_BYTES], pos));
+    try!(r.read_exact(&mut buf[0..SUM_BYTES]));
     if !sum.eq(&buf[0..SUM_BYTES]) {
         return ReadError::err("checksum invalid", pos, (0, SUM_BYTES));
     }
