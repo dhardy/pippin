@@ -165,12 +165,15 @@ pub fn read_head(r: &mut io::Read) -> Result<FileHeader> {
             };
             break;      // "HSUM" must be last item of header before final checksum
         } else if block[0..7] == PARTID[1..] {
-            let id = try!((&block[7..15]).read_u64::<BigEndian>()).into();
-            //TODO: validate id?
             if header.part_id != None {
-                return ReadError::err("repeat of PARTID", pos, (off, off+6));
+                return ReadError::err("repeat of PARTID", pos, (off, off+7));
             }
-            header.part_id = Some(id);
+            let id = try!((&block[7..15]).read_u64::<BigEndian>());
+            if let Some(part_id) = PartId::try_from(id) {
+                header.part_id = Some(part_id);
+            } else {
+                return ReadError::err("invalid partition number", pos, (off+7, off+15));
+            };
         } else if block[0] == b'R' {
             header.remarks.push(try!(String::from_utf8(rtrim(&block, 0).to_vec())));
         } else if block[0] == b'U' {
@@ -221,7 +224,6 @@ pub fn write_head(header: &FileHeader, writer: &mut io::Write) -> Result<()> {
     try!(pad(&mut w, 16 - len));
     
     if let Some(part_id) = header.part_id {
-        //TODO: validate part_id?
         try!(w.write(&PARTID));
         try!(w.write_u64::<BigEndian>(part_id.into()));
     }

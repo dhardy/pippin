@@ -18,9 +18,8 @@ use error::{Result};
 /// This is a 40-bit number used to identify partitions and as part of an
 /// element identifier. Classification also uses these numbers.
 /// 
-/// Supports `From` (`PartId::from(n)`) to convert from a `u64`; this panics if
-/// the number is not a valid `PartId`. Supports `Into` (`pn.into()`) to
-/// convert to a `u64`.
+/// Supports `Into<u64>` to extract an encoded form. Can be reconstructed from
+/// this via `try_from()`.
 #[derive(Copy, Clone, PartialEq, Eq, Debug, Hash)]
 pub struct PartId {
     // #0018: optimise usage as Option with NonZero?
@@ -29,6 +28,7 @@ pub struct PartId {
 impl PartId {
     /// Convert from number, `n`, where `n > 0` and `n <= max()`. Panics if
     /// bounds are not met.
+    // #0011: should this return an Option / Result?
     pub fn from_num(n: u64) -> PartId {
         assert!(n > 0 && n <= Self::max(), "PartId::from_num(n): n is invalid");
         PartId { id: n << 24 }
@@ -36,6 +36,11 @@ impl PartId {
     /// Convert to a number (same restrictions as for input to `from_num()`).
     pub fn into_num(self) -> u64 {
         self.id >> 24
+    }
+    /// Reconstructs from a value returned by `into()` (see `Into<u64>` impl).
+    pub fn try_from(id: u64) -> Option<PartId> {
+        if id == 0 || (id & 0xFF_FFFF) != 0 { return None; }
+        Some(PartId { id: id })
     }
     /// Create from a partition identifier plus a number. The number `n` must
     /// be no more than `EltId::max()`.
@@ -48,14 +53,8 @@ impl PartId {
        0xFF_FFFF_FFFF
     }
 }
-impl From<u64> for PartId {
-    fn from(id: u64) -> PartId {
-        assert!(id != 0 && (id & 0xFF_FFFF) == 0, "invalid PartId");
-        PartId { id: id }
-    }
-}
 impl Into<u64> for PartId {
-    fn into(self) -> u64 {
+    fn into(self) -> u64 {  
         self.id
     }
 }
@@ -76,7 +75,7 @@ pub struct EltId {
 impl EltId {
     /// Extract the partition identifier
     pub fn part_id(self) -> PartId {
-        PartId::from(self.id & 0xFFFF_FFFF_FF00_0000)
+        PartId::try_from(self.id & 0xFFFF_FFFF_FF00_0000).unwrap()
     }
     /// Extract the element number (this is a 24-bit number)
     pub fn elt_num(self) -> u32 {
