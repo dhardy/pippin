@@ -36,7 +36,7 @@ Tickets were originally stored in files. Several "tags" are still in use; where
 applicable these are mentioned in tickets and can be used to find relevant bits
 of code. All of these can be found with grep:
 
-    egrep -IR "#00[0-9]{2}" src/
+    egrep -IR "#00[0-9]{2}" doc/ src/
 
 
 Building, running, testing
