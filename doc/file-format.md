@@ -65,7 +65,7 @@ NOTE: the `Bbbb` variant is not currently implemented and may be excluded.
 Header
 ----------
 
-*   `PIPPINSS20160201` (PIPPIN SnapShot, date of last format change)
+*   `PIPPINSS20160222` (PIPPIN SnapShot, date of last format change)
 *   16 bytes UTF-8 for name of repository; this string is identical for each
     partition and right-padded with zero (0x00) to make 16 bytes
 *   header content
@@ -144,7 +144,17 @@ Snapshot
 Data is written as follows:
 
 *   `SNAPSHOT` (section identifier)
-*   (??) the date of creation of the snapshot as YYYYMMDD
+*   UNIX timestamp as an i64
+*   `CNUM` (commint number) followed by a `u32` (four byte) number, which is
+    the commit number (max parent number + 1; not guaranteed unique)
+*   `XM`, two more bytes, a `u32` (four bytes unsigned) number; this is the
+    "extra metadata" section, the two bytes may be zero-bytes (ignore data) or
+    `TT` (UTF-8 text) or anything else (future extensions; for now
+    implementations will probably ignore data), the four byte number is the
+    data length (next bit)
+*   Extra metadata: length is defined above; section is zero-padded to a
+    16-byte boundary. Generally it is safe to ignore this data, but users may
+    store extra things here (e.g. author and comment).
 *   TBD: state/commit identifier and time stamp
 *   `ELEMENTS` (section identifier)
 *   number of elements as a u64

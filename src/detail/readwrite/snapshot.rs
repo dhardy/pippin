@@ -6,12 +6,13 @@
 
 use std::io::{Read, Write};
 use std::rc::Rc;
-use chrono::UTC;
+use std::u32;
+
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
 use detail::readwrite::{sum, fill};
 use partition::{PartitionState, State};
-use {ElementT, PartId, Sum};
+use {ElementT, PartId, Sum, CommitMeta};
 use detail::SUM_BYTES;
 use error::{Result, ReadError};
 
@@ -22,8 +23,11 @@ use error::{Result, ReadError};
 /// according to the specified file format this should be the case.
 /// 
 /// The `part_id` parameter is assigned to the `PartitionState` returned.
-pub fn read_snapshot<T: ElementT>(reader: &mut Read, part_id: PartId) ->
-    Result<PartitionState<T>>
+/// 
+/// The file version affects how data is read. Get it from a header with
+/// `header.ftype.ver()`.
+pub fn read_snapshot<T: ElementT>(reader: &mut Read, part_id: PartId,
+        file_ver: u32) -> Result<PartitionState<T>>
 {
     // A reader which calculates the checksum of what was read:
     let mut r = sum::HashReader::new(reader);
@@ -31,22 +35,67 @@ pub fn read_snapshot<T: ElementT>(reader: &mut Read, part_id: PartId) ->
     let mut pos: usize = 0;
     let mut buf = vec![0; 32];
     
-    try!(fill(&mut r, &mut buf[0..32], pos));
+    try!(fill(&mut r, &mut buf[0..16], pos));
     if buf[0..8] != *b"SNAPSHOT" {
-        // note: we discard buf[8..16], the encoded date, for now
         return ReadError::err("unexpected contents (expected SNAPSHOT)", pos, (0, 8));
     }
+    let secs = try!((&buf[8..16]).read_i64::<BigEndian>());
     pos += 16;
     
-    if buf[16..24] != *b"ELEMENTS" {
-        return ReadError::err("unexpected contents (expected ELEMENTS)", pos, (16, 24));
+    let meta = if file_ver >= 2016_02_22 {
+        try!(fill(&mut r, &mut buf[0..16], pos));
+        if buf[0..4] != *b"CNUM" {
+            return ReadError::err("unexpected contents (expected CNUM)", pos, (0, 4));
+        }
+        let cnum = try!((&buf[4..8]).read_u32::<BigEndian>());
+        
+        if buf[8..10] != *b"XM" {
+            return ReadError::err("unexpected contents (expected XM)", pos, (8, 10));
+        }
+        let xm_type_txt = buf[10..12] == *b"TT";
+        let xm_len = try!((&buf[12..16]).read_u32::<BigEndian>()) as usize;
+        pos += 16;
+        
+        let mut xm_data = vec![0; xm_len];
+        try!(fill(&mut r, &mut xm_data, pos));
+        let xm = if xm_type_txt {
+            Some(try!(String::from_utf8(xm_data)
+                .map_err(|_| ReadError::new("content not valid UTF-8", pos, (0, xm_len)))))
+        } else {
+            // even if xm_len > 0 we ignore it
+            None
+        };
+        
+        pos += xm_len;
+        let pad_len = 16 * ((xm_len + 15) / 16) - xm_len;
+        if pad_len > 0 {
+            try!(fill(&mut r, &mut buf[0..pad_len], pos));
+            pos += pad_len;
+        }
+        
+        CommitMeta {
+            number: cnum,
+            timestamp: secs,
+            extra: xm,
+        }
+    } else {
+        CommitMeta {
+            number: 1,
+            timestamp: 0,
+            extra: None
+        }
+    };
+    
+    try!(fill(&mut r, &mut buf[0..16], pos));
+    if buf[0..8] != *b"ELEMENTS" {
+        return ReadError::err("unexpected contents (expected ELEMENTS)", pos, (0, 8));
     }
-    let num_elts = try!((&buf[24..32]).read_u64::<BigEndian>()) as usize;    // #0015
+    let num_elts = try!((&buf[8..16]).read_u64::<BigEndian>()) as usize;    // #0015
     pos += 16;
     
-    // #0016: here we set the "parent" sum to Sum::zero(). This isn't *correct*,
+    // #0016: here we don't set any parent sums. This isn't *correct*,
     // but since we won't be creating a commit from it it doesn't actually matter.
-    let mut state = PartitionState::new(part_id);
+    let mut state = PartitionState::new(part_id, meta);
     for _ in 0..num_elts {
         try!(fill(&mut r, &mut buf[0..32], pos));
         if buf[0..8] != *b"ELEMENT\x00" {
@@ -137,10 +186,26 @@ pub fn write_snapshot<T: ElementT>(state: &PartitionState<T>,
     // A writer which calculates the checksum of what was written:
     let mut w = sum::HashWriter::new(writer);
     
-    //TODO: update format to persist metadata (including timestamp)
+    try!(w.write(b"SNAPSHOT"));
+    try!(w.write_i64::<BigEndian>(state.meta().timestamp));
     
-    // #0016: date shouldn't really be today but the time the snapshot was created
-    try!(write!(&mut w, "SNAPSHOT{}", UTC::today().format("%Y%m%d")));
+    try!(w.write(b"CNUM"));
+    try!(w.write_u32::<BigEndian>(state.meta().number));
+    
+    if let Some(ref txt) = state.meta().extra {
+        try!(w.write(b"XMTT"));
+        assert!(txt.len() <= u32::MAX as usize);
+        try!(w.write_u32::<BigEndian>(txt.len() as u32));
+        try!(w.write(txt.as_bytes()));
+        let pad_len = 16 * ((txt.len() + 15) / 16) - txt.len();
+        if pad_len > 0 {
+            let padding = [0u8; 15];
+            try!(w.write(&padding[0..pad_len]));
+        }
+    } else {
+        // last four zeros is 0u32 encoded in bytes
+        try!(w.write(b"XM\x00\x00\x00\x00\x00\x00"));
+    }
     
     try!(w.write(b"ELEMENTS"));
     let num_elts = state.map().len() as u64;  // #0015
@@ -194,7 +259,8 @@ pub fn write_snapshot<T: ElementT>(state: &PartitionState<T>,
 #[test]
 fn snapshot_writing() {
     let part_id = PartId::from_num(1);
-    let mut state = PartitionState::<String>::new(part_id);
+    let meta = CommitMeta::new_from(5616, Some("text".to_string()));
+    let mut state = PartitionState::<String>::new(part_id, meta);
     let data = "But I must explain to you how all this \
         mistaken idea of denouncing pleasure and praising pain was born and I \
         will give you a complete account of the system, and expound the \
@@ -219,6 +285,6 @@ fn snapshot_writing() {
     let mut result = Vec::new();
     assert!(write_snapshot(&state, &mut result).is_ok());
     
-    let state2 = read_snapshot(&mut &result[..], part_id).unwrap();
+    let state2 = read_snapshot(&mut &result[..], part_id, 2016_02_22).unwrap();
     assert_eq!(state, state2);
 }

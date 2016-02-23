@@ -17,7 +17,7 @@ use error::{Result, ArgError, ReadError, make_io_err};
 use util::rtrim;
 
 // Snapshot header. This is the latest version.
-const HEAD_SNAPSHOT : [u8; 16] = *b"PIPPINSS20160201";
+const HEAD_SNAPSHOT : [u8; 16] = *b"PIPPINSS20160222";
 // Commit log header. This is the latest version.
 const HEAD_COMMITLOG : [u8; 16] = *b"PIPPINCL20160221";
 // Versions of header (all versions, including latest), encoded as an integer.
@@ -27,11 +27,12 @@ const HEAD_COMMITLOG : [u8; 16] = *b"PIPPINCL20160221";
 // Note: new versions can be implemented just by updating the three HEAD_...
 // constants and updating code, so long as the code will still read old
 // versions. The file format documentation should also be updated.
-const HEAD_VERSIONS : [u32; 4] = [
+const HEAD_VERSIONS : [u32; 5] = [
     2015_09_29, // initial standardisation
     2016_01_05, // add 'PARTID' to header blocks (snapshot only)
     2016_02_01, // add memory of new names of moved elements
-    2016_02_21, // add metadata to commits
+    2016_02_21, // add metadata to commits (logs only)
+    2016_02_22, // add metadata to snapshots (snapshots only)
 ];
 const SUM_SHA256 : [u8; 16] = *b"HSUM SHA-2 256\x00\x00";
 const SUM_BLAKE2_16 : [u8; 16] = *b"HSUM BLAKE2 16\x00\x00";
@@ -48,6 +49,16 @@ pub enum FileType {
     Snapshot(u32),
     /// File is a commit log
     CommitLog(u32),
+}
+impl FileType {
+    /// Extract the version number regardless of file type (should be one of
+    /// the HEAD_VERSIONS numbers or zero).
+    pub fn ver(&self) -> u32 {
+        match self {
+            &FileType::Snapshot(v) => v,
+            &FileType::CommitLog(v) => v,
+        }
+    }
 }
 
 // Information stored in a file header
@@ -275,7 +286,7 @@ pub fn write_head(header: &FileHeader, writer: &mut io::Write) -> Result<()> {
 
 #[test]
 fn read_header() {
-    let head = b"PIPPINSS20160201\
+    let head = b"PIPPINSS20160222\
                 test AbC \xce\xb1\xce\xb2\xce\xb3\x00\
                 HRemark 12345678\
                 HOoptional rule\x00\
@@ -284,8 +295,8 @@ fn read_header() {
                 y pointless text\
                 H123456789ABCDEF\
                 HSUM BLAKE2 16\x00\x00\
-                \xe8\xbb\xcd\xd2Jl\xac=\x9a\xc8\xdf\x90>\xc8D\x0f\
-                \xd8\x1dG\xef\xae\x05\xd8\xf7,z\xbacc\xf9y\xff";
+                \xac\x1e\xc2#\xf2\xabHB\xb0\x8e\x08\x10\x88\x1b\x80\xa0\
+                f\x00\x93v#\xc9\xafX9\x818j\x16\x0e$\xf9";
     
     use ::Sum;
     let sum = Sum::calculate(&head[0..head.len() - SUM_BYTES]);
@@ -311,7 +322,7 @@ fn write_header() {
     let mut buf = Vec::new();
     write_head(&header, &mut buf).unwrap();
     
-    let expected = b"PIPPINSS20160201\
+    let expected = b"PIPPINSS20160222\
             \xc3\x84hnliche Unsinn\
             HRemark \xcf\x89\x00\x00\x00\x00\x00\x00\
             Q2R Quatsch Quatsch \
@@ -319,8 +330,8 @@ fn write_header() {
             Q2U rsei noasr a\
             uyv 10()% xovn\x00\x00\
             HSUM BLAKE2 16\x00\x00\
-            N\xf6\xa3\xefBK\xc6\xab#\xdeM\xdarm\xa7\x9b\
-            \xda\x97d\x8bP7\x82\x83\xc61,\x94\xa0\xb9\xaf\xd7";
+            !\xc5\x9e\x0c\xd4\x85\x90\x1f\xcc\xff\xe5\xc6W\x05\x1f0\
+            \x10b\x84\xad\xa6\x88\x8c\xdb\x1fB\xd4\x96\xa2K\xe4\xe7";
     use ::util::ByteFormatter;
     println!("Checksum: '{}'", ByteFormatter::from(&buf[buf.len()-SUM_BYTES..buf.len()]));;
     assert_eq!(&buf[..], &expected[..]);

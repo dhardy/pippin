@@ -42,8 +42,20 @@ pub struct CommitMeta {
     pub extra: Option<String>,
 }
 impl CommitMeta {
+    /// Create an instance applicable to a new empty partition.
+    /// 
+    /// Assigns a timestamp as of *now* (via `Self::timestamp_now()`).
+    pub fn new_empty() -> CommitMeta {
+        CommitMeta {
+            number: 0,
+            timestamp: Self::timestamp_now(),
+            extra: None,
+        }
+    }
     /// Create an instance. Set number to `prev_num` + 1 (but without
-    /// wrapping), timestamp to `timestamp_now()` and extra to `extra`.
+    /// wrapping) and extra to `extra`.
+    /// 
+    /// Assigns a timestamp as of *now* (via `Self::timestamp_now()`).
     pub fn new_from(prev_num: u32, extra: Option<String>) -> CommitMeta {
         CommitMeta {
             number: if prev_num < u32::MAX { prev_num + 1 } else { prev_num },
@@ -396,7 +408,9 @@ mod tests {
             state.insert_with_id(p.elt_id(num), Rc::new(string.to_string()))
         };
         
-        let mut state_a = PartitionState::new(p);
+        let meta = CommitMeta::new_from(15, None);
+        
+        let mut state_a = PartitionState::new(p, meta);
         insert(&mut state_a, 1, "one").unwrap();
         insert(&mut state_a, 2, "two").unwrap();
         

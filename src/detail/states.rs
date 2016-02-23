@@ -128,14 +128,14 @@ impl<E: ElementT> PartitionState<E> {
     /// 
     /// The partition's identifier must be given; this is used to assign new
     /// element identifiers. Panics if the partition identifier is invalid.
-    pub fn new(part_id: PartId) -> PartitionState<E> {
+    pub fn new(part_id: PartId, meta: CommitMeta) -> PartitionState<E> {
         PartitionState {
             part_id: part_id,
             parents: Vec::new(),
             statesum: Sum::zero(),
             elts: HashMap::new(),
             moved: HashMap::new(),
-            meta: CommitMeta::new_from(0, None),
+            meta: meta,
         }
     }
     
@@ -143,6 +143,9 @@ impl<E: ElementT> PartitionState<E> {
     pub fn statesum(&self) -> &Sum { &self.statesum }
     /// Get the parents' sums. Normally a state has one parent, but the initial
     /// state has zero and merge outcomes have two (or more).
+    /// 
+    /// Note: 'parents' is not persisted by snapshots; currently it doesn't
+    /// need to be.
     pub fn parents(&self) -> &Vec<Sum> { &self.parents }
     /// Get the partition identifier
     pub fn part_id(&self) -> PartId { self.part_id }
