@@ -183,8 +183,9 @@ impl<E: ElementT> PartitionState<E> {
         loop {
             if !self.elts.contains_key(&id) && !self.moved.contains_key(&id) { break; }
             id = id.next_elt();
-            //TODO: is this too many to check exhaustively? We could use a
+            // #0019: is this too many to check exhaustively? We could use a
             // lower limit, and possibly resample a few times.
+            // Note that gen_id_binary uses a slightly different algorithm.
             if id == initial {
                 return Err(ElementOp::IdGenFailure);
             }
