@@ -1,8 +1,0 @@
-#0022 Paranoid mode
-=======
-
-There are some checks that are not done because there's little that can be done
-about them and/or little chance of them picking up anything.
-
-This ticket just marks such items. If someone wants to implement a "paranoia
-mode" in the future, this is a good place to start.

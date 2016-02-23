@@ -1,6 +1,0 @@
-#0023 API Privacy
-=========
-
-Review which parts of the API should be public.
-
-Make all the readwrite stuff private?

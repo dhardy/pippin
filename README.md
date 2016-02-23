@@ -32,8 +32,11 @@ Doc
 The [doc](doc/) directory contains some file-format documentation and various notes
 planning Pippin's development.
 
-The [doc/tickets](doc/tickets/) directory contains a low-tech, distributed, off-line
-capable issue-tracker.
+Tickets were originally stored in files. Several "tags" are still in use; where
+applicable these are mentioned in tickets and can be used to find relevant bits
+of code. All of these can be found with grep:
+
+    egrep -IR "#00[0-9]{2}" src/
 
 
 Building, running, testing

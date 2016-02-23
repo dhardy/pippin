@@ -1,5 +1,0 @@
-#0029 Snapshot parents
-============
-
-The "parents" field of a state is not persisted in snapshots. It should be
-since latest_common_ancestor relies on it.
