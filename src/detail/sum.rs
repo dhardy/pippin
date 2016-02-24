@@ -17,7 +17,7 @@ pub const BYTES: usize = 32;
 const BYTES_U8: u8 = BYTES as u8;
 
 
-// #0018: when simd is stable, it could be used
+// #0031: when simd is stable, it could be used
 // use simd::u8x16;
 /// A convenient way to manage and manipulate a checksum.
 /// 
@@ -49,12 +49,9 @@ impl Sum {
     pub fn load(arr: &[u8]) -> Sum {
         assert_eq!(arr.len(), BYTES);
 //         Sum { s1: u8x16::load(&arr, 0), s2: u8x16::load(&arr, 16) }
-        // #0018 : how to do a fixed-size array copy?
-        let mut result = Sum::zero();
-        for i in 0..BYTES {
-            result.s[i] = arr[i];
-        }
-        result
+        let mut s = [0u8; BYTES];
+        s.clone_from_slice(arr);
+        Sum{ s: s }
     }
     
     /// Write the checksum bytes to a stream
@@ -127,7 +124,7 @@ const HEX_CHARS : &'static [u8; 16] = b"0123456789ABCDEF";
 impl<'a> ops::BitXor for &'a Sum {
     type Output = Sum;
     fn bitxor(self, rhs: &'a Sum) -> Sum {
-        // #0018: optimise XOR operation
+        // #0031: optimise XOR operation
         let mut result = Sum::zero();
         for i in 0..BYTES {
             result.s[i] = self.s[i] ^ rhs.s[i];

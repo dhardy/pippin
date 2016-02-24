@@ -47,7 +47,7 @@ impl<'a> fmt::Display for ByteFormatter<'a> {
             } else if *b == b'\'' {
                 try!(write!(f, "\\\'"));
             } else if *b >= b' ' && *b <= b'~' {
-                // TODO: this is a horrible way to write a char!
+                // #0030: this is a horrible way to write a char!
                 let v = vec![*b];
                 try!(write!(f, "{}", from_utf8(&v).unwrap()));
             } else {
