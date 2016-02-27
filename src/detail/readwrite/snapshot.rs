@@ -6,7 +6,7 @@
 
 use std::io::{Read, Write};
 use std::rc::Rc;
-use std::u32;
+use std::{u8, u32};
 
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
@@ -34,11 +34,20 @@ pub fn read_snapshot<T: ElementT>(reader: &mut Read, part_id: PartId,
     
     let mut pos: usize = 0;
     let mut buf = vec![0; 32];
+    assert!(buf.len() >= SUM_BYTES);
     
     try!(r.read_exact(&mut buf[0..16]));
-    if buf[0..8] != *b"SNAPSHOT" {
-        return ReadError::err("unexpected contents (expected SNAPSHOT)", pos, (0, 8));
-    }
+    let num_parents = if file_ver < 2016_02_27 {
+        if buf[0..8] != *b"SNAPSHOT" {
+            return ReadError::err("unexpected contents (expected SNAPSHOT)", pos, (0, 8));
+        }
+        0
+    } else {
+        if buf[0..6] != *b"SNAPSH" || buf[7] != b'U' {
+            return ReadError::err("unexpected contents (expected SNAPSH_U where _ is any)", pos, (0, 8));
+        }
+        buf[6] as usize
+    };
     let secs = try!((&buf[8..16]).read_i64::<BigEndian>());
     pos += 16;
     
@@ -86,6 +95,12 @@ pub fn read_snapshot<T: ElementT>(reader: &mut Read, part_id: PartId,
         }
     };
     
+    let mut parents = Vec::with_capacity(num_parents);
+    for _ in 0..num_parents {
+        try!(r.read_exact(&mut buf[0..SUM_BYTES]));
+        parents.push(Sum::load(&buf[0..SUM_BYTES]));
+    }
+    
     try!(r.read_exact(&mut buf[0..16]));
     if buf[0..8] != *b"ELEMENTS" {
         return ReadError::err("unexpected contents (expected ELEMENTS)", pos, (0, 8));
@@ -95,7 +110,7 @@ pub fn read_snapshot<T: ElementT>(reader: &mut Read, part_id: PartId,
     
     // #0016: here we don't set any parent sums. This isn't *correct*,
     // but since we won't be creating a commit from it it doesn't actually matter.
-    let mut state = PartitionState::new(part_id, meta);
+    let mut state = PartitionState::new_with(part_id, parents, meta);
     for _ in 0..num_elts {
         try!(r.read_exact(&mut buf[0..32]));
         if buf[0..8] != *b"ELEMENT\x00" {
@@ -186,7 +201,10 @@ pub fn write_snapshot<T: ElementT>(state: &PartitionState<T>,
     // A writer which calculates the checksum of what was written:
     let mut w = sum::HashWriter::new(writer);
     
-    try!(w.write(b"SNAPSHOT"));
+    let mut snapsh_u: [u8; 8] = *b"SNAPSH_U";
+    assert!(state.parents().len() <= (u8::MAX as usize));
+    snapsh_u[6] = state.parents().len() as u8;
+    try!(w.write(&snapsh_u));
     try!(w.write_i64::<BigEndian>(state.meta().timestamp));
     
     try!(w.write(b"CNUM"));
@@ -205,6 +223,10 @@ pub fn write_snapshot<T: ElementT>(state: &PartitionState<T>,
     } else {
         // last four zeros is 0u32 encoded in bytes
         try!(w.write(b"XM\x00\x00\x00\x00\x00\x00"));
+    }
+    
+    for parent in state.parents() {
+        try!(parent.write(&mut w));
     }
     
     try!(w.write(b"ELEMENTS"));
@@ -259,8 +281,10 @@ pub fn write_snapshot<T: ElementT>(state: &PartitionState<T>,
 #[test]
 fn snapshot_writing() {
     let part_id = PartId::from_num(1);
+    let v: Vec<u8> = (0u8..).take(SUM_BYTES).collect();
+    let parent = Sum::load(&v);     // nonsense sum
     let meta = CommitMeta::new_from(5616, Some("text".to_string()));
-    let mut state = PartitionState::<String>::new(part_id, meta);
+    let mut state = PartitionState::<String>::new_with(part_id, vec![parent], meta);
     let data = "But I must explain to you how all this \
         mistaken idea of denouncing pleasure and praising pain was born and I \
         will give you a complete account of the system, and expound the \
@@ -285,6 +309,6 @@ fn snapshot_writing() {
     let mut result = Vec::new();
     assert!(write_snapshot(&state, &mut result).is_ok());
     
-    let state2 = read_snapshot(&mut &result[..], part_id, 2016_02_22).unwrap();
+    let state2 = read_snapshot(&mut &result[..], part_id, 2016_02_27).unwrap();
     assert_eq!(state, state2);
 }

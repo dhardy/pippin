@@ -408,9 +408,7 @@ mod tests {
             state.insert_with_id(p.elt_id(num), Rc::new(string.to_string()))
         };
         
-        let meta = CommitMeta::new_from(15, None);
-        
-        let mut state_a = PartitionState::new(p, meta);
+        let mut state_a = PartitionState::new(p);
         insert(&mut state_a, 1, "one").unwrap();
         insert(&mut state_a, 2, "two").unwrap();
         

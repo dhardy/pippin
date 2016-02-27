@@ -128,10 +128,23 @@ impl<E: ElementT> PartitionState<E> {
     /// 
     /// The partition's identifier must be given; this is used to assign new
     /// element identifiers. Panics if the partition identifier is invalid.
-    pub fn new(part_id: PartId, meta: CommitMeta) -> PartitionState<E> {
+    pub fn new(part_id: PartId) -> PartitionState<E> {
         PartitionState {
             part_id: part_id,
             parents: Vec::new(),
+            statesum: Sum::zero(),
+            elts: HashMap::new(),
+            moved: HashMap::new(),
+            meta: CommitMeta::new_empty(),
+        }
+    }
+    /// As `new()`, but letting the user specify commit meta-data and parents.
+    pub fn new_with(part_id: PartId, parents: Vec<Sum>, meta: CommitMeta) ->
+            PartitionState<E>
+    {
+        PartitionState {
+            part_id: part_id,
+            parents: parents,
             statesum: Sum::zero(),
             elts: HashMap::new(),
             moved: HashMap::new(),

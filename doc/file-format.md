@@ -65,7 +65,7 @@ NOTE: the `Bbbb` variant is not currently implemented and may be excluded.
 Header
 ----------
 
-*   `PIPPINSS20160222` (PIPPIN SnapShot, date of last format change)
+*   `PIPPINSS20160227` (PIPPIN SnapShot, date of last format change)
 *   16 bytes UTF-8 for name of repository; this string is identical for each
     partition and right-padded with zero (0x00) to make 16 bytes
 *   header content
@@ -143,7 +143,8 @@ Snapshot
 
 Data is written as follows:
 
-*   `SNAPSHOT` (section identifier)
+*   `SNAPSH` (section identifier), a byte (u8) indicating the number of
+    parents, `U` (8 bytes total)
 *   UNIX timestamp as an i64
 *   `CNUM` (commint number) followed by a `u32` (four byte) number, which is
     the commit number (max parent number + 1; not guaranteed unique)
@@ -155,6 +156,8 @@ Data is written as follows:
 *   Extra metadata: length is defined above; section is zero-padded to a
     16-byte boundary. Generally it is safe to ignore this data, but users may
     store extra things here (e.g. author and comment).
+*   for each parent (see `SNAPSH` above), its state sum; length depends on
+    checksum algorithm
 *   TBD: state/commit identifier and time stamp
 *   `ELEMENTS` (section identifier)
 *   number of elements as a u64
@@ -185,6 +188,11 @@ Finally:
 *   number of elements as u64 (again, mostly for alignment)
 *   state checksum (doubles as an identifier)
 *   checksum of data as written in file
+
+##### Backwards compatibility
+
+If the section starts `SNAPSHOT` instead of `SNAPSH_U` (where `_` is any byte),
+then there are no parent state-sums (versions < 2016-02-27).
 
 
 Log files
@@ -230,7 +238,7 @@ This is followed by:
 *   Extra metadata: length is defined above; section is zero-padded to a
     16-byte boundary. Generally it is safe to ignore this data, but users may
     store extra things here (e.g. author and comment).
-*   for each parent (one for `CMIT`, two or more for `MRG`; see above), its
+*   for each parent (one for `COMMIT`, two or more for `MERGE`; see above), its
     state sum; length depends on checksum algorithm
 *   length of commit data OR number to elements changed (?)
 *   PER ELEMENT DATA

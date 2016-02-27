@@ -16,7 +16,7 @@ use detail::readwrite::{FileHeader, FileType, read_head, write_head, validate_re
 use detail::readwrite::{read_snapshot, write_snapshot};
 use detail::readwrite::{read_log, start_log, write_commit};
 use detail::states::{PartitionStateSumComparator};
-use detail::{Commit, CommitQueue, CommitMeta, LogReplay};
+use detail::{Commit, CommitQueue, LogReplay};
 use merge::{TwoWayMerge, TwoWaySolver};
 use {ElementT, Sum, PartId};
 use error::{Result, TipError, PatchOp, MatchError, OtherError, make_io_err};
@@ -235,7 +235,7 @@ impl<E: ElementT> Partition<E> {
         let ss = 0;
         info!("Creating partiton {}; writing snapshot {}", part_id.into_num(), ss);
         
-        let state = PartitionState::new(part_id, CommitMeta::new_empty());
+        let state = PartitionState::new(part_id);
         let header = FileHeader {
             ftype: FileType::Snapshot(0),
             name: name.to_string(),
@@ -426,7 +426,7 @@ impl<E: ElementT> Partition<E> {
             self.ss_policy.add_commits(queue.len());
             if self.tips.is_empty() {
                 // Only for the case we couldn't find a snapshot file (see "num == 0" above)
-                let state = PartitionState::new(self.part_id, CommitMeta::new_empty());
+                let state = PartitionState::new(self.part_id);
                 self.tips.insert(state.statesum().clone());
                 self.states.insert(state);
             }
