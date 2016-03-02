@@ -70,10 +70,10 @@ impl<C: ClassifierT, R: RepoT<C>> Repo<C, R> {
     pub fn create<S: Into<String>>(mut classifier: R, name: S) -> Result<Repo<C, R>> {
         let name = name.into();
         info!("Creating repository: {}", name);
-        let (num, part_io) = try!(classifier.first_part());
-        let part = try!(Partition::create_part(part_io, &name, num));
+        let part_io = try!(classifier.first_part());
+        let part = try!(Partition::create(part_io, &name));
         let mut partitions = HashMap::new();
-        partitions.insert(num, part);
+        partitions.insert(part.part_id(), part);
         Ok(Repo{
             classifier: classifier,
             name: name,
@@ -96,14 +96,14 @@ impl<C: ClassifierT, R: RepoT<C>> Repo<C, R> {
             };
             
             let part_io = try!(io.make_partition_io(num0));
-            let mut part0 = Partition::open(part_io, num0);
+            let mut part0 = try!(Partition::open(part_io));
             let name = try!(part0.get_repo_name()).to_string();
             
             let mut parts = HashMap::new();
             parts.insert(num0, part0);
             for n in part_nums {
                 let part_io = try!(io.make_partition_io(n));
-                let mut part = Partition::open(part_io, n);
+                let mut part = try!(Partition::open(part_io));
                 try!(part.set_repo_name(&name));
                 parts.insert(n, part);
             }

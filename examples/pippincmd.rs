@@ -20,7 +20,7 @@ use std::io::{Read, Write};
 use std::ffi::OsStr;
 use std::os::unix::ffi::OsStrExt;
 use docopt::Docopt;
-use pippin::{Partition, PartitionIO, ElementT, PartId, State};
+use pippin::{Partition, PartitionIO, ElementT, State};
 use pippin::discover::DiscoverPartitionFiles;
 use pippin::error::{Result, PathError, ErrorTrait};
 use pippin::util::rtrim;
@@ -183,7 +183,7 @@ fn inner(files: Vec<String>, op: Operation, args: Rest) -> Result<()>
                 name[0..len].to_string()
             });
             
-            let io = try!(DiscoverPartitionFiles::from_dir_basename(path, &name));
+            let io = try!(DiscoverPartitionFiles::from_dir_basename(path, &name, None));
             try!(Partition::<DataElt>::create(box io, &repo_name));
             Ok(())
         },
@@ -194,9 +194,7 @@ fn inner(files: Vec<String>, op: Operation, args: Rest) -> Result<()>
         Operation::OnPartition(part_op) => {
             println!("Scanning files ...");
             //TODO: verify all files belong to the same partition `args.part`
-            let discover = try!(DiscoverPartitionFiles::from_paths(paths));
-            //TODO: get correct partition id
-            let part_id = PartId::from_num(1);
+            let discover = try!(DiscoverPartitionFiles::from_paths(paths, None));
             
             if let PartitionOp::List(list_snapshots, list_logs) = part_op {
                 println!("ss_len: {}", discover.ss_len());
@@ -214,7 +212,7 @@ fn inner(files: Vec<String>, op: Operation, args: Rest) -> Result<()>
                 }
                 Ok(())
             } else {
-                let mut part = Partition::<DataElt>::open(box discover, part_id);
+                let mut part = try!(Partition::<DataElt>::open(box discover));
                 {
                     let mut state = if let Some(ss) = args.commit {
                         try!(part.load(true));
@@ -308,7 +306,7 @@ fn inner(files: Vec<String>, op: Operation, args: Rest) -> Result<()>
             // partition, but discover this and use alternate behaviour in the
             // case of multiple partitions. Not that there's much point to this
             // default operation anyway.
-            let discover = try!(DiscoverPartitionFiles::from_paths(paths));
+            let discover = try!(DiscoverPartitionFiles::from_paths(paths, None));
             
             println!("Found {} snapshot file(s) and {} log file(s)",
                 discover.num_ss_files(),

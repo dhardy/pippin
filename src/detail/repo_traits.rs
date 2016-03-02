@@ -117,23 +117,20 @@ pub trait RepoT<C: ClassifierT+Sized>: ClassifierT {
     fn clone_classifier(&self) -> C;
     
     /// Initially there should only be one partition and one classification.
-    /// This function returns the number of this classification and a
-    /// `PartitionIO`.
-    /// 
-    /// The return value must not be zero (see `ClassifierT` documentation on
-    /// numbers). One is a perfectly decent initial value.
+    /// This function returns the `PartitionIO` of this classification, whose
+    /// `part_id()` property is set to the classification number.
     /// 
     /// It is allowed for this function to panic once there is more than one
     /// classification available.
     /// 
     /// The default implementation uses `PartId::from_num(1)` and calls
     /// `add_partition` and `make_partition_io`.
-    fn first_part(&mut self) -> Result<(PartId, Box<PartitionIO>)> {
+    fn first_part(&mut self) -> Result<Box<PartitionIO>> {
         let num = PartId::from_num(1);
         let mut io = self.repo_io();
         try!(io.add_partition(num, "" /*no prefix*/));
         let part_io = try!(io.make_partition_io(num));
-        Ok((num, part_io))
+        Ok(part_io)
     }
     
     /// This function is called when too many elements correspond to the given

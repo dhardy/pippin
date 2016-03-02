@@ -27,12 +27,14 @@ use pippin::error::{make_io_err, Result};
 /// Allows writing to in-memory streams. Refers to external data so that it
 /// can be recovered after the `Partition` is destroyed in the tests.
 struct PartitionStreams {
+    part_id: PartId,
     // Map of snapshot-number to pair (snapshot, map of log number to log)
     ss: VecMap<(Vec<u8>, VecMap<Vec<u8>>)>,
 }
 
 impl PartitionIO for PartitionStreams {
     fn as_any(&self) -> &Any { self }
+    fn part_id(&self) -> Option<PartId> { Some(self.part_id) }
     fn ss_len(&self) -> usize {
         self.ss.keys().next_back().map(|x| x+1).unwrap_or(0)
     }
@@ -85,10 +87,11 @@ fn create_small() {
     use pippin::State;
     env_logger::init().unwrap();
     
-    let part_streams = PartitionStreams { ss: VecMap::new() };
-    let part_id = PartId::from_num(56);
-    let mut part = Partition::<String>::create_part(box part_streams,
-        "create_small", part_id).expect("creating partition");
+    let part_streams = PartitionStreams {
+            part_id: PartId::from_num(56),
+            ss: VecMap::new() };
+    let mut part = Partition::<String>::create(box part_streams,
+        "create_small").expect("creating partition");
     
     // 2 Add a few elements over multiple commits
     let mut state = part.tip().expect("has tip").clone_child();
@@ -155,7 +158,7 @@ fn create_small() {
     }
     
     // 5 Read streams back again and compare
-    let mut part2 = Partition::open(boxed_io, part_id);
+    let mut part2 = Partition::open(boxed_io).expect("opening partition");
     part2.load(true).expect("part2.load");
     // The "parent" field is not saved and so unequal in the reloaded state.
     // As a work-around, we use clone_child() which updates the "parent" field.

@@ -19,7 +19,7 @@ use detail::states::{PartitionStateSumComparator};
 use detail::{Commit, CommitQueue, LogReplay};
 use merge::{TwoWayMerge, TwoWaySolver};
 use {ElementT, Sum, PartId};
-use error::{Result, TipError, PatchOp, MatchError, OtherError, make_io_err};
+use error::{Result, ArgError, TipError, PatchOp, MatchError, OtherError, make_io_err};
 
 /// An interface providing read and/or write access to a suitable location.
 /// 
@@ -29,6 +29,14 @@ use error::{Result, TipError, PatchOp, MatchError, OtherError, make_io_err};
 pub trait PartitionIO {
     /// Convert self to a `&Any`
     fn as_any(&self) -> &Any;
+    
+    /// Return the partition identifier (number), if known.
+    /// 
+    /// Note that this is currently required, though there is still the
+    /// possibility of adapting `Partition` to discover the number when loading
+    /// a file (the issue being that it must initially exist without knowing
+    /// its number).
+    fn part_id(&self) -> Option<PartId>;
     
     /// Return one greater than the snapshot number of the latest snapshot file
     /// or log file found.
@@ -113,19 +121,21 @@ pub trait PartitionIO {
 /// Can be used for testing but big fat warning: this does not provide any
 /// method to save your data. Write operations fail with `ErrorKind::InvalidInput`.
 pub struct PartitionDummyIO {
+    part_id: PartId,
     // The internal buffer allows us to accept write operations. Data gets
     // written over on the next write.
     buf: Vec<u8>
 }
 impl PartitionDummyIO {
     /// Create a new instance
-    pub fn new() -> PartitionDummyIO {
-        PartitionDummyIO { buf: Vec::new() }
+    pub fn new(part_id: PartId) -> PartitionDummyIO {
+        PartitionDummyIO { part_id: part_id, buf: Vec::new() }
     }
 }
 
 impl PartitionIO for PartitionDummyIO {
     fn as_any(&self) -> &Any { self }
+    fn part_id(&self) -> Option<PartId> { Some(self.part_id) }
     fn ss_len(&self) -> usize { 0 }
     fn ss_cl_len(&self, _ss_num: usize) -> usize { 0 }
     fn read_ss(&self, _ss_num: usize) -> Result<Option<Box<Read+'static>>> {
@@ -217,22 +227,16 @@ impl<E: ElementT> Partition<E> {
     /// 
     /// ```
     /// use pippin::partition::{Partition, PartitionDummyIO};
+    /// use pippin::PartId;
     /// 
-    /// let io = Box::new(PartitionDummyIO::new());
+    /// let io = Box::new(PartitionDummyIO::new(PartId::from_num(1)));
     /// let partition = Partition::<String>::create(io, "example repo");
     /// ```
-    pub fn create(io: Box<PartitionIO>, name: &str) -> Result<Partition<E>> {
-        Self::create_part(io, name, PartId::from_num(1))
-    }
-    
-    /// As `create(io, name)` but with a specified partition number. For
-    /// single-partition usage the number isn't important; for multiple
-    /// partitions it is handled by the classifier and forwarded by `Repo`.
-    pub fn create_part(mut io: Box<PartitionIO>, name: &str,
-        part_id: PartId) -> Result<Partition<E>>
-    {
+    pub fn create(mut io: Box<PartitionIO>, name: &str) -> Result<Partition<E>> {
         try!(validate_repo_name(name));
         let ss = 0;
+        let part_id = try!(io.part_id().ok_or(
+                ArgError::new("PartitionIO's `part_id()` must not return None")));
         info!("Creating partiton {}; writing snapshot {}", part_id.into_num(), ss);
         
         let state = PartitionState::new(part_id);
@@ -280,17 +284,18 @@ impl<E: ElementT> Partition<E> {
     /// 
     /// ```no_run
     /// use std::path::Path;
-    /// use pippin::{PartId, Partition};
+    /// use pippin::Partition;
     /// use pippin::discover::DiscoverPartitionFiles;
     /// 
     /// let path = Path::new(".");
-    /// let io = DiscoverPartitionFiles::from_dir_basename(path, "my-partition").unwrap();
-    /// let part_id = PartId::from_num(1);
-    /// let partition = Partition::<String>::open(Box::new(io), part_id);
+    /// let io = DiscoverPartitionFiles::from_dir_basename(path, "my-partition", None).unwrap();
+    /// let partition = Partition::<String>::open(Box::new(io));
     /// ```
-    pub fn open(io: Box<PartitionIO>, part_id: PartId) -> Partition<E> {
+    pub fn open(io: Box<PartitionIO>) -> Result<Partition<E>> {
+        let part_id = try!(io.part_id().ok_or(
+                ArgError::new("PartitionIO's `part_id()` must not return None")));
         trace!("Opening partition {}", part_id.into_num());
-        Partition {
+        Ok(Partition {
             io: io,
             repo_name: "".to_string() /*temporary value; checked before usage elsewhere*/,
             part_id: part_id,
@@ -299,7 +304,7 @@ impl<E: ElementT> Partition<E> {
             states: HashIndexed::new(),
             tips: HashSet::new(),
             unsaved: VecDeque::new(),
-        }
+        })
     }
     
     /// Set the repo name. This is left empty by `open()`. Once set,
@@ -869,7 +874,7 @@ impl<E: ElementT> Partition<E> {
 
 #[test]
 fn on_new_partition() {
-    let io = box PartitionDummyIO::new();
+    let io = box PartitionDummyIO::new(PartId::from_num(7));
     let mut part = Partition::<String>::create(io, "on_new_partition").expect("partition creation");
     assert_eq!(part.tips.len(), 1);
     

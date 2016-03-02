@@ -27,6 +27,7 @@ use error::{Result, PathError, ArgError, make_io_err};
 /// PartitionIO.
 #[derive(Debug)]
 pub struct DiscoverPartitionFiles {
+    part_id: Option<PartId>,
     dir: PathBuf,
     basename: String,  // first part of file name
     // Map of snapshot-number to pair (snapshot, map of log number to log)
@@ -40,7 +41,13 @@ impl DiscoverPartitionFiles {
     /// `path` must be a directory containing (or in the case of a new repo, to
     /// contain) data files for the existing partition. `basename` is the first
     /// part of the file name, common to all files of this partition.
-    pub fn from_dir_basename(path: &Path, basename: &str) -> Result<DiscoverPartitionFiles> {
+    /// 
+    /// The `part_id` parameter lets the partition number be explicitly
+    /// provided (useful if it is already known). If `None` is provided, then
+    /// this function will attempt to discover the number from the file names.
+    pub fn from_dir_basename(path: &Path, basename: &str, mut part_id: Option<PartId>) ->
+            Result<DiscoverPartitionFiles>
+    {
         if !path.is_dir() { return PathError::err("not a directory", path.to_path_buf()); }
         info!("Scanning for partition '{}...' files in: {}", basename, path.display());
         // Do basic validation of basename. As of now I am not sure exactly
@@ -67,7 +74,7 @@ impl DiscoverPartitionFiles {
                 continue;   // no match
             }
             let suffix = &fname[blen..];
-            if let Some(caps) = ss_pat.captures(suffix) {
+            let used = if let Some(caps) = ss_pat.captures(suffix) {
                 let ss: usize = try!(caps.at(1).expect("match should yield capture").parse());
                 trace!("Adding snapshot {}: {}", ss, entry.path().display());
                 match snapshots.entry(ss) {
@@ -80,6 +87,7 @@ impl DiscoverPartitionFiles {
                         e.insert((entry.path(), VecMap::new()));
                     },
                 };
+                true
             } else if let Some(caps) = cl_pat.captures(suffix) {
                 let ss: usize = try!(caps.at(1).expect("match should yield capture").parse());
                 let cl: usize = try!(caps.at(2).expect("match should yield capture").parse());
@@ -88,12 +96,19 @@ impl DiscoverPartitionFiles {
                 if let Some(_replaced) = s_vec.1.insert(cl, entry.path()) {
                     panic!("multiple files map to same basname/number");
                 }
+                true
             } else {
                 trace!("Ignoring file (does not match regex): {}", fname);
+                false
+            };
+            if used && part_id == None {
+                // part_id not supplied: try to guess
+                part_id = discover_part_num(fname);
             }
         }
         
         Ok(DiscoverPartitionFiles {
+            part_id: part_id,
             dir: path.to_path_buf(),
             basename: basename.to_string(),
             ss: snapshots })
@@ -103,7 +118,13 @@ impl DiscoverPartitionFiles {
     /// be a Pippin file. 
     /// 
     /// Directory and base-name for files are taken from the first path given.
-    pub fn from_paths(paths: Vec<PathBuf>) -> Result<DiscoverPartitionFiles> {
+    /// 
+    /// The `part_id` parameter lets the partition number be explicitly
+    /// provided (useful if it is already known). If `None` is provided, then
+    /// this function will attempt to discover the number from the file names.
+    pub fn from_paths(paths: Vec<PathBuf>, mut part_id: Option<PartId>) ->
+            Result<DiscoverPartitionFiles>
+    {
         // Note: there are no defined rules about which characters are allowed
         // in the basename, so just match anything.
         let ss_pat = try!(Regex::new(r"^(.+)-ss(0|[1-9][0-9]*).pip$"));
@@ -125,11 +146,19 @@ impl DiscoverPartitionFiles {
                 CommitLog(usize, usize),
                 BadFileName(&'static str),
             }
+            impl FileIs {
+                fn pippin_file(&self) -> bool {
+                    match self {
+                        &FileIs::SnapShot(_) | &FileIs::CommitLog(_, _) => true,
+                        &FileIs::BadFileName(_) => false,
+                    }
+                }
+            }
             let file_is = {
                 // Within this block we borrow from `path`, so the borrow checker will not us
                 // move `path`. (A more precise checker might make allow this.)
                 if let Some(fname) = path.file_name().expect("file path must have a file name").to_str() {
-                    if let Some(caps) = ss_pat.captures(fname) {
+                    let file_is = if let Some(caps) = ss_pat.captures(fname) {
                         if basename == None {
                             basename = Some(caps.at(1).expect("match should yield capture").to_string());
                         }
@@ -150,7 +179,12 @@ impl DiscoverPartitionFiles {
                         } else {
                             FileIs::BadFileName("Not a Pippin file (name doesn't end .pip or .piplog")
                         }
+                    };
+                    if part_id == None && file_is.pippin_file() {
+                        // part_id not supplied: try to guess
+                        part_id = discover_part_num(fname);
                     }
+                    file_is
                 } else {
                     FileIs::BadFileName("could not convert file name to unicode")
                 }
@@ -187,9 +221,16 @@ impl DiscoverPartitionFiles {
             return make_io_err(ErrorKind::NotFound, "no path");
         }
         Ok(DiscoverPartitionFiles {
+            part_id: part_id,
             dir: dir_path.expect("dir_path should be set when basename is set"),
             basename: basename.unwrap(/*tested above*/),
             ss: snapshots })
+    }
+    
+    /// Explicitly set the partition identifier. This may be useful if wanting
+    /// to try a number as a "fallback" after discovery fails.
+    pub fn set_part_id(&mut self, part_id: PartId) {
+        self.part_id = Some(part_id);
     }
     
     /// Output the number of snapshot files found.
@@ -222,28 +263,12 @@ impl DiscoverPartitionFiles {
             .and_then(|&(_, ref logs)| logs.get(&cl))
             .map(|p| p.as_path())
     }
-    
-    /// Use `discover_part_num()` to try to guess our partition number
-    pub fn guess_part_num(&self) -> Option<PartId> {
-        for &(ref ss, ref logs) in self.ss.values() {
-            if let Some(n) = ss.file_name()
-                    .and_then(|s| s.to_str())
-                    .and_then(|s| discover_part_num(s))
-            { return Some(n); }
-            
-            for ref cl in logs.values() {
-                if let Some(n) = cl.file_name()
-                        .and_then(|s| s.to_str())
-                        .and_then(|s| discover_part_num(s))
-                { return Some(n); }
-            }
-        }
-        None
-    }
 }
 
 impl PartitionIO for DiscoverPartitionFiles {
     fn as_any(&self) -> &Any { self }
+    
+    fn part_id(&self) -> Option<PartId> { self.part_id }
     
     fn ss_len(&self) -> usize {
         self.ss.keys().next_back().map(|x| x+1).unwrap_or(0)
@@ -408,7 +433,7 @@ impl RepoIO for DiscoverRepoFiles {
     }
     fn make_partition_io(&self, num: PartId) -> Result<Box<PartitionIO>> {
         if let Some(&(ref path, ref basename)) = self.partitions.get(&num) {
-            Ok(box try!(DiscoverPartitionFiles::from_dir_basename(path, basename)))
+            Ok(box try!(DiscoverPartitionFiles::from_dir_basename(path, basename, Some(num))))
         } else {
             make_io_err(ErrorKind::NotFound, "partition not found")
         }
