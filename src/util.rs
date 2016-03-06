@@ -5,8 +5,8 @@
 //! Pippin utility functions
 
 use std::cmp;
-use std::str::from_utf8;
 use std::fmt;
+use std::fmt::Write;
 
 /// "trim" applied to generic arrays: while the last byte is pat, remove it.
 ///  
@@ -47,9 +47,7 @@ impl<'a> fmt::Display for ByteFormatter<'a> {
             } else if *b == b'\'' {
                 try!(write!(f, "\\\'"));
             } else if *b >= b' ' && *b <= b'~' {
-                // #0030: this is a horrible way to write a char!
-                let v = vec![*b];
-                try!(write!(f, "{}", from_utf8(&v).unwrap()));
+                try!(f.write_char(*b as char));
             } else {
                 try!(write!(f, "\\x{:02x}", b));
             }
