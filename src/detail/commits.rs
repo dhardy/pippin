@@ -245,6 +245,7 @@ impl<E: ElementT> Commit<E> {
             None
         } else {
             Some(Commit {
+                //FIXME: new_state probably does not have correct statesum, but what do we take for granted? Recalculate?
                 statesum: new_state.statesum().clone(),
                 parents: vec![old_state.statesum().clone()],
                 changes: changes,

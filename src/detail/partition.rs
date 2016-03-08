@@ -879,12 +879,10 @@ fn on_new_partition() {
     assert_eq!(part.tips.len(), 1);
     
     let state = part.tip().expect("getting tip").clone_child();
-    assert_eq!(state.parents()[0], Sum::zero());
     assert_eq!(part.push_state(state).expect("committing"), false);
     
     let mut state = part.tip().expect("getting tip").clone_child();
     assert!(!state.any_avail());
-    assert_eq!(state.statesum(), &Sum::zero());
     
     let elt1 = "This is element one.".to_string();
     let elt2 = "Element two data.".to_string();

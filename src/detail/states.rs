@@ -129,30 +129,28 @@ impl<E: ElementT> PartitionState<E> {
     /// The partition's identifier must be given; this is used to assign new
     /// element identifiers. Panics if the partition identifier is invalid.
     pub fn new(part_id: PartId) -> PartitionState<E> {
-        PartitionState {
-            part_id: part_id,
-            parents: Vec::new(),
-            statesum: Sum::zero(),
-            elts: HashMap::new(),
-            moved: HashMap::new(),
-            meta: CommitMeta::new_empty(),
-        }
+        Self::new_with(part_id, Vec::new(), CommitMeta::new_empty())
     }
     /// As `new()`, but letting the user specify commit meta-data and parents.
     pub fn new_with(part_id: PartId, parents: Vec<Sum>, meta: CommitMeta) ->
             PartitionState<E>
     {
+        let metasum = Sum::state_meta_sum(part_id, &parents, &meta);
         PartitionState {
             part_id: part_id,
             parents: parents,
-            statesum: Sum::zero(),
+            statesum: metasum /* no elts, so statesum = metasum */,
             elts: HashMap::new(),
             moved: HashMap::new(),
             meta: meta,
         }
     }
     
-    /// Get the state sum
+    /// Get the state sum.
+    /// 
+    /// Note that this is updated immediately when elements are inserted,
+    /// removed, replaced, etc., but that it also depends on the metadata
+    /// associated with a commit.
     pub fn statesum(&self) -> &Sum { &self.statesum }
     /// Get the parents' sums. Normally a state has one parent, but the initial
     /// state has zero and merge outcomes have two (or more).
@@ -276,17 +274,7 @@ impl<E: ElementT> PartitionState<E> {
     /// Elements are considered Copy-On-Write so cloning the
     /// state is not particularly expensive.
     pub fn clone_child(&self) -> Self {
-        //TODO: timestamp should probably be when a commit is created from
-        // changes, not now
-        let meta = CommitMeta::new_from(self.meta.number, None);
-        PartitionState {
-            part_id: self.part_id,
-            parents: vec![self.statesum.clone()],
-            statesum: self.statesum.clone(),
-            elts: self.elts.clone(),
-            moved: self.moved.clone(),
-            meta: meta,
-        }
+        self.child_with_parents(vec![self.statesum.clone()])
     }
     
     /// As to `clone_child()` but specifying parents (first parent must be
@@ -295,6 +283,7 @@ impl<E: ElementT> PartitionState<E> {
         assert!(parents.len() > 0 && parents[0] == self.statesum);
         //TODO: timestamp should probably be when a commit is created from
         // changes, not now
+        //FIXME: statesum of next commit needs different metadata sum
         let meta = CommitMeta::new_from(self.meta.number, None);
         PartitionState {
             part_id: self.part_id,
@@ -310,7 +299,8 @@ impl<E: ElementT> PartitionState<E> {
     /// same parents as the current one.
     /// 
     /// Elements are considered Copy-On-Write so cloning the
-    /// state is not particularly expensive.
+    /// state is not particularly expensive (though the hash-map of elements
+    /// and a few other bits must still be copied).
     pub fn clone_exact(&self) -> Self {
         PartitionState {
             part_id: self.part_id,
