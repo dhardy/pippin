@@ -9,7 +9,9 @@ use std::io::{Read, Write, Result};
 use crypto::digest::Digest;
 // use crypto::sha2::Sha256;
 use crypto::blake2b::Blake2b;
+use byteorder::{BigEndian, WriteBytesExt};
 
+use EltId;
 use detail::Sum;
 use detail::SUM_BYTES as BYTES;
 
@@ -23,7 +25,19 @@ fn mk_hasher() -> Hasher {
 }
 
 impl Sum {
-    /// Calculate from some data
+    /// Calculate an element sum
+    pub fn elt_sum(elt_id: EltId, data: &[u8]) -> Sum {
+        let mut hasher = mk_hasher();
+        assert!(BYTES >= 8);    // double use of buffer below
+        let mut buf = [0u8; BYTES];
+        ((&mut &mut buf[..]) as &mut Write).write_u64::<BigEndian>(elt_id.into()).expect("writing u64 to buf");
+        hasher.input(&buf[0..8]);
+        hasher.input(&data);
+        assert_eq!(hasher.output_bytes(), buf.len());
+        hasher.result(&mut buf);
+        Sum::load(&buf)
+    }
+    /// Calculate a standard checksum
     pub fn calculate(data: &[u8]) -> Sum {
         let mut hasher = mk_hasher();
         hasher.input(&data);

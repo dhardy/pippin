@@ -888,11 +888,9 @@ fn on_new_partition() {
     
     let elt1 = "This is element one.".to_string();
     let elt2 = "Element two data.".to_string();
-    let mut key = elt1.sum().clone();
-    key.permute(&elt2.sum());
     let e1id = state.insert(elt1).expect("inserting elt");
     let e2id = state.insert(elt2).expect("inserting elt");
-    assert_eq!(state.statesum(), &key);
+    let key = state.statesum().clone();
     
     assert_eq!(part.push_state(state).expect("comitting"), true);
     assert_eq!(part.unsaved.len(), 1);

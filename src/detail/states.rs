@@ -235,7 +235,7 @@ impl<E: ElementT> PartitionState<E> {
     pub fn insert_with_id(&mut self, id: EltId, elt: Rc<E>) -> Result<EltId, ElementOp> {
         if id.part_id() != self.part_id { return Err(ElementOp::WrongPartition); }
         if self.elts.contains_key(&id) { return Err(ElementOp::IdClash); }
-        self.statesum.permute(&elt.sum());
+        self.statesum.permute(&elt.sum(id));
         self.elts.insert(id, elt);
         Ok(id)
     }
@@ -342,11 +342,11 @@ impl<E: ElementT> State<E> for PartitionState<E> {
         Ok(id)
     }
     fn replace_rc(&mut self, id: EltId, elt: Rc<E>) -> Result<Rc<E>, ElementOp> {
-        self.statesum.permute(&elt.sum());
+        self.statesum.permute(&elt.sum(id));
         match self.elts.insert(id, elt) {
             None => Err(ElementOp::NotFound),
             Some(removed) => {
-                self.statesum.permute(&removed.sum());
+                self.statesum.permute(&removed.sum(id));
                 Ok(removed)
             }
         }
@@ -355,7 +355,7 @@ impl<E: ElementT> State<E> for PartitionState<E> {
         match self.elts.remove(&id) {
             None => Err(ElementOp::NotFound),
             Some(removed) => {
-                self.statesum.permute(&removed.sum());
+                self.statesum.permute(&removed.sum(id));
                 Ok(removed)
             }
         }

@@ -158,16 +158,16 @@ impl<'a, E: ElementT> TwoWayMerge<'a, E> {
                     if let Ok(elt1) = a {
                         if let Ok(elt2) = b {
                             c2.insert(id, EltChange::replacement(elt1.clone()));
-                            sum2.permute(&elt2.sum());
-                            sum2.permute(&elt1.sum());
+                            sum2.permute(&elt2.sum(id));
+                            sum2.permute(&elt1.sum(id));
                         } else {
                             c2.insert(id, EltChange::insertion(elt1.clone()));
-                            sum2.permute(&elt1.sum());
+                            sum2.permute(&elt1.sum(id));
                         }
                     } else {
                         if let Ok(elt2) = b {
                             c2.insert(id, EltChange::deletion());
-                            sum2.permute(&elt2.sum());
+                            sum2.permute(&elt2.sum(id));
                         }
                     }
                 },
@@ -175,49 +175,49 @@ impl<'a, E: ElementT> TwoWayMerge<'a, E> {
                     if let Ok(elt1) = a {
                         if let Ok(elt2) = b {
                             c1.insert(id, EltChange::replacement(elt2.clone()));
-                            sum1.permute(&elt1.sum());
-                            sum1.permute(&elt2.sum());
+                            sum1.permute(&elt1.sum(id));
+                            sum1.permute(&elt2.sum(id));
                         } else {
                             c1.insert(id, EltChange::deletion());
-                            sum1.permute(&elt1.sum());
+                            sum1.permute(&elt1.sum(id));
                         }
                     } else {
                         if let Ok(elt2) = b {
                             c1.insert(id, EltChange::insertion(elt2.clone()));
-                            sum1.permute(&elt2.sum());
+                            sum1.permute(&elt2.sum(id));
                         }
                     }
                 },
                 EltMerge::Elt(elt) => {
                     if let Ok(elt1) = a {
                         if *elt1 != elt {
-                            sum1.permute(&elt1.sum());
-                            sum1.permute(&elt.sum());
+                            sum1.permute(&elt1.sum(id));
+                            sum1.permute(&elt.sum(id));
                             c1.insert(id, EltChange::replacement(elt.clone()));
                         }
                     } else {
-                        sum1.permute(&elt.sum());
+                        sum1.permute(&elt.sum(id));
                         c1.insert(id, EltChange::insertion(elt.clone()));
                     }
                     if let Ok(elt2) = b {
                         if *elt2 != elt {
-                            sum2.permute(&elt2.sum());
-                            sum2.permute(&elt.sum());
+                            sum2.permute(&elt2.sum(id));
+                            sum2.permute(&elt.sum(id));
                             c2.insert(id, EltChange::replacement(elt));
                         }
                     } else {
-                        sum2.permute(&elt.sum());
+                        sum2.permute(&elt.sum(id));
                         c2.insert(id, EltChange::insertion(elt));
                     }
                 },
                 EltMerge::NoElt => {
                     if let Ok(elt1) = a {
                         c1.insert(id, EltChange::deletion());
-                        sum1.permute(&elt1.sum());
+                        sum1.permute(&elt1.sum(id));
                     }
                     if let Ok(elt2) = b {
                         c2.insert(id, EltChange::deletion());
-                        sum2.permute(&elt2.sum());
+                        sum2.permute(&elt2.sum(id));
                     }
                 },
                 EltMerge::Rename => {
@@ -231,17 +231,17 @@ impl<'a, E: ElementT> TwoWayMerge<'a, E> {
                             };
                             
                             c1.insert(new_id, EltChange::insertion(elt2.clone()));
-                            sum1.permute(&elt2.sum());
+                            sum1.permute(&elt2.sum(id));
                             c2.insert(new_id, EltChange::insertion(elt1.clone()));
-                            sum2.permute(&elt1.sum());
+                            sum2.permute(&elt1.sum(id));
                         } else {
                             c2.insert(id, EltChange::insertion(elt1.clone()));
-                            sum2.permute(&elt1.sum());
+                            sum2.permute(&elt1.sum(id));
                         }
                     } else {
                         if let Ok(elt2) = b {
                             c1.insert(id, EltChange::insertion(elt2.clone()));
-                            sum1.permute(&elt2.sum());
+                            sum1.permute(&elt2.sum(id));
                         }
                     }
                 },

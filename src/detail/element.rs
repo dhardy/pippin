@@ -199,15 +199,18 @@ pub trait ElementT where Self: Sized+PartialEq+Debug {
         Self::read_buf(&vec)
     }
     
-    /// This can either return a copy of an internally stored sum or calculate
-    /// one on the fly. It is used when inserting, removing or replacing an
-    /// element in a state, and when merging states where the element differs.
+    /// This can either return a copy of an internally stored element sum or
+    /// calculate one on the fly. It is used when inserting, removing or
+    /// replacing an element in a state, and when merging states where the
+    /// element differs.
+    /// 
+    /// The element sum is calculated via `Sum::elt_id(id, data)`.
     /// 
     /// Warning: this implementation panics if `write_buf` has an error!
-    fn sum(&self) -> Sum {
+    fn sum(&self, id: EltId) -> Sum {
         let mut buf = Vec::new();
         self.write_buf(&mut &mut buf).expect("write_buf does not fail in get_sum");
-        Sum::calculate(&buf)
+        Sum::elt_sum(id, &buf)
     }
 }
 

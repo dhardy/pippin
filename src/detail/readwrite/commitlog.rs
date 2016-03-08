@@ -165,9 +165,9 @@ pub fn read_log<E: ElementT>(reader_: &mut Read, receiver: &mut CommitReceiver<E
                         pos += pad_len;
                     }
                     
-                    let data_sum = Sum::calculate(&data);
+                    let elt_sum = Sum::elt_sum(elt_id, &data);
                     try!(r.read_exact(&mut buf[0..SUM_BYTES]));
-                    if !data_sum.eq(&buf[0..SUM_BYTES]) {
+                    if !elt_sum.eq(&buf[0..SUM_BYTES]) {
                         return ReadError::err("element checksum mismatch", pos, (0, SUM_BYTES));
                     }
                     pos += SUM_BYTES;
@@ -293,7 +293,7 @@ pub fn write_commit<E: ElementT>(commit: &Commit<E>, writer: &mut Write) -> Resu
                 try!(w.write(&padding[0..pad_len]));
             }
             
-            try!(elt.sum().write(&mut w));
+            try!(elt.sum(*elt_id).write(&mut w));
         }
         if let Some(new_id) = change.moved_id() {
             try!(w.write(b"NEW ELT\x00"));

@@ -136,13 +136,14 @@ pub fn read_snapshot<T: ElementT>(reader: &mut Read, part_id: PartId,
             pos += pad_len;
         }
         
-        let elt_sum = Sum::calculate(&data);
+        let elt_sum = Sum::elt_sum(ident, &data);
         try!(r.read_exact(&mut buf[0..SUM_BYTES]));
         if !elt_sum.eq(&buf[0..SUM_BYTES]) {
             return ReadError::err("element checksum mismatch", pos, (0, SUM_BYTES));
         }
         pos += SUM_BYTES;
         
+        //TODO: allow use of already-calculated elt_sum
         let elt = try!(T::from_vec(data));
         try!(state.insert_with_id(ident, Rc::new(elt)));
     }
@@ -251,8 +252,7 @@ pub fn write_snapshot<T: ElementT>(state: &PartitionState<T>,
             try!(w.write(&padding[0..pad_len]));
         }
         
-        let elt_sum = Sum::calculate(&elt_buf);
-        try!(elt_sum.write(&mut w));
+        try!(elt.sum(*ident).write(&mut w));
     }
     
     let moved = state.moved_map();
