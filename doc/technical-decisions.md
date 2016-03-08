@@ -11,45 +11,59 @@ document.
 Identifiers
 ------------------
 
+### Element checksum
+
+This is just a checksum of the element's identifier (a u64 encoded to bytes as
+big-endian) followed by its data.
+The current checksum algorithm is BLAKE2b configured for 256 bits output.
+
+Note: SHA2 256 was the default, but BLAKE2b is faster and is according to its
+authors "at least as secure as the latest standard SHA-3". BLAKE2b was selected
+over other variants since target usage is on 64-bit CPUs, and on multicore CPUs
+there may be better ways to process in parallel; that said BLAKE2bp should
+probably be tested and properly considered.
+
+Note: the checksum output size can easily be adjusted (`BYTES` in
+`src/detail/sum.rs` — other values should work but are not often tested),
+but doing so requries building new binaries and renders old data files
+incompatible. 256 bits appears to be a common choice and a good compromise
+between size and security.
+
+
 ### State sums
 
-These are checksums which (1) identify a state reached by a snapshot
-or commit, and (2) validate data in a recreated state. They can be used to find
-snapshots and commits, but there may be multiple snapshots and commits for a
-single state-sum.
+A *state sum* is a checksum on a *state* (a commit or snapshot) of a partition.
+This serves both as an identifier and a means to securely identify the
+partition's data (the set of elements) and metadata (parent state(s), author,
+timestamp, moved elements, maybe more).
 
-Note that if a commit ever reverts to a previous state, this will create a loop
-in the history graph, rendering the reverting commit redundant and (unless
-there is a snapshot within the loop) useless. Code should deal with this.
+A checksum of the metadata is computed from the following stream of data:
 
-Initial state: give it a special identifier, all zeros (i.e. the result of XOR
-combining zero element checksums).
+*   each parent's statesum, as ordered by the commit
+*   the commit's timestamp (UNIX time as big-endian i64)
+*   the bytes `CNUM`
+*   the commit number (big-endian u32)
+*   if present, the extra metadata byte-stream (without padding)
 
-### Commit identifiers
+The state sum is the metadata checksum and element sums combined via bit-wise
+exclusive-or (XOR) operator (in any order).
 
-The following has never been implemented. Should we add these?
-
-Commit identifiers: use the commit checksum as an identifier like git etc.
-This may not be required, since normally one would only request a state and not
-care how it is reproduced.
-
-Rationale: commit identification is important for merges. When however it comes
-to deleting old history, commits will either be forgotten entirely or merged
-into larger commits with new checksums. State checksums, however, will remain
-the same (for those states which survive).
+A new partition should be started with a blank state: no parents, no elements,
+commit number 0; however the timestamp should be set to the time of
+initialisation and extra metadata can be included (e.g. comments or author).
 
 ### Displaying checksum identifiers
 
-Printing state sums and commit checksums: use base 36 (0-9, a-z; i.e.
-hexadecimal extended to the end of the alphabet). Always use lower-case letters
-to avoid confusion between zero (`0`) and upper-case `O`. A 256-bit number
-requires only 50 characters in base-36 (or 64 in base 16). Like git, accept
-abbreviated sums so long as these are unique within known history.
+Printing state sums and commit checksums: use base 16 (0-9, A-F) — hexadecimal.
+Optionally put a space between pairs of characters.
+
+Like git, accept abbreviated sums as identifiers so long as these are unique
+within known history.
 
 ### Element and partition identifiers
 
-Element identifiers are a unique `u64` (unsigned 64-bit number). We don't care
-much what they are so long as they are unique.
+Element identifiers are a unique `u64` (unsigned 64-bit number) and also serve
+to identify the element's partition.
 
 The first 40 bits (high part) of the number is allocated to a partition
 identifier, and the low 24 bits (more than 16 million numbers) are allocated

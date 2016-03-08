@@ -228,7 +228,7 @@ This is followed by:
 *   `\x00U` (2 bytes: zero U), indicating that a UTC UNIX timestamp follows
 *   an `i64` (eight byte signed) UNIX timestamp (the number of non-leap seconds
     since January 1, 1970 0:00:00 UTC) of the time the commit was made
-*   `CNUM` (commint number) followed by a `u32` (four byte) number, which is
+*   `CNUM` (commit number) followed by a `u32` (four byte) number, which is
     the commit number (max parent number + 1; not guaranteed unique)
 *   `XM`, two more bytes, a `u32` (four bytes unsigned) number; this is the
     "extra metadata" section, the two bytes may be zero-bytes (ignore data) or

@@ -192,11 +192,55 @@ would be a good idea for synchronisation however).
 Checksums
 ---------------
 
-Checksums should be added such that (a) data corruption can be detected and (b)
-replay of log-entries can be verified.
+### Goals
 
-State checksums: a deterministic method of producing a single checksum on the
-full current state of a partition (data of all entries). Question: combine entry
-data in a commutative method or not? For: easier parallelisation of calculation,
-should be possible to calculate the new checksum from the old and a knowledge
-of changed entries; against: nothing?
+Checksums should be added such that (a) data corruption can be detected, (b)
+replay of log-entries can be verified and (c) to protect against deliberate
+checksum falsification of checksum/identifier ("birthday paradox" attacks),
+thus providing a short and secure "state identifier".
+
+State checksums should provide a mechanism to identify a commit/state of a
+partition and validate its reconstruction (including against delibarate
+manipulations). Additionally, given a state and a commit on that state,
+calculation of the state sum of the result of applying the commit should be
+straightforward (without having to consider elements not changed by the
+commit).
+
+### Original approach
+
+Element sums are simply checksums of element data. State checksums are just all
+element sums combined via XOR (in any order since the operation is
+associative and commutative).
+
+This is convenient but has a few issues:
+
+1.  if a commit simply renames elements, the state sum stays the same even
+    though for many purposes the data is not the same
+2.  collision attacks are made easier since a mischievous element whose sum
+    matches *any* element can be inserted at *any* position simply by replacing
+    the element with matching sum then renaming
+3.  commits reverting to a previous state and merges equivalent to one parent
+    have a colliding state sum, which undermines usage as an identifier
+
+Number (2) is not really an issue, since in a partition with a million elements
+it reduces complexity by 20 bits (2^20 is approximately one million). The
+maximum partition size is 2^24 elements. This reduces complexity of a collision
+attack from 256 bits to 232 bits at best. In comparison, the widely-applicable
+"birthday paradox" attack reduces complexity by a factor of one half (to 128
+bits).
+
+### New approach
+
+Use the element's identifier in the element sum; the easiest way to do this
+without having to further question security of the sum is to take the checksum
+of the identifier and data in a single sequence.
+
+State meta-data (including parent identifier) is in some ways important and
+should also be validated by the sum. Further, including the parent sum(s) in
+the state sum means that a revert commit or no-op merge cannot have the same
+state sum as a previous state.
+
+XOR is still used to combine sums, effectively making a state a set of named
+elements. This is convenient for calculating sums resulting from patches. I see
+no obvious security issues with this (since all inputs are secure checksums and
+no other operations are used on sums).
