@@ -206,7 +206,90 @@ calculation of the state sum of the result of applying the commit should be
 straightforward (without having to consider elements not changed by the
 commit).
 
-### Original approach
+### Choice of algorithm
+
+We use checksums in two different ways:
+
+1.  File corruption detection: for this, the algorithm must be fixed (unless
+    file headers are re-read *after* finding out which algorithm is in use).
+2.  Validating elements and partition state reproduction, identifying states
+
+For the first use, security is not important and usage is small (once per
+header, per snapshot and per commit); therefore choice is not very important;
+for simplicity we use the same algorithm as for the second use-case.
+
+For the second use, security is important (if secure validation of data is
+desired). The SHA-2 and SHA-3 family of algorithms appear to be a good match
+for our use case, but BLAKE2b is faster and is according to its authors "at
+least as secure as the latest standard SHA-3" (it is derived from an SHA-3
+competition finalist).
+
+The current checksum algorithm is BLAKE2b configured for 256 bits output.
+BLAKE2b was selected over other variants since target usage is on 64-bit CPUs,
+and on multicore CPUs there may be better ways to process in parallel;
+that said BLAKE2bp should probably be tested and properly considered.
+
+#### Older notes
+
+Algorithms: MD5 (and MD4) are sufficient for checksums. SHA-1 offered
+security against collision attacks, but is now considered weak. SHA-2 and SHA-3
+are more secure; SHA-2 is a little slower and SHA-3 possibly not yet
+standardised. SHA-256 is much faster on 32-bit hardware but slower than SHA-512
+on 64-bit hardware. [BLAKE2](https://blake2.net/) is faster than SHA-256
+(likely also SHA-512) on 64-bit hardware, is apparently "at least as secure as
+SHA-3" and can generate a digest of any size (up to 64 bytes).
+
+My amateur thoughts on this:
+
+1.  The "state sum" thing is used for identifying commits so there *may* be
+    some security issues with choosing a weak checksum; the other uses of the
+    checksum are really only for detecting accidental corruption of data so are
+    not important for security considerations.
+2.  If a "good" and a "malicious" element can be generated with the same
+    checksum there may be some exploits, assuming commits are fetched from a
+    third party somehow, however currently it is impossible to say for certain.
+3.  16 bytes has 2^(8*16) ~= 10^38 possiblities (one hundred million million
+    million million million million values), so it seems unlikely that anyone
+    could brute-force calculate an intentional clash with a given sum,
+    *assuming there are no further weaknesses in the algorithm*. Note that the
+    birthday paradox means that you would expect a brute-force attack to find a
+    collision after 2^(8*16/2) = 2^64 ~= 2*10^19 attempts, or a good/bad pair
+    after ~ 4*10^19 hash calculations, which may be computationally feasible.
+3.  SHA-1 uses 160 bits (20 bytes), with theoretical attacks reducing an attack
+    to around 2^60 hash calculations, and is considered insecure, with one
+    demonstrated collision to date.
+
+Therefore using a 16-byte checksum for state sums seems like it would be
+sufficient to withstand casual attacks but not necessarily serious ones.
+SHA-256 uses 32 bytes and is generally considered secure. If the cost of using
+32 bytes per object does not turn out to be too significant, we should probably
+not use less.
+
+As to costs, one million elements with 32-bytes each is 32 MB. If the elements
+average 400 bytes (a "paragraph") then the checksum is less than 10% overhead,
+however if elements are mostly very short (e.g. 10 bytes) then the overhead is
+proportionally large and might be significant. Obviously this depends on the
+application.
+
+Ideally we would let the user choose the checksum length; failing
+this 32 bytes does not seem like a bad default.
+
+References:
+[some advice on Stack Overflow](http://stackoverflow.com/a/5003438/314345),
+[another comment](http://stackoverflow.com/a/23444843/314345),
+[Birthday paradox / attack](https://en.wikipedia.org/wiki/Birthday_attack),
+[SHA-1 attacks](https://en.wikipedia.org/wiki/SHA-1#Attacks).
+
+### State checksums
+
+Calculate as the XOR of the checksum of each data item in the partition. This
+algorithm is simple, relies on the security of the underlying algorithm, and
+does not require ordering of data items.
+
+Usage is restricted to a single partition since partitioning should allow all
+operations without loading other partitions.
+
+#### Original approach
 
 Element sums are simply checksums of element data. State checksums are just all
 element sums combined via XOR (in any order since the operation is
@@ -229,7 +312,7 @@ attack from 256 bits to 232 bits at best. In comparison, the widely-applicable
 "birthday paradox" attack reduces complexity by a factor of one half (to 128
 bits).
 
-### New approach
+#### New approach
 
 Use the element's identifier in the element sum; the easiest way to do this
 without having to further question security of the sum is to take the checksum
