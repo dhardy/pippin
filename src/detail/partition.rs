@@ -10,13 +10,13 @@ use std::result;
 use std::any::Any;
 use hashindexed::HashIndexed;
 
-pub use detail::states::{State, PartitionState};
+pub use detail::states::{State, MutState, PartitionState, MutPartState};
 
 use detail::readwrite::{FileHeader, FileType, read_head, write_head, validate_repo_name};
 use detail::readwrite::{read_snapshot, write_snapshot};
 use detail::readwrite::{read_log, start_log, write_commit};
 use detail::states::{PartitionStateSumComparator};
-use detail::{Commit, CommitQueue, LogReplay};
+use detail::{Commit, ExtraMeta, CommitQueue, LogReplay};
 use merge::{TwoWayMerge, TwoWaySolver};
 use {ElementT, Sum, PartId};
 use error::{Result, ArgError, TipError, PatchOp, MatchError, OtherError, make_io_err};
@@ -593,7 +593,7 @@ impl<E: ElementT> Partition<E> {
             let c = {
                 let mut merger = try!(self.merge_two());
                 merger.solve(solver);
-                merger.make_commit()
+                merger.make_commit(None)
             };
             if let Some(commit) = c {
                 trace!("Pushing merge commit: {} ({} changes)", commit.statesum(), commit.num_changes());
@@ -646,49 +646,49 @@ impl<E: ElementT> Partition<E> {
         if self.states.contains(commit.statesum()) {
             return Err(PatchOp::SumClash);
         }
-        let mut state = match  commit.parents().iter().next()
-                .and_then(|p| self.states.get(p))
-        {
-            Some(ref state) => state.child_with_parents(commit.parents().clone()),
-            None => return Err(PatchOp::NoParent),
+        let first_parent = commit.parents().iter().next().expect("commit 1st parent").clone();
+        let state = {
+            let parent = try!(self.states.get(&first_parent).ok_or(PatchOp::NoParent));
+            try!(commit.apply(parent))
         };
-        try!(commit.patch(&mut state));
         self.add_pair(commit, state);
         Ok(())
     }
     
-    /// This adds a new state to the partition, updating the 'tip', and adds a
-    /// new commit to the internal list waiting to be written to permanent
-    /// storage (see `write()`).
+    /// This creates a commit from the given state, converts the `MutPartState`
+    /// to a `PartitionState` and adds it to the list of internal states, as
+    /// the new tip (unless a merge is required, in which case it will be one
+    /// of multiple tip states). The commit is added to the internal list
+    /// waiting to be written to permanent storage (see `write()`).
     /// 
-    /// A merge might be required after calling this (if the parent state of
-    /// that passed is no longer a 'tip').
+    /// Returns `Ok(true)` on success, or `Ok(false)` if the state matches its
+    /// parent (i.e. hasn't been changed).
     /// 
-    /// The commit is created from the state passed by finding the state's
-    /// parent and comparing. If there are no changes, nothing happens and
-    /// this function returns false, otherwise the function returns true.
+    /// We assume there are no extra parents; merges should be pushed via
+    /// `push_commit` instead.
     /// 
     /// TODO: this operation should not fail, since failure might result in
     /// data loss.
-    pub fn push_state(&mut self, state: PartitionState<E>) -> Result<bool, PatchOp> {
-        // #0019: Commit::from_diff compares old and new states and code be slow.
-        // #0019: Instead, we could record each alteration as it happens.
-        let c = if state.parents().len() == 1 && state.parents()[0] == *state.statesum() {
-            // Checksum equals that of parent: no changes
-            // #0022: compare states instead of sums to check for collisions?
-            None
-        } else {
-            // `state` should have been created via `clone_child()` and should
-            // have one parent. If it wasn't, it doesn't matter except that
-            // someone pushing a merge result to create a commit will lose
-            // other parents. This shouldn't happen anyway.
-            match state.parents().iter().next().and_then(|p| self.states.get(p)) {
-                Some(ref parent) => Commit::from_diff(parent, &state),
-                None => { return Err(PatchOp::NoParent); },
+    pub fn push_state(&mut self, state: MutPartState<E>,
+            extra_meta: ExtraMeta) -> Result<bool, PatchOp>
+    {
+        let c = {
+            let parent = try!(self.states.get(&state.parent()).ok_or(PatchOp::NoParent));
+            if parent.statesum() ^ &parent.metasum() == *state.elt_sum() {
+                // Checksum equals that of parent: no changes
+                // #0022: compare states instead of sums to check for collisions?
+                None
+            } else {
+                // #0019: Commit::from_diff compares old and new states and code be slow.
+                // #0019: Instead, we could record each alteration as it happens.
+                Commit::from_diff(parent, &state, extra_meta)
             }
         };
+        
         if let Some(commit) = c {
-            self.add_pair(commit, state);
+            let new_state = PartitionState::from_mut(state,
+                    commit.parents().clone(), commit.meta().clone());
+            self.add_pair(commit, new_state);
             Ok(true)
         } else {
             Ok(false)
@@ -698,6 +698,8 @@ impl<E: ElementT> Partition<E> {
     // Add a paired commit and state.
     // Assumptions: checksums match and parent state is present.
     fn add_pair(&mut self, commit: Commit<E>, state: PartitionState<E>) {
+        assert_eq!(commit.parents(), state.parents());
+        assert_eq!(commit.statesum(), state.statesum());
         trace!("Partition {}: new commit {}", self.part_id.into_num(), commit.statesum());
         self.ss_policy.add_commits(1);
         self.ss_policy.add_edits(commit.num_changes());
@@ -878,30 +880,29 @@ fn on_new_partition() {
     let mut part = Partition::<String>::create(io, "on_new_partition").expect("partition creation");
     assert_eq!(part.tips.len(), 1);
     
-    let state = part.tip().expect("getting tip").clone_child();
-    assert_eq!(part.push_state(state).expect("committing"), false);
+    let state = part.tip().expect("getting tip").clone_mut();
+    assert_eq!(part.push_state(state, None).expect("committing"), false);
     
-    let mut state = part.tip().expect("getting tip").clone_child();
+    let mut state = part.tip().expect("getting tip").clone_mut();
     assert!(!state.any_avail());
     
     let elt1 = "This is element one.".to_string();
     let elt2 = "Element two data.".to_string();
     let e1id = state.insert(elt1).expect("inserting elt");
     let e2id = state.insert(elt2).expect("inserting elt");
-    let key = state.statesum().clone();
     
-    assert_eq!(part.push_state(state).expect("comitting"), true);
+    assert_eq!(part.push_state(state, None).expect("comitting"), true);
     assert_eq!(part.unsaved.len(), 1);
     assert_eq!(part.states.len(), 2);
+    let key = part.tip().expect("tip").statesum().clone();
     {
         let state = part.state(&key).expect("getting state by key");
         assert!(state.is_avail(e1id));
         assert_eq!(state.get(e2id), Ok(&"Element two data.".to_string()));
     }   // `state` goes out of scope
     assert_eq!(part.tips.len(), 1);
-    let state = part.tip().expect("getting tip").clone_child();
-    assert_eq!(state.parents().len(), 1);
-    assert_eq!(state.parents()[0], key);
+    let state = part.tip().expect("getting tip").clone_mut();
+    assert_eq!(*state.parent(), key);
     
-    assert_eq!(part.push_state(state).expect("committing"), false);
+    assert_eq!(part.push_state(state, None).expect("committing"), false);
 }

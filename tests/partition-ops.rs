@@ -13,15 +13,11 @@ extern crate env_logger;
 
 use std::io::{Read, Write, ErrorKind};
 use std::any::Any;
-// Used to write results out:
-// use std::io::stderr;
-// use std::path::Path;
-// use std::fs::{File, create_dir_all};
 
 use vec_map::VecMap;
 
 use pippin::PartId;
-use pippin::{Partition, PartitionIO};
+use pippin::{Partition, PartitionIO, MutState};
 use pippin::error::{make_io_err, Result};
 
 /// Allows writing to in-memory streams. Refers to external data so that it
@@ -94,26 +90,26 @@ fn create_small() {
         "create_small").expect("creating partition");
     
     // 2 Add a few elements over multiple commits
-    let mut state = part.tip().expect("has tip").clone_child();
+    let mut state = part.tip().expect("has tip").clone_mut();
     state.insert("thirty five".to_string()).expect("inserting elt 35");
     state.insert("six thousand, five hundred and thirteen"
             .to_string()).expect("inserting elt 6513");
     state.insert("five million, six hundred and ninety eight \
             thousand, one hundred and thirty one".to_string())
             .expect("inserting elt 5698131");
-    part.push_state(state).expect("committing");
+    part.push_state(state, None).expect("committing");
     let state1 = part.tip().expect("has tip").clone_exact();
     
-    let mut state = part.tip().expect("getting tip").clone_child();
+    let mut state = part.tip().expect("getting tip").clone_mut();
     state.insert("sixty eight thousand, one hundred and sixty eight"
             .to_string()).expect("inserting elt 68168");
-    part.push_state(state).expect("committing");
+    part.push_state(state, None).expect("committing");
     
-    let mut state = part.tip().expect("getting tip").clone_child();
+    let mut state = part.tip().expect("getting tip").clone_mut();
     state.insert("eighty nine".to_string()).expect("inserting elt 89");
     state.insert("one thousand and sixty three".to_string())
             .expect("inserting elt 1063");
-    part.push_state(state).expect("committing");
+    part.push_state(state, None).expect("committing");
     let state3 = part.tip().expect("has tip").clone_exact();
     
     // 3 Write to streams in memory
@@ -132,6 +128,7 @@ fn create_small() {
         
         // It is sometimes useful to be able to see these streams. This can be
         // done here:
+        /*
         use std::path::Path;
         use std::io::stderr;
         use std::fs::{File, create_dir_all};
@@ -148,6 +145,7 @@ fn create_small() {
         };
         write_out(&ss_data, &fname_ss0).expect("writing snapshot file");
         write_out(&log, &fname_ss0_cl0).expect("writing commit log");
+        */
         
         // We cannot do a binary comparison on the output files since the order
         // in which elements occur can and does vary (thanks to Rust's hash
@@ -160,9 +158,7 @@ fn create_small() {
     // 5 Read streams back again and compare
     let mut part2 = Partition::open(boxed_io).expect("opening partition");
     part2.load(true).expect("part2.load");
-    // The "parent" field is not saved and so unequal in the reloaded state.
-    // As a work-around, we use clone_child() which updates the "parent" field.
-    assert_eq!(state1.clone_child(),
-        part2.state(state1.statesum()).expect("get state1 by sum").clone_child());
+    assert_eq!(state1,
+        *part2.state(state1.statesum()).expect("get state1 by sum"));
     assert_eq!(state3, *part2.tip().expect("part2 tip"));
 }

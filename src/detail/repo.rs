@@ -25,7 +25,7 @@ use std::mem::swap;
 // Re-export these. We pretend these are part of the same module while keeping files smaller.
 pub use detail::repo_traits::{RepoIO, ClassifierT, ClassifyFallback, RepoT,
     RepoDivideError, DummyClassifier};
-use partition::{Partition, State, PartitionState};
+use partition::{Partition, State, MutState, MutPartState};
 use detail::{EltId};
 use merge::{TwoWaySolver};
 use PartId;
@@ -208,7 +208,7 @@ impl<C: ClassifierT, R: RepoT<C>> Repo<C, R> {
         let mut rs = RepoState::new(self.classifier.clone_classifier());
         for (num, part) in &self.partitions {
             if part.is_loaded() {
-                rs.add_part(*num, try!(part.tip()).clone_exact());
+                rs.add_part(*num, try!(part.tip()).clone_mut());
             }
         }
         Ok(rs)
@@ -231,7 +231,9 @@ impl<C: ClassifierT, R: RepoT<C>> Repo<C, R> {
                 panic!("RepoState has a partition not found in the Repo");
                 //TODO: support for merging after a division/union/change of partitioning
             };
-            if try!(part.push_state(pstate)) {
+            //TODO: let user specify extra metadata somehow?
+            let extra = None;
+            if try!(part.push_state(pstate, extra)) {
                 if part.merge_required() { merge_required = true; }
             }
         }
@@ -253,31 +255,36 @@ impl<C: ClassifierT, R: RepoT<C>> Repo<C, R> {
         
         let mut merge_required = false;
         for (num, pstate) in states {
-            let mut part = if let Some(p) = self.partitions.get_mut(&num) {
-                p
-            } else {
-                panic!("RepoState has a partition not found in the Repo");
-                //TODO: support for merging after a division/union/change of partitioning
+            let mut part = match self.partitions.get_mut(&num) {
+                Some(p) => p,
+                None => {
+                    panic!("RepoState has a partition not found in the Repo");
+                    //TODO: support for merging after a division/union/change of partitioning
+                },
             };
-            if let Ok(sum) = part.tip_key() {
+            //TODO: if equal to partition tip, do nothing... but we can't test
+            // this now so can't short-cut — reimplement this or forget it?
+            /*if let Ok(sum) = part.tip_key() {
                 if sum == pstate.statesum() {
-                    // (Presumably) no changes. Skip partition.
+                    // (#0022: Presumably) no changes. Skip partition.
                     state.add_part(num, pstate);
                     continue;
                 }
-            }
-            if try!(part.push_state(pstate)) {
+            }*/
+            //TODO: let user specify extra metadata somehow?
+            let extra = None;
+            if try!(part.push_state(pstate, extra)) {
                 if part.merge_required() {
                     merge_required = true;
                 } else {
-                    state.add_part(num, try!(part.tip()).clone_exact());
+                    state.add_part(num, try!(part.tip()).clone_mut());
                 }
             }
         }
         
         for (num, part) in &self.partitions {
             if !state.has_part(*num) {
-                state.add_part(*num, try!(part.tip()).clone_exact());
+                state.add_part(*num, try!(part.tip()).clone_mut());
             }
         }
         Ok(merge_required)
@@ -293,7 +300,7 @@ impl<C: ClassifierT, R: RepoT<C>> Repo<C, R> {
 /// synchronise edits.
 pub struct RepoState<C: ClassifierT> {
     classifier: C,
-    states: HashMap<PartId, PartitionState<C::Element>>,
+    states: HashMap<PartId, MutPartState<C::Element>>,
 }
 
 impl<C: ClassifierT> RepoState<C> {
@@ -302,7 +309,7 @@ impl<C: ClassifierT> RepoState<C> {
         RepoState { classifier: classifier, states: HashMap::new() }
     }
     /// Add a state from some partition
-    fn add_part(&mut self, num: PartId, state: PartitionState<C::Element>) {
+    fn add_part(&mut self, num: PartId, state: MutPartState<C::Element>) {
         self.states.insert(num, state);
     }
     /// Checks whether the given partition is present
@@ -394,6 +401,8 @@ impl<C: ClassifierT> State<C::Element> for RepoState<C> {
             None => Err(ElementOp::NotLoaded),
         }
     }
+}
+impl<C: ClassifierT> MutState<C::Element> for RepoState<C> {
     fn insert_rc(&mut self, elt: Rc<C::Element>) -> Result<EltId, ElementOp> {
         let part_id = if let Some(part_id) = self.classifier.classify(&*elt) {
             part_id

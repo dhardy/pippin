@@ -203,7 +203,7 @@ pub fn read_log<E: ElementT>(reader_: &mut Read, receiver: &mut CommitReceiver<E
         }
         
         trace!("Read commit ({} changes): {}; first parent: {}", changes.len(), commit_sum, parents[0]);
-        let cont = receiver.receive(Commit::new(commit_sum, parents, changes, meta));
+        let cont = receiver.receive(Commit::new_explicit(commit_sum, parents, changes, meta));
         if !cont { break; }
     }
     
@@ -331,14 +331,14 @@ fn commit_write_read(){
     changes.insert(p.elt_id(4), EltChange::insertion(Rc::new("four".to_string())));
     changes.insert(p.elt_id(5), EltChange::insertion(Rc::new("five".to_string())));
     let meta1 = CommitMeta { number: 1, timestamp: 123456, extra: None };
-    let commit_1 = Commit::new(seq, vec![squares], changes, meta1);
+    let commit_1 = Commit::new_explicit(seq, vec![squares], changes, meta1);
     
     changes = HashMap::new();
     changes.insert(p.elt_id(1), EltChange::deletion());
     changes.insert(p.elt_id(9), EltChange::replacement(Rc::new("NINE!".to_string())));
     changes.insert(p.elt_id(5), EltChange::insertion(Rc::new("five again?".to_string())));
     let meta2 = CommitMeta { number: 1, timestamp: 321654, extra: Some("123".to_string()) };
-    let commit_2 = Commit::new(nonsense, vec![quadr], changes, meta2);
+    let commit_2 = Commit::new_explicit(nonsense, vec![quadr], changes, meta2);
     
     let mut obj = Vec::new();
     assert!(start_log(&mut obj).is_ok());

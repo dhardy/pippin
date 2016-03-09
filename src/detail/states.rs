@@ -5,7 +5,6 @@
 //! Pippin: support for dealing with log replay, commit creation, etc.
 
 use std::collections::{HashMap};
-use std::collections::hash_map::{Keys};
 use std::clone::Clone;
 use std::rc::Rc;
 
@@ -15,7 +14,7 @@ use rand::random;
 use {ElementT, Sum, PartId, EltId, CommitMeta};
 use error::ElementOp;
 
-/// Trait abstracting over operations on the state of a partition or
+/// Trait abstracting over read operations on the state of a partition or
 /// repository.
 pub trait State<E: ElementT> {
     /// Returns true when any elements are available.
@@ -52,7 +51,11 @@ pub trait State<E: ElementT> {
     /// Low-level version of `get(id)`: returns a reference to the
     /// reference-counter wrapped container of the element.
     fn get_rc(&self, id: EltId) -> Result<&Rc<E>, ElementOp>;
-    
+}
+
+/// Trait abstracting over write operations on the state of a partition or
+/// repository.
+pub trait MutState<E: ElementT>: State<E> {
     /// Insert a new element and return the identifier.
     /// 
     /// This fails if the relevant partition is not loaded or if the relevant
@@ -123,13 +126,24 @@ pub struct PartitionState<E: ElementT> {
     meta: CommitMeta,
 }
 
+/// An editable state
+#[derive(PartialEq, Debug)]
+pub struct MutPartState<E: ElementT> {
+    part_id: PartId,
+    parent: Sum,
+    elt_sum: Sum,
+    elts: HashMap<EltId, Rc<E>>,
+    moved: HashMap<EltId, EltId>,
+    number: u32,
+}
+
 impl<E: ElementT> PartitionState<E> {
     /// Create a new state, with no elements or history.
     /// 
     /// The partition's identifier must be given; this is used to assign new
     /// element identifiers. Panics if the partition identifier is invalid.
     pub fn new(part_id: PartId) -> PartitionState<E> {
-        Self::new_with(part_id, Vec::new(), CommitMeta::new_empty())
+        Self::new_with(part_id, Vec::new(), CommitMeta::now_empty())
     }
     /// As `new()`, but letting the user specify commit meta-data and parents.
     pub fn new_with(part_id: PartId, parents: Vec<Sum>, meta: CommitMeta) ->
@@ -146,12 +160,53 @@ impl<E: ElementT> PartitionState<E> {
         }
     }
     
-    /// Get the state sum.
+    /// Create a `PartitionState`, specifying most things explicitly.
     /// 
-    /// Note that this is updated immediately when elements are inserted,
-    /// removed, replaced, etc., but that it also depends on the metadata
-    /// associated with a commit.
+    /// This is for internal use; don't use externally unless you're really
+    /// sure of what you're doing.
+    pub fn new_explicit(part_id: PartId, parents: Vec<Sum>,
+            elts: HashMap<EltId, Rc<E>>, moves: HashMap<EltId, EltId>,
+            meta: CommitMeta, elt_sum: Sum) -> PartitionState<E> {
+        let metasum = Sum::state_meta_sum(part_id, &parents, &meta);
+        PartitionState {
+            part_id: part_id,
+            parents: parents,
+            statesum: &metasum ^ &elt_sum,
+            elts: elts,
+            moved: moves,
+            meta: meta
+        }
+    }
+    
+    /// Create a `PartitionState` from a `MutPartState` and metadata.
+    /// 
+    /// The metadata can be constructed using the number in `mut_state` and
+    /// `CommitMeta::timestamp_now()` if not already available.
+    /// 
+    /// Commit metadata is constructed from the number in the passed
+    /// `MutPartState`, the time now and the passed optional extra data.
+    pub fn from_mut(mut_state: MutPartState<E>, parents: Vec<Sum>,
+            metadata: CommitMeta) -> PartitionState<E>
+    {
+        let metasum = Sum::state_meta_sum(mut_state.part_id, &parents, &metadata);
+        PartitionState {
+            part_id: mut_state.part_id,
+            parents: parents,
+            statesum: &mut_state.elt_sum ^ &metasum,
+            elts: mut_state.elts,
+            moved: mut_state.moved,
+            meta: metadata
+        }
+    }
+    
+    /// Get the state sum
     pub fn statesum(&self) -> &Sum { &self.statesum }
+    /// Get the metadata sum (this is part of the statesum)
+    /// 
+    /// This is generated on-the-fly.
+    pub fn metasum(&self) -> Sum {
+        Sum::state_meta_sum(self.part_id, &self.parents, &self.meta)
+    }
     /// Get the parents' sums. Normally a state has one parent, but the initial
     /// state has zero and merge outcomes have two (or more).
     /// 
@@ -164,23 +219,98 @@ impl<E: ElementT> PartitionState<E> {
     pub fn meta(&self) -> &CommitMeta { &self.meta }
     
     /// Get access to the map holding elements
-    pub fn map(&self) -> &HashMap<EltId, Rc<E>> {
+    pub fn elt_map(&self) -> &HashMap<EltId, Rc<E>> {
         &self.elts
-    }
-    /// Destroy the PartitionState, extracting its maps
-    /// 
-    /// First is map of elements (`self.map()`), second is map of moved elements
-    /// (`self.moved_map()`).
-    pub fn into_maps(self) -> (HashMap<EltId, Rc<E>>, HashMap<EltId, EltId>) {
-        (self.elts, self.moved)
     }
     /// Get access to the map of moved elements to new identifiers
     pub fn moved_map(&self) -> &HashMap<EltId, EltId> {
         &self.moved
     }
-    /// Get the element keys
-    pub fn elt_ids(&self) -> Keys<EltId, Rc<E>> {
-        self.elts.keys()
+    // Also see #0021 about commit creation.
+    
+    /// Check our notes tracking moved elements, and return a new `EltId` if
+    /// we have one. Note that this method ignores stored elements.
+    pub fn is_moved(&self, id: EltId) -> Option<EltId> {
+        self.moved.get(&id).map(|id| *id) // Some(value) or None
+    }
+    
+    /// As `gen_id()`, but ensure the generated id is free in both self and
+    /// another state. Note that the other state is assumed to have the same
+    /// `part_id`; if not this is equivalent to `gen_id()`.
+    pub fn gen_id_binary(&self, s2: &PartitionState<E>) -> Result<EltId, ElementOp> {
+        assert_eq!(self.part_id, s2.part_id);
+        let initial = self.part_id.elt_id(random::<u32>() & 0xFF_FFFF);
+        let mut id = initial;
+        let mut tries = 1000;
+        loop {
+            if !self.elts.contains_key(&id) && !s2.elts.contains_key(&id) &&
+                !self.moved.contains_key(&id) && !s2.moved.contains_key(&id)
+            {
+                break;
+            }
+            id = id.next_elt();
+            tries -= 1;
+            if tries == 0 {
+                return Err(ElementOp::IdGenFailure);
+            }
+        }
+        Ok(id)
+    }
+    
+    /// Clone the state, creating a child state. The new state will consider
+    /// the current state to be its parent. This is what should be done when
+    /// making changes in order to make a new commit.
+    /// 
+    /// This "clone" will not compare equal to the current one since the
+    /// parents are different.
+    /// 
+    /// Elements are considered Copy-On-Write so cloning the
+    /// state is not particularly expensive.
+    pub fn clone_mut(&self) -> MutPartState<E> {
+        MutPartState {
+            part_id: self.part_id,
+            parent: self.statesum.clone(),
+            elt_sum: self.statesum() ^ &self.metasum(),
+            elts: self.elts.clone(),
+            moved: self.moved.clone(),
+            number: self.meta.next_number(),
+        }
+    }
+    
+    /// Clone the state, creating an exact copy. The new state will have the
+    /// same parents as the current one.
+    /// 
+    /// Elements are considered Copy-On-Write so cloning the
+    /// state is not particularly expensive (though the hash-map of elements
+    /// and a few other bits must still be copied).
+    pub fn clone_exact(&self) -> Self {
+        PartitionState {
+            part_id: self.part_id,
+            parents: self.parents.clone(),
+            statesum: self.statesum.clone(),
+            elts: self.elts.clone(),
+            moved: self.moved.clone(),
+            meta: self.meta.clone(),
+        }
+    }
+}
+    
+impl<E: ElementT> MutPartState<E> {
+    /// Get the partition identifier
+    pub fn part_id(&self) -> PartId { self.part_id }
+    /// Get the parent's sum
+    pub fn parent(&self) -> &Sum { &self.parent }
+    /// Get the "element sum". This is all element sums combined via XOR. The
+    /// partition statesum is this XORed with the metadata sum.
+    pub fn elt_sum(&self) -> &Sum { &self.elt_sum }
+    
+    /// Get access to the map holding elements
+    pub fn elt_map(&self) -> &HashMap<EltId, Rc<E>> {
+        &self.elts
+    }
+    /// Get access to the map of moved elements to new identifiers
+    pub fn moved_map(&self) -> &HashMap<EltId, EltId> {
+        &self.moved
     }
     
     /// Generate an element identifier.
@@ -203,26 +333,6 @@ impl<E: ElementT> PartitionState<E> {
         }
         Ok(id)
     }
-    /// As `gen_id()`, but ensure the generated id is free in both self and
-    /// another state. Note that the other state is assumed to have the same
-    /// `part_id`; if not this is equivalent to `gen_id()`.
-    pub fn gen_id_binary(&self, s2: &PartitionState<E>) -> Result<EltId, ElementOp> {
-        let mut id = try!(self.gen_id());
-        let mut tries = 1000;
-        loop {
-            if !self.elts.contains_key(&id) && !s2.elts.contains_key(&id) &&
-                !self.moved.contains_key(&id) && !s2.moved.contains_key(&id)
-            {
-                break;
-            }
-            id = id.next_elt();
-            tries -= 1;
-            if tries == 0 {
-                return Err(ElementOp::IdGenFailure);
-            }
-        }
-        Ok(id)
-    }
     
     /// Insert an element and return the id (the one inserted).
     /// 
@@ -233,7 +343,7 @@ impl<E: ElementT> PartitionState<E> {
     pub fn insert_with_id(&mut self, id: EltId, elt: Rc<E>) -> Result<EltId, ElementOp> {
         if id.part_id() != self.part_id { return Err(ElementOp::WrongPartition); }
         if self.elts.contains_key(&id) { return Err(ElementOp::IdClash); }
-        self.statesum.permute(&elt.sum(id));
+        self.elt_sum.permute(&elt.sum(id));
         self.elts.insert(id, elt);
         Ok(id)
     }
@@ -261,56 +371,6 @@ impl<E: ElementT> PartitionState<E> {
     pub fn is_moved(&self, id: EltId) -> Option<EltId> {
         self.moved.get(&id).map(|id| *id) // Some(value) or None
     }
-    
-    // Also see #0021 about commit creation.
-    
-    /// Clone the state, creating a child state. The new state will consider
-    /// the current state to be its parent. This is what should be done when
-    /// making changes in order to make a new commit.
-    /// 
-    /// This "clone" will not compare equal to the current one since the
-    /// parents are different.
-    /// 
-    /// Elements are considered Copy-On-Write so cloning the
-    /// state is not particularly expensive.
-    pub fn clone_child(&self) -> Self {
-        self.child_with_parents(vec![self.statesum.clone()])
-    }
-    
-    /// As to `clone_child()` but specifying parents (first parent must be
-    /// self).
-    pub fn child_with_parents(&self, parents: Vec<Sum>) -> Self {
-        assert!(parents.len() > 0 && parents[0] == self.statesum);
-        //TODO: timestamp should probably be when a commit is created from
-        // changes, not now
-        //FIXME: statesum of next commit needs different metadata sum
-        let meta = CommitMeta::new_from(self.meta.number, None);
-        PartitionState {
-            part_id: self.part_id,
-            parents: parents,
-            statesum: self.statesum.clone(),
-            elts: self.elts.clone(),
-            moved: self.moved.clone(),
-            meta: meta,
-        }
-    }
-    
-    /// Clone the state, creating an exact copy. The new state will have the
-    /// same parents as the current one.
-    /// 
-    /// Elements are considered Copy-On-Write so cloning the
-    /// state is not particularly expensive (though the hash-map of elements
-    /// and a few other bits must still be copied).
-    pub fn clone_exact(&self) -> Self {
-        PartitionState {
-            part_id: self.part_id,
-            parents: self.parents.clone(),
-            statesum: self.statesum.clone(),
-            elts: self.elts.clone(),
-            moved: self.moved.clone(),
-            meta: self.meta.clone(),
-        }
-    }
 }
 
 impl<E: ElementT> State<E> for PartitionState<E> {
@@ -326,17 +386,33 @@ impl<E: ElementT> State<E> for PartitionState<E> {
     fn get_rc(&self, id: EltId) -> Result<&Rc<E>, ElementOp> {
         self.elts.get(&id).ok_or(ElementOp::NotFound)
     }
+}
+impl<E: ElementT> State<E> for MutPartState<E> {
+    fn any_avail(&self) -> bool {
+        !self.elts.is_empty()
+    }
+    fn num_avail(&self) -> usize {
+        self.elts.len()
+    }
+    fn is_avail(&self, id: EltId) -> bool {
+        self.elts.contains_key(&id)
+    }
+    fn get_rc(&self, id: EltId) -> Result<&Rc<E>, ElementOp> {
+        self.elts.get(&id).ok_or(ElementOp::NotFound)
+    }
+}
+impl<E: ElementT> MutState<E> for MutPartState<E> {
     fn insert_rc(&mut self, elt: Rc<E>) -> Result<EltId, ElementOp> {
         let id = try!(self.gen_id());
         try!(self.insert_with_id(id, elt));
         Ok(id)
     }
     fn replace_rc(&mut self, id: EltId, elt: Rc<E>) -> Result<Rc<E>, ElementOp> {
-        self.statesum.permute(&elt.sum(id));
+        self.elt_sum.permute(&elt.sum(id));
         match self.elts.insert(id, elt) {
             None => Err(ElementOp::NotFound),
             Some(removed) => {
-                self.statesum.permute(&removed.sum(id));
+                self.elt_sum.permute(&removed.sum(id));
                 Ok(removed)
             }
         }
@@ -345,7 +421,7 @@ impl<E: ElementT> State<E> for PartitionState<E> {
         match self.elts.remove(&id) {
             None => Err(ElementOp::NotFound),
             Some(removed) => {
-                self.statesum.permute(&removed.sum(id));
+                self.elt_sum.permute(&removed.sum(id));
                 Ok(removed)
             }
         }

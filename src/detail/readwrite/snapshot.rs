@@ -7,14 +7,15 @@
 use std::io::{Read, Write};
 use std::rc::Rc;
 use std::{u8, u32};
+use std::collections::hash_map::{HashMap, Entry};
 
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
 use detail::readwrite::{sum};
-use partition::{PartitionState, State};
+use partition::{PartitionState, State, MutState};
 use {ElementT, PartId, Sum, CommitMeta};
 use detail::SUM_BYTES;
-use error::{Result, ReadError};
+use error::{Result, ReadError, ElementOp};
 
 /// Read a snapshot of a set of elements from a stream.
 /// 
@@ -108,9 +109,8 @@ pub fn read_snapshot<T: ElementT>(reader: &mut Read, part_id: PartId,
     let num_elts = try!((&buf[8..16]).read_u64::<BigEndian>()) as usize;    // #0015
     pos += 16;
     
-    // #0016: here we don't set any parent sums. This isn't *correct*,
-    // but since we won't be creating a commit from it it doesn't actually matter.
-    let mut state = PartitionState::new_with(part_id, parents, meta);
+    let mut elts = HashMap::new();
+    let mut combined_elt_sum = Sum::zero();
     for _ in 0..num_elts {
         try!(r.read_exact(&mut buf[0..32]));
         if buf[0..8] != *b"ELEMENT\x00" {
@@ -143,11 +143,18 @@ pub fn read_snapshot<T: ElementT>(reader: &mut Read, part_id: PartId,
         }
         pos += SUM_BYTES;
         
+        combined_elt_sum.permute(&elt_sum);
+        
         //TODO: allow use of already-calculated elt_sum
         let elt = try!(T::from_vec(data));
-        try!(state.insert_with_id(ident, Rc::new(elt)));
+        if ident.part_id() != part_id { return Err(box ElementOp::WrongPartition); }
+        match elts.entry(ident) {
+            Entry::Occupied(_) => { return Err(box ElementOp::IdClash); },
+            Entry::Vacant(e) => e.insert(Rc::new(elt)),
+        };
     }
     
+    let mut moves = HashMap::new();
     try!(r.read_exact(&mut buf[0..16]));
     if buf[0..8] == *b"ELTMOVES" /*versions from 20160201, optional*/ {
         let n_moves = try!((&buf[8..16]).read_u64::<BigEndian>()) as usize;    // #0015
@@ -155,11 +162,14 @@ pub fn read_snapshot<T: ElementT>(reader: &mut Read, part_id: PartId,
             try!(r.read_exact(&mut buf[0..16]));
             let id0 = try!((&buf[0..8]).read_u64::<BigEndian>()).into();
             let id1 = try!((&buf[8..16]).read_u64::<BigEndian>()).into();
-            state.set_move(id0, id1);
+            moves.insert(id0, id1);
         }
         // re-fill buffer for next section:
         try!(r.read_exact(&mut buf[0..16]));
     }
+    
+    let state = PartitionState::new_explicit(part_id, parents,
+            elts, moves, meta, combined_elt_sum);
     
     if buf[0..8] != *b"STATESUM" {
         return ReadError::err("unexpected contents (expected STATESUM or ELTMOVES)", pos, (0, 8));
@@ -231,12 +241,12 @@ pub fn write_snapshot<T: ElementT>(state: &PartitionState<T>,
     }
     
     try!(w.write(b"ELEMENTS"));
-    let num_elts = state.map().len() as u64;  // #0015
+    let num_elts = state.elt_map().len() as u64;  // #0015
     try!(w.write_u64::<BigEndian>(num_elts));
     
     let mut elt_buf = Vec::new();
     
-    for (ident, elt) in state.map() {
+    for (ident, elt) in state.elt_map() {
         try!(w.write(b"ELEMENT\x00"));
         try!(w.write_u64::<BigEndian>((*ident).into()));
         
@@ -281,10 +291,7 @@ pub fn write_snapshot<T: ElementT>(state: &PartitionState<T>,
 #[test]
 fn snapshot_writing() {
     let part_id = PartId::from_num(1);
-    let v: Vec<u8> = (0u8..).take(SUM_BYTES).collect();
-    let parent = Sum::load(&v);     // nonsense sum
-    let meta = CommitMeta::new_from(5616, Some("text".to_string()));
-    let mut state = PartitionState::<String>::new_with(part_id, vec![parent], meta);
+    let mut state = PartitionState::<String>::new(part_id).clone_mut();
     let data = "But I must explain to you how all this \
         mistaken idea of denouncing pleasure and praising pain was born and I \
         will give you a complete account of the system, and expound the \
@@ -305,6 +312,10 @@ fn snapshot_writing() {
         qwfpluy-QWFPLUY—<{}>456+5≤≥φπλθυ−\
         zxcvm,./ZXCVM;:?`\"ç$0,./ζχψωμ~·÷";
     state.insert(data.to_string()).unwrap();
+    
+    let meta = CommitMeta::now_with(5617, Some("text".to_string()));
+    let parents = vec![state.parent().clone()];
+    let state = PartitionState::from_mut(state, parents, meta);
     
     let mut result = Vec::new();
     assert!(write_snapshot(&state, &mut result).is_ok());

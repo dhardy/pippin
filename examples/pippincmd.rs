@@ -20,7 +20,7 @@ use std::io::{Read, Write};
 use std::ffi::OsStr;
 use std::os::unix::ffi::OsStrExt;
 use docopt::Docopt;
-use pippin::{Partition, PartitionIO, ElementT, State};
+use pippin::{Partition, PartitionIO, ElementT, State, MutState};
 use pippin::discover::DiscoverPartitionFiles;
 use pippin::error::{Result, PathError, ErrorTrait};
 use pippin::util::rtrim;
@@ -214,19 +214,19 @@ fn inner(files: Vec<String>, op: Operation, args: Rest) -> Result<()>
             } else {
                 let mut part = try!(Partition::<DataElt>::open(box discover));
                 {
-                    let mut state = if let Some(ss) = args.commit {
+                    let (is_tip, mut state) = if let Some(ss) = args.commit {
                         try!(part.load(true));
-                        try!(part.state_from_string(ss)).clone_child()
+                        let state = try!(part.state_from_string(ss));
+                        (part.tip_key().map(|k| k == state.statesum()).unwrap_or(false), state.clone_mut())
                     } else {
                         try!(part.load(false));
-                        try!(part.tip()).clone_child()
+                        (true, try!(part.tip()).clone_mut())
                     };
-                    let is_tip = part.tip_key().map(|k| k == state.statesum()).unwrap_or(false);
                     match part_op {
                         PartitionOp::List(_,_) => { panic!("possibility already eliminated"); },
                         PartitionOp::ListElts => {
                             println!("Elements:");
-                            for id in state.elt_ids() {
+                            for id in state.elt_map().keys() {
                                 let n: u64 = (*id).into();
                                 println!("  {}", n);
                             }

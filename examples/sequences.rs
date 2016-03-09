@@ -22,7 +22,7 @@ use docopt::Docopt;
 use rand::Rng;
 use rand::distributions::{IndependentSample, Range, Normal, LogNormal};
 
-use pippin::{ElementT, PartId, Partition, State, PartitionIO};
+use pippin::{ElementT, PartId, Partition, State, MutState, PartitionIO};
 use pippin::discover::*;
 use pippin::repo::*;
 use pippin::merge::*;
@@ -246,7 +246,7 @@ fn run(dir: &Path, part_basename: Option<String>, mode: Mode, create: bool,
     let merge_solver = TwoWaySolverChain::new(&solver1, &solver2);
     
     let mut rng = rand::thread_rng();
-    let mut generate = |state: &mut State<_>| match mode {
+    let mut generate = |state: &mut MutState<_>| match mode {
         Mode::Generate(num) => {
             match Range::new(0, 4).ind_sample(&mut rng) {
                 0 => {
@@ -302,11 +302,14 @@ fn run(dir: &Path, part_basename: Option<String>, mode: Mode, create: bool,
         }
         
         for _ in 0..repetitions {
-            let mut state = try!(part.tip()).clone_child();
-            println!("Found state {}; have {} elements", state.statesum(), state.num_avail());
+            let mut state = {
+                let tip = try!(part.tip());
+                println!("Found state {}; have {} elements", tip.statesum(), tip.num_avail());
+                tip.clone_mut()
+            };
             generate(&mut state);
             println!("Done modifying state");
-            try!(part.push_state(state));
+            try!(part.push_state(state, None));
             try!(part.write(false));
         }
         
@@ -346,7 +349,7 @@ fn run(dir: &Path, part_basename: Option<String>, mode: Mode, create: bool,
     Ok(())
 }
 
-fn generate<R: Rng>(state: &mut State<Sequence>, rng: &mut R,
+fn generate<R: Rng>(state: &mut MutState<Sequence>, rng: &mut R,
     num: usize, generator: &Generator)
 {
     let len_range = LogNormal::new(1., 2.);

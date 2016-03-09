@@ -14,10 +14,13 @@ use chrono::{DateTime, NaiveDateTime, UTC};
 
 use detail::states::PartitionStateSumComparator;
 use detail::readwrite::CommitReceiver;
-use partition::{PartitionState, State};
+use partition::{PartitionState, MutPartState, State, MutState};
 use {ElementT, EltId, Sum};
-use error::{Result, ReplayError, PatchOp};
+use error::{Result, ReplayError, PatchOp, ElementOp};
 
+
+/// Type of extra metadata (this may change)
+pub type ExtraMeta = Option<String>;
 
 /// Extra data about a commit
 #[derive(Eq, PartialEq, Clone, Debug)]
@@ -39,26 +42,21 @@ pub struct CommitMeta {
     /// Currently this is either unicode text or nothing but there is a
     /// possibility of allowing other types (probably by replacing `Option`
     /// with a custom enum).
-    pub extra: Option<String>,
+    pub extra: ExtraMeta,
 }
 impl CommitMeta {
     /// Create an instance applicable to a new empty partition.
     /// 
     /// Assigns a timestamp as of *now* (via `Self::timestamp_now()`).
-    pub fn new_empty() -> CommitMeta {
-        CommitMeta {
-            number: 0,
-            timestamp: Self::timestamp_now(),
-            extra: None,
-        }
+    pub fn now_empty() -> CommitMeta {
+        Self::now_with(0, None)
     }
-    /// Create an instance. Set number to `prev_num` + 1 (but without
-    /// wrapping) and extra to `extra`.
+    /// Create an instance with provided number and extra data.
     /// 
     /// Assigns a timestamp as of *now* (via `Self::timestamp_now()`).
-    pub fn new_from(prev_num: u32, extra: Option<String>) -> CommitMeta {
+    pub fn now_with(number: u32, extra: ExtraMeta) -> CommitMeta {
         CommitMeta {
-            number: if prev_num < u32::MAX { prev_num + 1 } else { prev_num },
+            number: number,
             timestamp: Self::timestamp_now(),
             extra: extra,
         }
@@ -72,6 +70,10 @@ impl CommitMeta {
     /// Create a timestamp representing this moment.
     pub fn timestamp_now() -> i64 {
         UTC::now().timestamp()
+    }
+    /// Get the next number (usually current + 1)
+    pub fn next_number(&self) -> u32 {
+        if self.number < u32::MAX { self.number + 1 } else { u32::MAX }
     }
 }
 
@@ -187,7 +189,7 @@ impl<E: ElementT> Commit<E> {
     /// are sure all sums are correct.
     /// 
     /// This panics if parents.len() == 0 or parents.len() >= 256.
-    pub fn new(statesum: Sum, parents: Vec<Sum>,
+    pub fn new_explicit(statesum: Sum, parents: Vec<Sum>,
             changes: HashMap<EltId, EltChange<E>>,
             meta: CommitMeta) -> Commit<E>
     {
@@ -202,25 +204,26 @@ impl<E: ElementT> Commit<E> {
     /// This is one of two ways to create a commit; the other would be to track
     /// changes to a state (possibly the latter is the more sensible approach
     /// for most applications).
-    pub fn from_diff(old_state: &PartitionState<E>, new_state: &PartitionState<E>) -> Option<Commit<E>> {
-        let mut state = new_state.clone_exact();
+    pub fn from_diff(old_state: &PartitionState<E>,
+            new_state: &MutPartState<E>,
+            extra_meta: ExtraMeta) -> Option<Commit<E>>
+    {
+        let mut elt_map = new_state.elt_map().clone();
         let mut changes = HashMap::new();
-        for (id, old_elt) in old_state.map() {
-            match state.remove(*id) {
-                Ok(new_elt) => {
-                    if new_elt == *old_elt {
-                        /* no change */
-                    } else {
-                        changes.insert(*id, EltChange::replacement(new_elt));
-                    }
-                },
-                Err(_) => {
-                    // we assume the failure is because the element does not exist
-                    changes.insert(*id, EltChange::deletion());
+        for (id, old_elt) in old_state.elt_map() {
+            if let Some(new_elt) = elt_map.remove(id) {
+                //TODO: should we compare sums? Would this be faster?
+                if new_elt == *old_elt {
+                    /* no change */
+                } else {
+                    changes.insert(*id, EltChange::replacement(new_elt));
                 }
+            } else {
+                // not in new state: has been deleted
+                changes.insert(*id, EltChange::deletion());
             }
         }
-        let (elt_map, mut moved_map) = state.into_maps();
+        let mut moved_map = new_state.moved_map().clone();
         for (id, new_id) in old_state.moved_map() {
             if let Some(new_id2) = moved_map.remove(&id) {
                 if *new_id == new_id2 {
@@ -244,48 +247,63 @@ impl<E: ElementT> Commit<E> {
         if changes.is_empty() {
             None
         } else {
+            let parents = vec![old_state.statesum().clone()];
+            let metadata = CommitMeta {
+                number: old_state.meta().next_number(),
+                timestamp: CommitMeta::timestamp_now(),
+                extra: extra_meta,
+            };
+            let metasum = Sum::state_meta_sum(new_state.part_id(),
+                    &parents, &metadata);
             Some(Commit {
-                //FIXME: new_state probably does not have correct statesum, but what do we take for granted? Recalculate?
-                statesum: new_state.statesum().clone(),
-                parents: vec![old_state.statesum().clone()],
+                statesum: new_state.elt_sum() ^ &metasum,
+                parents: parents,
                 changes: changes,
-                meta: CommitMeta::new_from(old_state.meta().number, None),
+                meta: metadata,
             })
         }
     }
     
-    /// Apply this commit to a given state, thus updating the state.
+    /// Apply this commit to a given state, yielding a new state.
     /// 
     /// Fails if the given state's initial state-sum is not equal to this
     /// commit's parent or if there are any errors in applying this patch.
-    pub fn patch(&self, state: &mut PartitionState<E>) -> Result<(), PatchOp> {
-        if *state.statesum() != self.parents[0] { return Err(PatchOp::WrongParent); }
+    pub fn apply(&self, parent: &PartitionState<E>) ->
+            Result<PartitionState<E>, PatchOp>
+    {
+        if *parent.statesum() != self.parents[0] { return Err(PatchOp::WrongParent); }
+        let mut mut_state = parent.clone_mut();
+        try!(self.apply_mut(&mut mut_state));
         
-        // #0018: we cast ElementOp errors to PatchOp via a `From`
-        // implementation. Ideally we'd use a `try` block and only map here
-        // since in other cases we needn't map.
+        let state = PartitionState::from_mut(mut_state, self.parents.clone(), self.meta.clone());
+        if state.statesum() != self.statesum() { return Err(PatchOp::PatchApply); }
+        Ok(state)
+    }
+    
+    /// Apply this commit to a `MutPartState`. Unlike `apply()`, this does not
+    /// verify the final statesum and does not use the metadata stored in this
+    /// commit.
+    pub fn apply_mut(&self, mut_state: &mut MutPartState<E>) -> Result<(), ElementOp> {
         for (id, ref change) in self.changes.iter() {
             match *change {
                 &EltChange::Deletion => {
-                    try!(state.remove(*id));
+                    try!(mut_state.remove(*id));
                 },
                 &EltChange::Insertion(ref elt) => {
-                    try!(state.insert_with_id(*id, elt.clone()));
+                    try!(mut_state.insert_with_id(*id, elt.clone()));
                 }
                 &EltChange::Replacement(ref elt) => {
-                    try!(state.replace_rc(*id, elt.clone()));
+                    try!(mut_state.replace_rc(*id, elt.clone()));
                 }
                 &EltChange::MovedOut(new_id) => {
-                    try!(state.remove(*id));
-                    state.set_move(*id, new_id);
+                    try!(mut_state.remove(*id));
+                    mut_state.set_move(*id, new_id);
                 }
                 &EltChange::Moved(new_id) => {
-                    state.set_move(*id, new_id);
+                    mut_state.set_move(*id, new_id);
                 }
             }
         }
-        
-        if state.statesum() != self.statesum() { return Err(PatchOp::PatchApply); }
         Ok(())
     }
     
@@ -334,24 +352,24 @@ impl<'a, E: ElementT> LogReplay<'a, E> {
     pub fn replay(&mut self, commits: CommitQueue<E>) -> Result<usize> {
         let mut edits = 0;
         for commit in commits.commits {
-            let mut state = try!(self.states.get(&commit.parents()[0])
-                .ok_or(ReplayError::new("parent state of commit not found")))
-                .clone_child();
-            if self.states.contains(&commit.statesum) {
-                // #0022: could verify that this state matches that derived from
-                // the commit and warn if not.
-                
-                // Since the state is already known, it either is already
-                // marked a tip or it has been unmarked. Do not set again!
-                // However, we now know that the parent states aren't tips, which
-                // might not have been known before (if new state is a snapshot).
-                for parent in commit.parents() {
-                    self.tips.remove(parent);
+            let state = {
+                let parent = try!(self.states.get(&commit.parents()[0])
+                    .ok_or(ReplayError::new("parent state of commit not found")));
+                if self.states.contains(&commit.statesum) {
+                    // #0022: could verify that this state matches that derived from
+                    // the commit and warn if not.
+                    
+                    // Since the state is already known, it either is already
+                    // marked a tip or it has been unmarked. Do not set again!
+                    // However, we now know that the parent states aren't tips, which
+                    // might not have been known before (if new state is a snapshot).
+                    for parent in commit.parents() {
+                        self.tips.remove(parent);
+                    }
+                    continue;
                 }
-                continue;
-            }
-            
-            try!(commit.patch(&mut state));
+                try!(commit.apply(parent))
+            };
             
             let has_existing = if let Some(existing) = self.states.get(&state.statesum()) {
                 if *existing != state {
@@ -377,7 +395,7 @@ impl<'a, E: ElementT> LogReplay<'a, E> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ::{ElementT, PartitionState};
+    use ::{ElementT, PartitionState, MutPartState, MutState};
     use hashindexed::HashIndexed;
     use std::collections::HashSet;
     
@@ -399,37 +417,46 @@ mod tests {
     
     #[test]
     fn commit_creation_and_replay(){
-        use {PartId, State};
+        use {PartId};
         use std::rc::Rc;
         
         let p = PartId::from_num(1);
         let mut commits = CommitQueue::<String>::new();
         
-        let insert = |state: &mut PartitionState<_>, num, string: &str| -> Result<_, _> {
+        let insert = |state: &mut MutPartState<_>, num, string: &str| -> Result<_, _> {
             state.insert_with_id(p.elt_id(num), Rc::new(string.to_string()))
         };
         
-        let mut state_a = PartitionState::new(p);
-        insert(&mut state_a, 1, "one").unwrap();
-        insert(&mut state_a, 2, "two").unwrap();
+        let mut state = PartitionState::new(p).clone_mut();
+        insert(&mut state, 1, "one").unwrap();
+        insert(&mut state, 2, "two").unwrap();
+        let meta = CommitMeta::now_empty();
+        let parents = vec![state.parent().clone()];
+        let state_a = PartitionState::from_mut(state, parents, meta);
         
-        let mut state_b = state_a.clone_child();
-        insert(&mut state_b, 3, "three").unwrap();
-        insert(&mut state_b, 4, "four").unwrap();
-        insert(&mut state_b, 5, "five").unwrap();
-        commits.push(Commit::from_diff(&state_a, &state_b).unwrap());
+        let mut state = state_a.clone_mut();
+        insert(&mut state, 3, "three").unwrap();
+        insert(&mut state, 4, "four").unwrap();
+        insert(&mut state, 5, "five").unwrap();
+        let commit = Commit::from_diff(&state_a, &state, None).unwrap();
+        let state_b = commit.apply(&state_a).expect("commit apply b");
+        commits.push(commit);
         
-        let mut state_c = state_b.clone_child();
-        insert(&mut state_c, 6, "six").unwrap();
-        insert(&mut state_c, 7, "seven").unwrap();
-        state_c.remove(p.elt_id(4)).unwrap();
-        state_c.replace(p.elt_id(3), "half six".to_string()).unwrap();
-        commits.push(Commit::from_diff(&state_b, &state_c).unwrap());
+        let mut state = state_b.clone_mut();
+        insert(&mut state, 6, "six").unwrap();
+        insert(&mut state, 7, "seven").unwrap();
+        state.remove(p.elt_id(4)).unwrap();
+        state.replace(p.elt_id(3), "half six".to_string()).unwrap();
+        let commit = Commit::from_diff(&state_b, &state, None).unwrap();
+        let state_c = commit.apply(&state_b).expect("commit apply c");
+        commits.push(commit);
         
-        let mut state_d = state_c.clone_child();
-        insert(&mut state_d, 8, "eight").unwrap();
-        insert(&mut state_d, 4, "half eight").unwrap();
-        commits.push(Commit::from_diff(&state_c, &state_d).unwrap());
+        let mut state = state_c.clone_mut();
+        insert(&mut state, 8, "eight").unwrap();
+        insert(&mut state, 4, "half eight").unwrap();
+        let commit = Commit::from_diff(&state_c, &state, None).unwrap();
+        let state_d = commit.apply(&state_c).expect("commit apply d");
+        commits.push(commit);
         
         let (mut states, mut tips) = (HashIndexed::new(), HashSet::new());
         {

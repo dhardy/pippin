@@ -35,7 +35,7 @@ use std::marker::PhantomData;
 use std::rc::Rc;
 use std::cmp::max;
 
-use detail::{EltId, Commit, CommitMeta, EltChange};
+use detail::{EltId, Commit, CommitMeta, ExtraMeta, EltChange};
 use partition::{PartitionState, State};
 use {ElementT, Sum};
 
@@ -59,12 +59,17 @@ impl<'a, E: ElementT> TwoWayMerge<'a, E> {
     /// Operation is `O(A + B + X)` where `A` and `B` are the numbers of
     /// elements in states `a` and `b` respectively and `X` are the number of
     /// conflicts.
+    /// 
+    /// Assumption: all states have the same partition identifier.
     pub fn new<'b>(a: &'b PartitionState<E>, b: &'b PartitionState<E>,
         c: &'b PartitionState<E>) -> TwoWayMerge<'b, E>
     {
+        assert_eq!(a.part_id(), c.part_id());
+        assert_eq!(b.part_id(), c.part_id());
+        
         let mut v: Vec<(EltId, EltMerge<E>)> = Vec::new();
-        let mut map_b = b.map().clone();
-        for (id, elt1) in a.map() {
+        let mut map_b = b.elt_map().clone();
+        for (id, elt1) in a.elt_map() {
             if let Some(elt2) = map_b.remove(id) {
                 // Have elt in states 1 and 2
                 if *elt1 != elt2 {
@@ -137,18 +142,15 @@ impl<'a, E: ElementT> TwoWayMerge<'a, E> {
     /// 
     /// This succeeds if and only if `is_solved()` returns true.
     /// 
-    /// A new metadata is created. This can be changed afterwards if necessary
-    /// (e.g. to set the `extra` field, which is simply set `None` here).
-    /// 
     /// Operation is `O(X)`.
-    pub fn make_commit(self) -> Option<Commit<E>> {
+    pub fn make_commit(self, extra_meta: ExtraMeta) -> Option<Commit<E>> {
         // We build change-lists from the perspective of state1 and state2, then
         // pick whichever is smaller.
         let mut c1 = HashMap::new();
         let mut c2 = HashMap::new();
         // We calculate the new state-sums too.
-        let mut sum1: Sum = self.a.statesum().clone();
-        let mut sum2: Sum = self.b.statesum().clone();
+        let mut sum1: Sum = self.a.statesum() ^ &self.a.metasum();
+        let mut sum2: Sum = self.b.statesum() ^ &self.b.metasum();
         
         for (id, result) in self.v.into_iter() {
             let a = self.a.get_rc(id);
@@ -259,9 +261,14 @@ impl<'a, E: ElementT> TwoWayMerge<'a, E> {
             trace!("Created merge from second parent: {}", self.b.statesum());
             (sum2, vec![self.b.statesum().clone(), self.a.statesum().clone()], c2)
         };
-        let cnum = max(self.a.meta().number, self.b.meta().number);
-        let meta = CommitMeta::new_from(cnum, None);
-        Some(Commit::new(sum, parents, changes, meta))
+        let meta = CommitMeta {
+                number: max(self.a.meta().next_number(), self.b.meta().next_number()),
+                timestamp: CommitMeta::timestamp_now(),
+                extra: extra_meta
+        };
+        let part_id = self.a.part_id(); // all states have same part_id
+        let statesum = &sum ^ &Sum::state_meta_sum(part_id, &parents, &meta);
+        Some(Commit::new_explicit(statesum, parents, changes, meta))
     }
     
     /* One could in theory just go through elements once, like this. This is
