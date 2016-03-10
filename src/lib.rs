@@ -51,15 +51,15 @@
 //! partition; useful implementations of the "IO" traits are provided):
 //! 
 //! *   ElementT
-//! *   PartitionIO
+//! *   PartIO
 //! *   ClassifierT (depends on ElementT)
-//! *   RepoIO (must be able to yield PartitionIO objects)
+//! *   RepoIO (must be able to yield PartIO objects)
 //! *   RepoT (requires ClassifierT and RepoIO implementations)
 //! 
 //! Library structures:
 //! 
 //! *   PartState (depends on ElementT)
-//! *   Partition (uses a PartitionIO and yields PartState objects)
+//! *   Partition (uses a PartIO and yields PartState objects)
 //! *   Repository (uses a RepoT and holds Partition objects, can yield RepoState objects)
 //! *   RepoState (uses a ClassifierT object)
 
@@ -87,7 +87,7 @@ extern crate log;
 
 // Redundantly re-export some of the main types here:
 pub use repo::{Repository, RepoIO, RepoT, ClassifierT, RepoState};
-pub use part::{Partition, PartitionIO, PartState, MutPartState, State, MutState};
+pub use part::{Partition, PartIO, PartState, MutPartState, State, MutState};
 pub use error::{Result};
 // Export some main/miscellaneous types here:
 pub use detail::{ElementT, PartId, EltId, Sum, Commit, CommitMeta};

@@ -9,7 +9,7 @@
 //! 
 //! Implementations of the following traits are required for usage:
 //! 
-//! *   `RepoIO` with an accompanying `PartitionIO` to describe how to access
+//! *   `RepoIO` with an accompanying `PartIO` to describe how to access
 //!     the files (or other objects) storing data; the types in the `discover`
 //!     module should suffice for normal usage
 //! *   `ClassifierT` to classify elements, along with an `ElementT` type

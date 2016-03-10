@@ -14,7 +14,7 @@ use regex::Regex;
 use vec_map::{VecMap, Entry};
 use walkdir::WalkDir;
 
-use {PartitionIO, RepoIO, PartId};
+use {PartIO, RepoIO, PartId};
 use error::{Result, PathError, ArgError, make_io_err};
 
 
@@ -22,9 +22,9 @@ use error::{Result, PathError, ArgError, make_io_err};
 /// layout on a local or mapped filesystem) and provide access.
 /// 
 /// As an alternative, users could provide their own implementations of
-/// PartitionIO.
+/// PartIO.
 #[derive(Debug)]
-pub struct DiscoverPartitionFiles {
+pub struct DiscoverPartFiles {
     part_id: Option<PartId>,
     dir: PathBuf,
     basename: String,  // first part of file name
@@ -33,7 +33,7 @@ pub struct DiscoverPartitionFiles {
     ss: VecMap<(PathBuf, VecMap<PathBuf>)>,
 }
 
-impl DiscoverPartitionFiles {
+impl DiscoverPartFiles {
     /// Create a new instance.
     /// 
     /// `path` must be a directory containing (or in the case of a new repo, to
@@ -44,7 +44,7 @@ impl DiscoverPartitionFiles {
     /// provided (useful if it is already known). If `None` is provided, then
     /// this function will attempt to discover the number from the file names.
     pub fn from_dir_basename(path: &Path, basename: &str, mut part_id: Option<PartId>) ->
-            Result<DiscoverPartitionFiles>
+            Result<DiscoverPartFiles>
     {
         if !path.is_dir() { return PathError::err("not a directory", path.to_path_buf()); }
         info!("Scanning for partition '{}...' files in: {}", basename, path.display());
@@ -105,7 +105,7 @@ impl DiscoverPartitionFiles {
             }
         }
         
-        Ok(DiscoverPartitionFiles {
+        Ok(DiscoverPartFiles {
             part_id: part_id,
             dir: path.to_path_buf(),
             basename: basename.to_string(),
@@ -121,7 +121,7 @@ impl DiscoverPartitionFiles {
     /// provided (useful if it is already known). If `None` is provided, then
     /// this function will attempt to discover the number from the file names.
     pub fn from_paths(paths: Vec<PathBuf>, mut part_id: Option<PartId>) ->
-            Result<DiscoverPartitionFiles>
+            Result<DiscoverPartFiles>
     {
         // Note: there are no defined rules about which characters are allowed
         // in the basename, so just match anything.
@@ -218,7 +218,7 @@ impl DiscoverPartitionFiles {
         if basename == None {
             return make_io_err(ErrorKind::NotFound, "no path");
         }
-        Ok(DiscoverPartitionFiles {
+        Ok(DiscoverPartFiles {
             part_id: part_id,
             dir: dir_path.expect("dir_path should be set when basename is set"),
             basename: basename.unwrap(/*tested above*/),
@@ -263,7 +263,7 @@ impl DiscoverPartitionFiles {
     }
 }
 
-impl PartitionIO for DiscoverPartitionFiles {
+impl PartIO for DiscoverPartFiles {
     fn as_any(&self) -> &Any { self }
     
     fn part_id(&self) -> Option<PartId> { self.part_id }
@@ -429,9 +429,9 @@ impl RepoIO for DiscoverRepoFiles {
         self.partitions.insert(num, (path, basename));
         Ok(())
     }
-    fn make_partition_io(&self, num: PartId) -> Result<Box<PartitionIO>> {
+    fn make_partition_io(&self, num: PartId) -> Result<Box<PartIO>> {
         if let Some(&(ref path, ref basename)) = self.partitions.get(&num) {
-            Ok(box try!(DiscoverPartitionFiles::from_dir_basename(path, basename, Some(num))))
+            Ok(box try!(DiscoverPartFiles::from_dir_basename(path, basename, Some(num))))
         } else {
             make_io_err(ErrorKind::NotFound, "partition not found")
         }

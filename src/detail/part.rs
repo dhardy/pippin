@@ -26,7 +26,7 @@ use error::{Result, ArgError, TipError, PatchOp, MatchError, OtherError, make_io
 /// Note: lifetimes on some functions are more restrictive than might seem
 /// necessary; this is to allow an implementation which reads and writes to
 /// internal streams.
-pub trait PartitionIO {
+pub trait PartIO {
     /// Convert self to a `&Any`
     fn as_any(&self) -> &Any;
     
@@ -120,20 +120,20 @@ pub trait PartitionIO {
 /// 
 /// Can be used for testing but big fat warning: this does not provide any
 /// method to save your data. Write operations fail with `ErrorKind::InvalidInput`.
-pub struct PartitionDummyIO {
+pub struct DummyPartIO {
     part_id: PartId,
     // The internal buffer allows us to accept write operations. Data gets
     // written over on the next write.
     buf: Vec<u8>
 }
-impl PartitionDummyIO {
+impl DummyPartIO {
     /// Create a new instance
-    pub fn new(part_id: PartId) -> PartitionDummyIO {
-        PartitionDummyIO { part_id: part_id, buf: Vec::new() }
+    pub fn new(part_id: PartId) -> DummyPartIO {
+        DummyPartIO { part_id: part_id, buf: Vec::new() }
     }
 }
 
-impl PartitionIO for PartitionDummyIO {
+impl PartIO for DummyPartIO {
     fn as_any(&self) -> &Any { self }
     fn part_id(&self) -> Option<PartId> { Some(self.part_id) }
     fn ss_len(&self) -> usize { 0 }
@@ -199,7 +199,7 @@ impl SnapshotPolicy {
 /// but requiring a merge (multiple tips), (3) ready for use.
 pub struct Partition<E: ElementT> {
     // IO provider
-    io: Box<PartitionIO>,
+    io: Box<PartIO>,
     // Partition name. Used to identify loaded files.
     repo_name: String,
     // Partition identifier
@@ -220,23 +220,23 @@ pub struct Partition<E: ElementT> {
 impl<E: ElementT> Partition<E> {
     /// Create a partition, assigning an IO provider (this can only be done at
     /// time of creation). Create a blank state in the partition, write an
-    /// empty snapshot to the provided `PartitionIO`, and mark self as *ready
+    /// empty snapshot to the provided `PartIO`, and mark self as *ready
     /// for use*.
     /// 
     /// Example:
     /// 
     /// ```
     /// use pippin::{Partition, PartId};
-    /// use pippin::part::PartitionDummyIO;
+    /// use pippin::part::DummyPartIO;
     /// 
-    /// let io = Box::new(PartitionDummyIO::new(PartId::from_num(1)));
+    /// let io = Box::new(DummyPartIO::new(PartId::from_num(1)));
     /// let partition = Partition::<String>::create(io, "example repo");
     /// ```
-    pub fn create(mut io: Box<PartitionIO>, name: &str) -> Result<Partition<E>> {
+    pub fn create(mut io: Box<PartIO>, name: &str) -> Result<Partition<E>> {
         try!(validate_repo_name(name));
         let ss = 0;
         let part_id = try!(io.part_id().ok_or(
-                ArgError::new("PartitionIO's `part_id()` must not return None")));
+                ArgError::new("PartIO's `part_id()` must not return None")));
         info!("Creating partiton {}; writing snapshot {}", part_id.into_num(), ss);
         
         let state = PartState::new(part_id);
@@ -285,15 +285,15 @@ impl<E: ElementT> Partition<E> {
     /// ```no_run
     /// use std::path::Path;
     /// use pippin::Partition;
-    /// use pippin::discover::DiscoverPartitionFiles;
+    /// use pippin::discover::DiscoverPartFiles;
     /// 
     /// let path = Path::new(".");
-    /// let io = DiscoverPartitionFiles::from_dir_basename(path, "my-partition", None).unwrap();
+    /// let io = DiscoverPartFiles::from_dir_basename(path, "my-partition", None).unwrap();
     /// let partition = Partition::<String>::open(Box::new(io));
     /// ```
-    pub fn open(io: Box<PartitionIO>) -> Result<Partition<E>> {
+    pub fn open(io: Box<PartIO>) -> Result<Partition<E>> {
         let part_id = try!(io.part_id().ok_or(
-                ArgError::new("PartitionIO's `part_id()` must not return None")));
+                ArgError::new("PartIO's `part_id()` must not return None")));
         trace!("Opening partition {}", part_id.into_num());
         Ok(Partition {
             io: io,
@@ -345,7 +345,7 @@ impl<E: ElementT> Partition<E> {
     
     /// Load either all history available or only that required to find the
     /// latest state of the partition. Uses snapshot and log files provided by
-    /// the provided `PartitionIO`.
+    /// the provided `PartIO`.
     /// 
     /// If `all_history == true`, all snapshots and commits found are loaded.
     /// In this case it is possible that the history graph is not connected
@@ -509,12 +509,12 @@ impl<E: ElementT> Partition<E> {
         }
     }
     
-    /// Consume the `Partition` and return the held `PartitionIO`.
+    /// Consume the `Partition` and return the held `PartIO`.
     /// 
     /// This destroys all states held internally, but states may be cloned
     /// before unwrapping. Since `Element`s are copy-on-write, cloning
     /// shouldn't be too expensive.
-    pub fn unwrap_io(self) -> Box<PartitionIO> {
+    pub fn unwrap_io(self) -> Box<PartIO> {
         self.io
     }
     
@@ -876,7 +876,7 @@ impl<E: ElementT> Partition<E> {
 
 #[test]
 fn on_new_partition() {
-    let io = box PartitionDummyIO::new(PartId::from_num(7));
+    let io = box DummyPartIO::new(PartId::from_num(7));
     let mut part = Partition::<String>::create(io, "on_new_partition").expect("partition creation");
     assert_eq!(part.tips.len(), 1);
     

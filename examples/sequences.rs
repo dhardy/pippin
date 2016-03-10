@@ -22,7 +22,7 @@ use docopt::Docopt;
 use rand::Rng;
 use rand::distributions::{IndependentSample, Range, Normal, LogNormal};
 
-use pippin::{ElementT, PartId, Partition, State, MutState, PartitionIO};
+use pippin::{ElementT, PartId, Partition, State, MutState, PartIO};
 use pippin::discover::*;
 use pippin::repo::*;
 use pippin::merge::*;
@@ -283,7 +283,7 @@ fn run(dir: &Path, part_basename: Option<String>, mode: Mode, create: bool,
     };
     
     if let Some(basename) = part_basename {
-        let mut io = Box::new(try!(DiscoverPartitionFiles::from_dir_basename(dir, &basename, None)));
+        let mut io = Box::new(try!(DiscoverPartFiles::from_dir_basename(dir, &basename, None)));
         if io.part_id() == None {
             // On creation or where discovery fails we need a number:
             io.set_part_id(PartId::from_num(1));

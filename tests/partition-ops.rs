@@ -17,7 +17,7 @@ use std::any::Any;
 use vec_map::VecMap;
 
 use pippin::PartId;
-use pippin::{Partition, PartitionIO, MutState};
+use pippin::{Partition, PartIO, MutState};
 use pippin::error::{make_io_err, Result};
 
 /// Allows writing to in-memory streams. Refers to external data so that it
@@ -28,7 +28,7 @@ struct PartitionStreams {
     ss: VecMap<(Vec<u8>, VecMap<Vec<u8>>)>,
 }
 
-impl PartitionIO for PartitionStreams {
+impl PartIO for PartitionStreams {
     fn as_any(&self) -> &Any { self }
     fn part_id(&self) -> Option<PartId> { Some(self.part_id) }
     fn ss_len(&self) -> usize {

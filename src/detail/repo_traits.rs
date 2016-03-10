@@ -8,7 +8,7 @@ use std::marker::PhantomData;
 use std::any::Any;
 use std::io::Write;
 
-use PartitionIO;
+use PartIO;
 use {ElementT, PartId};
 use error::{Error, Result};
 
@@ -39,11 +39,11 @@ pub trait RepoIO {
     /// `make_partition_io()`).
     fn add_partition(&mut self, num: PartId, prefix: &str) -> Result<()>;
     
-    /// Construct and return a new PartitionIO for partition `num`.
+    /// Construct and return a new PartIO for partition `num`.
     /// 
-    /// Fails if construction of the PartitionIO fails (file-system or regex
+    /// Fails if construction of the PartIO fails (file-system or regex
     /// errors) or if the partition isn't found.
-    fn make_partition_io(&self, num: PartId) -> Result<Box<PartitionIO>>;
+    fn make_partition_io(&self, num: PartId) -> Result<Box<PartIO>>;
 }
 
 /// A classifier is a device taking an element and returning a numeric code
@@ -117,7 +117,7 @@ pub trait RepoT<C: ClassifierT+Sized>: ClassifierT {
     fn clone_classifier(&self) -> C;
     
     /// Initially there should only be one partition and one classification.
-    /// This function returns the `PartitionIO` of this classification, whose
+    /// This function returns the `PartIO` of this classification, whose
     /// `part_id()` property is set to the classification number.
     /// 
     /// It is allowed for this function to panic once there is more than one
@@ -125,7 +125,7 @@ pub trait RepoT<C: ClassifierT+Sized>: ClassifierT {
     /// 
     /// The default implementation uses `PartId::from_num(1)` and calls
     /// `add_partition` and `make_partition_io`.
-    fn first_part(&mut self) -> Result<Box<PartitionIO>> {
+    fn first_part(&mut self) -> Result<Box<PartIO>> {
         let num = PartId::from_num(1);
         let mut io = self.repo_io();
         try!(io.add_partition(num, "" /*no prefix*/));
