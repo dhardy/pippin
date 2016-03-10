@@ -36,7 +36,7 @@ use std::rc::Rc;
 use std::cmp::max;
 
 use detail::{EltId, Commit, CommitMeta, ExtraMeta, EltChange};
-use partition::{PartState, State};
+use {PartState, State};
 use {ElementT, Sum};
 
 /// This struct controls the merging of two states into one.

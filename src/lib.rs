@@ -87,14 +87,14 @@ extern crate log;
 
 // Redundantly re-export some of the main types here:
 pub use repo::{Repository, RepoIO, RepoT, ClassifierT, RepoState};
-pub use partition::{Partition, PartitionIO, PartState, MutPartState, State, MutState};
+pub use part::{Partition, PartitionIO, PartState, MutPartState, State, MutState};
 pub use error::{Result};
 // Export some main/miscellaneous types here:
 pub use detail::{ElementT, PartId, EltId, Sum, Commit, CommitMeta};
 
 // Export some modules here:
 pub use detail::repo;
-pub use detail::partition;
+pub use detail::part;
 pub use detail::merge;
 
 // Most Pippin code is put in this private module to allow inter-module

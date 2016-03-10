@@ -12,7 +12,7 @@ use std::collections::hash_map::{HashMap, Entry};
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
 use detail::readwrite::{sum};
-use partition::{PartState, State, MutState};
+use {PartState, State, MutState};
 use {ElementT, PartId, Sum, CommitMeta};
 use detail::SUM_BYTES;
 use error::{Result, ReadError, ElementOp};

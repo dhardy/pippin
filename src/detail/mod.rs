@@ -12,7 +12,7 @@ pub use self::sum::BYTES as SUM_BYTES;
 pub use self::repo::{Repository, RepoState};
 
 pub mod readwrite;
-pub mod partition;
+pub mod part;
 pub mod repo;
 pub mod merge;
 

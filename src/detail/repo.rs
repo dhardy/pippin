@@ -25,7 +25,7 @@ use std::mem::swap;
 // Re-export these. We pretend these are part of the same module while keeping files smaller.
 pub use detail::repo_traits::{RepoIO, ClassifierT, ClassifyFallback, RepoT,
     RepoDivideError, DummyClassifier};
-use partition::{Partition, State, MutState, MutPartState};
+use {Partition, State, MutState, MutPartState};
 use detail::{EltId};
 use merge::{TwoWaySolver};
 use PartId;

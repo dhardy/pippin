@@ -14,9 +14,7 @@ use regex::Regex;
 use vec_map::{VecMap, Entry};
 use walkdir::WalkDir;
 
-use partition::PartitionIO;
-use repo::RepoIO;
-use PartId;
+use {PartitionIO, RepoIO, PartId};
 use error::{Result, PathError, ArgError, make_io_err};
 
 

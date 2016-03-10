@@ -226,8 +226,8 @@ impl<E: ElementT> Partition<E> {
     /// Example:
     /// 
     /// ```
-    /// use pippin::partition::{Partition, PartitionDummyIO};
-    /// use pippin::PartId;
+    /// use pippin::{Partition, PartId};
+    /// use pippin::part::PartitionDummyIO;
     /// 
     /// let io = Box::new(PartitionDummyIO::new(PartId::from_num(1)));
     /// let partition = Partition::<String>::create(io, "example repo");

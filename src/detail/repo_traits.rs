@@ -8,7 +8,7 @@ use std::marker::PhantomData;
 use std::any::Any;
 use std::io::Write;
 
-use partition::PartitionIO;
+use PartitionIO;
 use {ElementT, PartId};
 use error::{Error, Result};
 
