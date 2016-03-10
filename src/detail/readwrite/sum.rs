@@ -9,7 +9,9 @@ use std::io::{Read, Write, Result};
 use crypto::digest::Digest;
 // use crypto::sha2::Sha256;
 use crypto::blake2b::Blake2b;
+use byteorder::{BigEndian, WriteBytesExt};
 
+use {EltId, PartId, CommitMeta};
 use detail::Sum;
 use detail::SUM_BYTES as BYTES;
 
@@ -23,10 +25,48 @@ fn mk_hasher() -> Hasher {
 }
 
 impl Sum {
-    /// Calculate from some data
+    /// Calculate an element sum
+    pub fn elt_sum(elt_id: EltId, data: &[u8]) -> Sum {
+        let mut hasher = mk_hasher();
+        let mut buf = [0u8; 8];
+        ((&mut &mut buf[..]) as &mut Write)
+                .write_u64::<BigEndian>(elt_id.into()).expect("writing to buf");
+        hasher.input(&buf);
+        hasher.input(&data);
+        Sum::load_hasher(hasher)
+    }
+    /// Calculate a partition's meta-data sum
+    pub fn state_meta_sum(part_id: PartId, parents: &[Sum], meta: &CommitMeta) -> Sum {
+        let mut hasher = mk_hasher();
+        // #0018: want to use max(BYTES, 24) here
+        assert!(BYTES >= 24);   // double use of buf below
+        let mut buf = [0u8; BYTES];
+        // #0018: want a try block here
+        {
+            let mut w = (&mut &mut buf[..]) as &mut Write;
+            w.write_u64::<BigEndian>(part_id.into()).expect("writing to buf");
+            w.write(b"CNUM").expect("writing to buf");
+            w.write_u32::<BigEndian>(meta.number).expect("writing to buf");
+            w.write_i64::<BigEndian>(meta.timestamp).expect("writing to buf");
+        }
+        hasher.input(&buf[0..24]);
+        for parent in parents {
+            parent.write((&mut &mut buf[..])).expect("writing to buf");
+            hasher.input(&buf);
+        }
+        if let Some(ref text) = meta.extra {
+            hasher.input(text.as_bytes());
+        }
+        Sum::load_hasher(hasher)
+    }
+    /// Calculate a standard checksum
     pub fn calculate(data: &[u8]) -> Sum {
         let mut hasher = mk_hasher();
         hasher.input(&data);
+        Sum::load_hasher(hasher)
+    }
+    /// Load from a hasher
+    fn load_hasher(mut hasher: Hasher) -> Sum {
         let mut buf = [0u8; BYTES];
         assert_eq!(hasher.output_bytes(), buf.len());
         hasher.result(&mut buf);

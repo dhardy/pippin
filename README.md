@@ -25,6 +25,8 @@ Some are only partially there:
 *   real partitioning support
 *   merging of conflicting changes
 
+File formats are still being tweaked, sometimes rendering old files incompatible.
+
 
 Doc
 ----

@@ -5,7 +5,8 @@
 //! In-memory representations of Pippin data
 
 pub use self::element::{PartId, EltId, ElementT};
-pub use self::commits::{Commit, CommitQueue, LogReplay, EltChange, CommitMeta};
+pub use self::commits::{Commit, CommitQueue, LogReplay, EltChange,
+        CommitMeta, ExtraMeta};
 pub use self::sum::Sum;
 pub use self::sum::BYTES as SUM_BYTES;
 pub use self::repo::{Repo, RepoState};

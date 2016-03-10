@@ -8,6 +8,15 @@ File format
 This document describes the content of files. The file [repo-files.md]()
 describes how these files are stored on the disk.
 
+### Versions
+
+The following versions are specified:
+
+*   2016 03 10 — new version for new checksums
+
+Older versions are not supported since supporting old statesums would be hard
+and there is no usage outside of test-cases.
+
 
 Potential changes
 ---------------
@@ -50,7 +59,7 @@ They are encoded as unsigned bytes.
 Most identifiers will be ASCII and right-padded to 8 or 16 bytes with space
 (0x20) bytes, or they will be binary.
 
-File format: 16 bytes: `PIPPINxxyyyymmdd` (e.g. `PIPPINSS20150916`). `xx` is
+File format: 16 bytes: `PIPPINxxyyyymmdd` (e.g. `PIPPINSS20160310`). `xx` is
 repaced with two letters (e.g. `SS` for snapshot files and `CL` for commit
 logs), and `yyyymmdd` with the date of format specification. It is expected
 that many versions get created but that few survive to the release stage.
@@ -65,7 +74,7 @@ NOTE: the `Bbbb` variant is not currently implemented and may be excluded.
 Header
 ----------
 
-*   `PIPPINSS20160227` (PIPPIN SnapShot, date of last format change)
+*   `PIPPINSS20160310` (PIPPIN SnapShot, date of last format change)
 *   16 bytes UTF-8 for name of repository; this string is identical for each
     partition and right-padded with zero (0x00) to make 16 bytes
 *   header content
@@ -189,11 +198,6 @@ Finally:
 *   state checksum (doubles as an identifier)
 *   checksum of data as written in file
 
-##### Backwards compatibility
-
-If the section starts `SNAPSHOT` instead of `SNAPSH_U` (where `_` is any byte),
-then there are no parent state-sums (versions < 2016-02-27).
-
 
 Log files
 ======
@@ -202,7 +206,7 @@ Header
 ---------
 
 The header has the same format as snapshot files except that the first 16 bytes
-are replaced with `PIPPINCL20160221`.
+are replaced with `PIPPINCL20160310`.
 
 Header content (`H...`, `Q...`,  `B...` sections) may differ.
 
@@ -228,7 +232,7 @@ This is followed by:
 *   `\x00U` (2 bytes: zero U), indicating that a UTC UNIX timestamp follows
 *   an `i64` (eight byte signed) UNIX timestamp (the number of non-leap seconds
     since January 1, 1970 0:00:00 UTC) of the time the commit was made
-*   `CNUM` (commint number) followed by a `u32` (four byte) number, which is
+*   `CNUM` (commit number) followed by a `u32` (four byte) number, which is
     the commit number (max parent number + 1; not guaranteed unique)
 *   `XM`, two more bytes, a `u32` (four bytes unsigned) number; this is the
     "extra metadata" section, the two bytes may be zero-bytes (ignore data) or
@@ -249,14 +253,6 @@ This is followed by:
 Note that there must be at least one parent to a commit, and the first parent
 is the one to which this commit is the "diff" (can be patched onto to derive
 the commit's state).
-
-##### Backwards compatibility
-
-If the two bytes following `COMMIT` are zeros (instead of `\x00U`), the eight
-bytes of the timestamp should be assumed to be meaningless and the `CNUM`
-and `XM` (extra metadata) sections missing. A default timestamp of zero (i.e.
-1st Jan 1970), default commit number of 1 and no metadata (`XM\x00\x00`) should
-be assumed. `MERGE` (instead of `COMMIT`) never appears in this context.
 
 ### Per element data
 
