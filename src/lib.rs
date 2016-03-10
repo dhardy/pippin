@@ -41,6 +41,7 @@
 //!     single instance of the library
 //! *   **part** — **partition** — one sub-set of objects determined by a
 //!     user-defined classifier, along with its history
+//! *   **elt** — **element** — an object stored in a repository / partition
 //!
 //! Usage should be via the `Repository` type or, for a simpler interface where
 //! classification and partitioning is not required, via the `Partition` type.
