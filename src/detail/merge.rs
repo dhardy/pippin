@@ -36,7 +36,7 @@ use std::rc::Rc;
 use std::cmp::max;
 
 use detail::{EltId, Commit, CommitMeta, ExtraMeta, EltChange};
-use partition::{PartitionState, State};
+use partition::{PartState, State};
 use {ElementT, Sum};
 
 /// This struct controls the merging of two states into one.
@@ -45,11 +45,11 @@ use {ElementT, Sum};
 /// (by asking for help solving far more cases).
 pub struct TwoWayMerge<'a, E: ElementT+'a> {
     // First tip
-    a: &'a PartitionState<E>,
+    a: &'a PartState<E>,
     // Second tip
-    b: &'a PartitionState<E>,
+    b: &'a PartState<E>,
     // Common ancestor
-    c: &'a PartitionState<E>,
+    c: &'a PartState<E>,
     // List of conflicts
     v: Vec<(EltId, EltMerge<E>)>,
 }
@@ -61,8 +61,8 @@ impl<'a, E: ElementT> TwoWayMerge<'a, E> {
     /// conflicts.
     /// 
     /// Assumption: all states have the same partition identifier.
-    pub fn new<'b>(a: &'b PartitionState<E>, b: &'b PartitionState<E>,
-        c: &'b PartitionState<E>) -> TwoWayMerge<'b, E>
+    pub fn new<'b>(a: &'b PartState<E>, b: &'b PartState<E>,
+        c: &'b PartState<E>) -> TwoWayMerge<'b, E>
     {
         assert_eq!(a.part_id(), c.part_id());
         assert_eq!(b.part_id(), c.part_id());

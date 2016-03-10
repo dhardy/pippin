@@ -117,7 +117,7 @@ pub trait MutState<E: ElementT>: State<E> {
 /// Elements may be inserted, deleted or replaced. Direct modification is not
 /// supported.
 #[derive(PartialEq, Debug)]
-pub struct PartitionState<E: ElementT> {
+pub struct PartState<E: ElementT> {
     part_id: PartId,
     parents: Vec<Sum>,
     statesum: Sum,
@@ -137,20 +137,20 @@ pub struct MutPartState<E: ElementT> {
     number: u32,
 }
 
-impl<E: ElementT> PartitionState<E> {
+impl<E: ElementT> PartState<E> {
     /// Create a new state, with no elements or history.
     /// 
     /// The partition's identifier must be given; this is used to assign new
     /// element identifiers. Panics if the partition identifier is invalid.
-    pub fn new(part_id: PartId) -> PartitionState<E> {
+    pub fn new(part_id: PartId) -> PartState<E> {
         Self::new_with(part_id, Vec::new(), CommitMeta::now_empty())
     }
     /// As `new()`, but letting the user specify commit meta-data and parents.
     pub fn new_with(part_id: PartId, parents: Vec<Sum>, meta: CommitMeta) ->
-            PartitionState<E>
+            PartState<E>
     {
         let metasum = Sum::state_meta_sum(part_id, &parents, &meta);
-        PartitionState {
+        PartState {
             part_id: part_id,
             parents: parents,
             statesum: metasum /* no elts, so statesum = metasum */,
@@ -160,15 +160,15 @@ impl<E: ElementT> PartitionState<E> {
         }
     }
     
-    /// Create a `PartitionState`, specifying most things explicitly.
+    /// Create a `PartState`, specifying most things explicitly.
     /// 
     /// This is for internal use; don't use externally unless you're really
     /// sure of what you're doing.
     pub fn new_explicit(part_id: PartId, parents: Vec<Sum>,
             elts: HashMap<EltId, Rc<E>>, moves: HashMap<EltId, EltId>,
-            meta: CommitMeta, elt_sum: Sum) -> PartitionState<E> {
+            meta: CommitMeta, elt_sum: Sum) -> PartState<E> {
         let metasum = Sum::state_meta_sum(part_id, &parents, &meta);
-        PartitionState {
+        PartState {
             part_id: part_id,
             parents: parents,
             statesum: &metasum ^ &elt_sum,
@@ -178,7 +178,7 @@ impl<E: ElementT> PartitionState<E> {
         }
     }
     
-    /// Create a `PartitionState` from a `MutPartState` and metadata.
+    /// Create a `PartState` from a `MutPartState` and metadata.
     /// 
     /// The metadata can be constructed using the number in `mut_state` and
     /// `CommitMeta::timestamp_now()` if not already available.
@@ -186,10 +186,10 @@ impl<E: ElementT> PartitionState<E> {
     /// Commit metadata is constructed from the number in the passed
     /// `MutPartState`, the time now and the passed optional extra data.
     pub fn from_mut(mut_state: MutPartState<E>, parents: Vec<Sum>,
-            metadata: CommitMeta) -> PartitionState<E>
+            metadata: CommitMeta) -> PartState<E>
     {
         let metasum = Sum::state_meta_sum(mut_state.part_id, &parents, &metadata);
-        PartitionState {
+        PartState {
             part_id: mut_state.part_id,
             parents: parents,
             statesum: &mut_state.elt_sum ^ &metasum,
@@ -237,7 +237,7 @@ impl<E: ElementT> PartitionState<E> {
     /// As `gen_id()`, but ensure the generated id is free in both self and
     /// another state. Note that the other state is assumed to have the same
     /// `part_id`; if not this is equivalent to `gen_id()`.
-    pub fn gen_id_binary(&self, s2: &PartitionState<E>) -> Result<EltId, ElementOp> {
+    pub fn gen_id_binary(&self, s2: &PartState<E>) -> Result<EltId, ElementOp> {
         assert_eq!(self.part_id, s2.part_id);
         let initial = self.part_id.elt_id(random::<u32>() & 0xFF_FFFF);
         let mut id = initial;
@@ -284,7 +284,7 @@ impl<E: ElementT> PartitionState<E> {
     /// state is not particularly expensive (though the hash-map of elements
     /// and a few other bits must still be copied).
     pub fn clone_exact(&self) -> Self {
-        PartitionState {
+        PartState {
             part_id: self.part_id,
             parents: self.parents.clone(),
             statesum: self.statesum.clone(),
@@ -373,7 +373,7 @@ impl<E: ElementT> MutPartState<E> {
     }
 }
 
-impl<E: ElementT> State<E> for PartitionState<E> {
+impl<E: ElementT> State<E> for PartState<E> {
     fn any_avail(&self) -> bool {
         !self.elts.is_empty()
     }
@@ -428,10 +428,10 @@ impl<E: ElementT> MutState<E> for MutPartState<E> {
     }
 }
 
-/// Helper to use PartitionState with HashIndexed
-pub struct PartitionStateSumComparator;
-impl<E: ElementT> KeyComparator<PartitionState<E>, Sum> for PartitionStateSumComparator {
-    fn extract_key(value: &PartitionState<E>) -> &Sum {
+/// Helper to use PartState with HashIndexed
+pub struct PartStateSumComparator;
+impl<E: ElementT> KeyComparator<PartState<E>, Sum> for PartStateSumComparator {
+    fn extract_key(value: &PartState<E>) -> &Sum {
         value.statesum()
     }
 }

@@ -33,7 +33,7 @@ regex = "0.1"
 # reason to choose this over libstd containers however.
 vec_map = "0.4"
 
-# Used by `PartitionState::gen_id()` and the 'sequences' example
+# Used by `PartState::gen_id()` and the 'sequences' example
 rand = "0.3"
 
 # For the 'discover' module

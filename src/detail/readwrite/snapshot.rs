@@ -12,7 +12,7 @@ use std::collections::hash_map::{HashMap, Entry};
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
 use detail::readwrite::{sum};
-use partition::{PartitionState, State, MutState};
+use partition::{PartState, State, MutState};
 use {ElementT, PartId, Sum, CommitMeta};
 use detail::SUM_BYTES;
 use error::{Result, ReadError, ElementOp};
@@ -23,12 +23,12 @@ use error::{Result, ReadError, ElementOp};
 /// this is in fact the end of the file (or other data stream), though
 /// according to the specified file format this should be the case.
 /// 
-/// The `part_id` parameter is assigned to the `PartitionState` returned.
+/// The `part_id` parameter is assigned to the `PartState` returned.
 /// 
 /// The file version affects how data is read. Get it from a header with
 /// `header.ftype.ver()`.
 pub fn read_snapshot<T: ElementT>(reader: &mut Read, part_id: PartId,
-        _file_ver: u32) -> Result<PartitionState<T>>
+        _file_ver: u32) -> Result<PartState<T>>
 {
     // A reader which calculates the checksum of what was read:
     let mut r = sum::HashReader::new(reader);
@@ -153,7 +153,7 @@ pub fn read_snapshot<T: ElementT>(reader: &mut Read, part_id: PartId,
         try!(r.read_exact(&mut buf[0..16]));
     }
     
-    let state = PartitionState::new_explicit(part_id, parents,
+    let state = PartState::new_explicit(part_id, parents,
             elts, moves, meta, combined_elt_sum);
     
     if buf[0..8] != *b"STATESUM" {
@@ -188,7 +188,7 @@ pub fn read_snapshot<T: ElementT>(reader: &mut Read, part_id: PartId,
 /// 
 /// The snapshot is derived from a partition state, but also includes a
 /// partition identifier range.
-pub fn write_snapshot<T: ElementT>(state: &PartitionState<T>,
+pub fn write_snapshot<T: ElementT>(state: &PartState<T>,
     writer: &mut Write) -> Result<()>
 {
     trace!("Writing snapshot (partition {} with {} elements): {}",
@@ -276,7 +276,7 @@ pub fn write_snapshot<T: ElementT>(state: &PartitionState<T>,
 #[test]
 fn snapshot_writing() {
     let part_id = PartId::from_num(1);
-    let mut state = PartitionState::<String>::new(part_id).clone_mut();
+    let mut state = PartState::<String>::new(part_id).clone_mut();
     let data = "But I must explain to you how all this \
         mistaken idea of denouncing pleasure and praising pain was born and I \
         will give you a complete account of the system, and expound the \
@@ -300,7 +300,7 @@ fn snapshot_writing() {
     
     let meta = CommitMeta::now_with(5617, Some("text".to_string()));
     let parents = vec![state.parent().clone()];
-    let state = PartitionState::from_mut(state, parents, meta);
+    let state = PartState::from_mut(state, parents, meta);
     
     let mut result = Vec::new();
     assert!(write_snapshot(&state, &mut result).is_ok());

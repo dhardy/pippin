@@ -42,7 +42,7 @@
 //! *   **part** — **partition** — one sub-set of objects determined by a
 //!     user-defined classifier, along with its history
 //!
-//! Usage should be via the `Repo` type or, for a simpler interface where
+//! Usage should be via the `Repository` type or, for a simpler interface where
 //! classification and partitioning is not required, via the `Partition` type.
 //! 
 //! ### Relationship between structs and traits
@@ -58,9 +58,9 @@
 //! 
 //! Library structures:
 //! 
-//! *   PartitionState (depends on ElementT)
-//! *   Partition (uses a PartitionIO and yields PartitionState objects)
-//! *   Repo (uses a RepoT and holds Partition objects, can yield RepoState objects)
+//! *   PartState (depends on ElementT)
+//! *   Partition (uses a PartitionIO and yields PartState objects)
+//! *   Repository (uses a RepoT and holds Partition objects, can yield RepoState objects)
 //! *   RepoState (uses a ClassifierT object)
 
 // Used for error display; not essential
@@ -86,8 +86,8 @@ extern crate walkdir;
 extern crate log;
 
 // Redundantly re-export some of the main types here:
-pub use repo::{Repo, RepoIO, RepoT, ClassifierT, RepoState};
-pub use partition::{Partition, PartitionIO, PartitionState, MutPartState, State, MutState};
+pub use repo::{Repository, RepoIO, RepoT, ClassifierT, RepoState};
+pub use partition::{Partition, PartitionIO, PartState, MutPartState, State, MutState};
 pub use error::{Result};
 // Export some main/miscellaneous types here:
 pub use detail::{ElementT, PartId, EltId, Sum, Commit, CommitMeta};

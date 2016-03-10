@@ -12,9 +12,9 @@ use std::u32;
 use hashindexed::HashIndexed;
 use chrono::{DateTime, NaiveDateTime, UTC};
 
-use detail::states::PartitionStateSumComparator;
+use detail::states::PartStateSumComparator;
 use detail::readwrite::CommitReceiver;
-use partition::{PartitionState, MutPartState, State, MutState};
+use partition::{PartState, MutPartState, State, MutState};
 use {ElementT, EltId, Sum};
 use error::{Result, ReplayError, PatchOp, ElementOp};
 
@@ -204,7 +204,7 @@ impl<E: ElementT> Commit<E> {
     /// This is one of two ways to create a commit; the other would be to track
     /// changes to a state (possibly the latter is the more sensible approach
     /// for most applications).
-    pub fn from_diff(old_state: &PartitionState<E>,
+    pub fn from_diff(old_state: &PartState<E>,
             new_state: &MutPartState<E>,
             extra_meta: ExtraMeta) -> Option<Commit<E>>
     {
@@ -268,14 +268,14 @@ impl<E: ElementT> Commit<E> {
     /// 
     /// Fails if the given state's initial state-sum is not equal to this
     /// commit's parent or if there are any errors in applying this patch.
-    pub fn apply(&self, parent: &PartitionState<E>) ->
-            Result<PartitionState<E>, PatchOp>
+    pub fn apply(&self, parent: &PartState<E>) ->
+            Result<PartState<E>, PatchOp>
     {
         if *parent.statesum() != self.parents[0] { return Err(PatchOp::WrongParent); }
         let mut mut_state = parent.clone_mut();
         try!(self.apply_mut(&mut mut_state));
         
-        let state = PartitionState::from_mut(mut_state, self.parents.clone(), self.meta.clone());
+        let state = PartState::from_mut(mut_state, self.parents.clone(), self.meta.clone());
         if state.statesum() != self.statesum() { return Err(PatchOp::PatchApply); }
         Ok(state)
     }
@@ -325,7 +325,7 @@ impl<E: ElementT> Commit<E> {
 
 // —————  log replay  —————
 
-pub type StatesSet<E> = HashIndexed<PartitionState<E>, Sum, PartitionStateSumComparator>;
+pub type StatesSet<E> = HashIndexed<PartState<E>, Sum, PartStateSumComparator>;
 
 /// Struct holding data used during log replay.
 ///
@@ -395,7 +395,7 @@ impl<'a, E: ElementT> LogReplay<'a, E> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ::{ElementT, PartitionState, MutPartState, MutState};
+    use ::{ElementT, PartState, MutPartState, MutState};
     use hashindexed::HashIndexed;
     use std::collections::HashSet;
     
@@ -408,7 +408,7 @@ mod tests {
     
     impl<'a, E: ElementT> LogReplay<'a, E> {
         /// Insert an initial state, marked as a tip (pass by value or clone).
-        pub fn add_state(&mut self, state: PartitionState<E>) {
+        pub fn add_state(&mut self, state: PartState<E>) {
             self.tips.insert(state.statesum().clone());
             self.states.insert(state);
         }
@@ -427,12 +427,12 @@ mod tests {
             state.insert_with_id(p.elt_id(num), Rc::new(string.to_string()))
         };
         
-        let mut state = PartitionState::new(p).clone_mut();
+        let mut state = PartState::new(p).clone_mut();
         insert(&mut state, 1, "one").unwrap();
         insert(&mut state, 2, "two").unwrap();
         let meta = CommitMeta::now_empty();
         let parents = vec![state.parent().clone()];
-        let state_a = PartitionState::from_mut(state, parents, meta);
+        let state_a = PartState::from_mut(state, parents, meta);
         
         let mut state = state_a.clone_mut();
         insert(&mut state, 3, "three").unwrap();

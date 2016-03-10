@@ -5,7 +5,7 @@
 //! Pippin's "repository" type and its dependencies
 //! 
 //! For simpler, single-partition usage, see the `partition` module. For full
-//! functionality, use the `Repo` type in this module.
+//! functionality, use the `Repository` type in this module.
 //! 
 //! Implementations of the following traits are required for usage:
 //! 
@@ -44,7 +44,7 @@ use error::{Result, OtherError, TipError, ElementOp};
 /// and used to read and write elements. The copy may be accessed without
 /// blocking other operations on the underlying repository. Changes made to
 /// the copy may be merged back into the repository.
-pub struct Repo<C: ClassifierT, R: RepoT<C>> {
+pub struct Repository<C: ClassifierT, R: RepoT<C>> {
     /// Classifier. This must use compile-time polymorphism since it gives us
     /// the element type, and we do not want element look-ups to involve a
     /// run-time conversion.
@@ -55,8 +55,8 @@ pub struct Repo<C: ClassifierT, R: RepoT<C>> {
     partitions: HashMap<PartId, Partition<C::Element>>,
 }
 
-// Non-member functions on Repo
-impl<C: ClassifierT, R: RepoT<C>> Repo<C, R> {
+// Non-member functions on Repository
+impl<C: ClassifierT, R: RepoT<C>> Repository<C, R> {
     /// Create a new repository with the given name.
     /// 
     /// The name must be UTF-8 and not more than 16 bytes long. It allows a
@@ -67,14 +67,14 @@ impl<C: ClassifierT, R: RepoT<C>> Repo<C, R> {
     /// 
     /// This creates an initial 'partition' ready for use (all contents must
     /// be kept within a `Partition`).
-    pub fn create<S: Into<String>>(mut classifier: R, name: S) -> Result<Repo<C, R>> {
+    pub fn create<S: Into<String>>(mut classifier: R, name: S) -> Result<Repository<C, R>> {
         let name = name.into();
         info!("Creating repository: {}", name);
         let part_io = try!(classifier.first_part());
         let part = try!(Partition::create(part_io, &name));
         let mut partitions = HashMap::new();
         partitions.insert(part.part_id(), part);
-        Ok(Repo{
+        Ok(Repository{
             classifier: classifier,
             name: name,
             partitions: partitions,
@@ -85,7 +85,7 @@ impl<C: ClassifierT, R: RepoT<C>> Repo<C, R> {
     /// 
     /// This does not automatically load partition data, however it must load
     /// at least one header in order to identify the repository.
-    pub fn open(mut classifier: R)-> Result<Repo<C, R>> {
+    pub fn open(mut classifier: R)-> Result<Repository<C, R>> {
         let (name, parts) = {
             let io = classifier.repo_io();
             let mut part_nums = io.partitions().into_iter();
@@ -111,7 +111,7 @@ impl<C: ClassifierT, R: RepoT<C>> Repo<C, R> {
         };
         
         info!("Opening repository with {} partitions: {}", parts.len(), name);
-        Ok(Repo{
+        Ok(Repository{
             classifier: classifier,
             name: name,
             partitions: parts,
@@ -119,8 +119,8 @@ impl<C: ClassifierT, R: RepoT<C>> Repo<C, R> {
     }
 }
 
-// Member functions on Repo — a set of elements.
-impl<C: ClassifierT, R: RepoT<C>> Repo<C, R> {
+// Member functions on Repository — a set of elements.
+impl<C: ClassifierT, R: RepoT<C>> Repository<C, R> {
     /// Get the repo name
     pub fn name(&self) -> &str { &self.name }
     
@@ -194,7 +194,7 @@ impl<C: ClassifierT, R: RepoT<C>> Repo<C, R> {
     /// Get a `RepoState` with a copy of the state of all loaded partitions.
     /// 
     /// This is not required for reading elements but is the only way to edit
-    /// contents. Accessing the copy does not block operations on this `Repo`
+    /// contents. Accessing the copy does not block operations on this `Repository`
     /// since the all shared state is reference-counted and immutable.
     /// 
     /// This operation is fairly cheap since elements are Copy-on-Write, but
@@ -228,7 +228,7 @@ impl<C: ClassifierT, R: RepoT<C>> Repo<C, R> {
             let mut part = if let Some(p) = self.partitions.get_mut(&num) {
                 p
             } else {
-                panic!("RepoState has a partition not found in the Repo");
+                panic!("RepoState has a partition not found in the Repository");
                 //TODO: support for merging after a division/union/change of partitioning
             };
             //TODO: let user specify extra metadata somehow?
@@ -241,10 +241,10 @@ impl<C: ClassifierT, R: RepoT<C>> Repo<C, R> {
     }
     
     /// Merge changes from a `RepoState` and update it to the latest state of
-    /// the `Repo`.
+    /// the `Repository`.
     /// 
     /// Returns true if further merge work is required. In this case, `merge()`
-    /// should be called on the `Repo`, then `sync()` again (until then, the
+    /// should be called on the `Repository`, then `sync()` again (until then, the
     /// `RepoState` will have no access to any partitions with conflicts).
     /// 
     /// TODO: this operation should not fail, since failure might result in
@@ -258,7 +258,7 @@ impl<C: ClassifierT, R: RepoT<C>> Repo<C, R> {
             let mut part = match self.partitions.get_mut(&num) {
                 Some(p) => p,
                 None => {
-                    panic!("RepoState has a partition not found in the Repo");
+                    panic!("RepoState has a partition not found in the Repository");
                     //TODO: support for merging after a division/union/change of partitioning
                 },
             };
@@ -333,8 +333,8 @@ impl<C: ClassifierT> RepoState<C> {
     /// cannot be sure that this is correct.
     /// 
     /// This may also fail completely. In this case searching all partitions
-    /// may still find the element (either use `Repo::locate(...)` or
-    /// `Repo::load_all()` then call this again on a fresh `RepoState` or after
+    /// may still find the element (either use `Repository::locate(...)` or
+    /// `Repository::load_all()` then call this again on a fresh `RepoState` or after
     /// synchronising). This method does search all loaded partitions when
     /// other strategies fail.
     pub fn locate(&mut self, mut id: EltId) -> Result<EltId, ElementOp> {
@@ -415,7 +415,7 @@ impl<C: ClassifierT> MutState<C::Element> for RepoState<C> {
             }
         };
         if let Some(mut state) = self.states.get_mut(&part_id) {
-            // Now insert into our PartitionState (may also fail):
+            // Now insert into our PartState (may also fail):
             state.insert_rc(elt)
         } else {
             Err(ElementOp::NotLoaded)

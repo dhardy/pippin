@@ -321,9 +321,9 @@ fn run(dir: &Path, part_basename: Option<String>, mode: Mode, create: bool,
         let rt = ReqRepo::new(discover);
         
         let mut repo = if create {
-            try!(Repo::create(rt, "sequences db"))
+            try!(Repository::create(rt, "sequences db"))
         } else {
-            let mut repo = try!(Repo::open(rt));
+            let mut repo = try!(Repository::open(rt));
             try!(repo.load_all(false));
             repo
         };

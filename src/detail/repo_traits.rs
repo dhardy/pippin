@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-//! Traits for Pippin's `Repo` type
+//! Traits for Pippin's `Repository` type
 
 use std::marker::PhantomData;
 use std::any::Any;
@@ -50,7 +50,7 @@ pub trait RepoIO {
 /// classifying that element. See notes on partitioning and classification.
 /// 
 /// The user must supply an implementation of this trait in order to use the
-/// `Repo` type (repository). The user-defined *element* type must be specified
+/// `Repository` type (repository). The user-defined *element* type must be specified
 /// within objects implementing this trait in order to tie the two
 /// user-specified types together.
 /// 
@@ -110,7 +110,7 @@ pub trait RepoT<C: ClassifierT+Sized>: ClassifierT {
     fn repo_io<'a>(&'a mut self) -> &'a mut RepoIO;
     
     /// Make a copy of the classifier. This should be independent (for use with
-    /// `Repo::clone_state()`) and be unaffected by repartitioning (e.g.
+    /// `Repository::clone_state()`) and be unaffected by repartitioning (e.g.
     /// `divide()`) of this object. Assuming this object is not repartitioned,
     /// both self and the returned object should return the same
     /// classifications.

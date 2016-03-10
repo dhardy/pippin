@@ -10,12 +10,12 @@ use std::result;
 use std::any::Any;
 use hashindexed::HashIndexed;
 
-pub use detail::states::{State, MutState, PartitionState, MutPartState};
+pub use detail::states::{State, MutState, PartState, MutPartState};
 
 use detail::readwrite::{FileHeader, FileType, read_head, write_head, validate_repo_name};
 use detail::readwrite::{read_snapshot, write_snapshot};
 use detail::readwrite::{read_log, start_log, write_commit};
-use detail::states::{PartitionStateSumComparator};
+use detail::states::{PartStateSumComparator};
 use detail::{Commit, ExtraMeta, CommitQueue, LogReplay};
 use merge::{TwoWayMerge, TwoWaySolver};
 use {ElementT, Sum, PartId};
@@ -209,7 +209,7 @@ pub struct Partition<E: ElementT> {
     // Determines when to write new snapshots
     ss_policy: SnapshotPolicy,
     // Known committed states indexed by statesum 
-    states: HashIndexed<PartitionState<E>, Sum, PartitionStateSumComparator>,
+    states: HashIndexed<PartState<E>, Sum, PartStateSumComparator>,
     // All states without a known successor
     tips: HashSet<Sum>,
     // Commits created but not yet saved to disk. First in at front; use as queue.
@@ -239,7 +239,7 @@ impl<E: ElementT> Partition<E> {
                 ArgError::new("PartitionIO's `part_id()` must not return None")));
         info!("Creating partiton {}; writing snapshot {}", part_id.into_num(), ss);
         
-        let state = PartitionState::new(part_id);
+        let state = PartState::new(part_id);
         let header = FileHeader {
             ftype: FileType::Snapshot(0),
             name: name.to_string(),
@@ -431,7 +431,7 @@ impl<E: ElementT> Partition<E> {
             self.ss_policy.add_commits(queue.len());
             if self.tips.is_empty() {
                 // Only for the case we couldn't find a snapshot file (see "num == 0" above)
-                let state = PartitionState::new(self.part_id);
+                let state = PartState::new(self.part_id);
                 self.tips.insert(state.statesum().clone());
                 self.states.insert(state);
             }
@@ -537,7 +537,7 @@ impl<E: ElementT> Partition<E> {
         }
     }
     
-    /// Get a reference to the PartitionState of the current tip. You can read
+    /// Get a reference to the PartState of the current tip. You can read
     /// this directly or make a clone in order to make your modifications.
     /// 
     /// This operation will fail if no data has been loaded yet or a merge is
@@ -546,21 +546,21 @@ impl<E: ElementT> Partition<E> {
     /// The operation requires some copying but uses copy'c,d-on-write elements
     /// internally. This copy is needed to create a commit from the diff of the
     /// last committed state and the new state.
-    pub fn tip(&self) -> result::Result<&PartitionState<E>, TipError> {
+    pub fn tip(&self) -> result::Result<&PartState<E>, TipError> {
         Ok(&self.states.get(try!(self.tip_key())).unwrap())
     }
     
     /// Get a read-only reference to a state by its statesum, if found.
     /// 
     /// If you want to keep a copy, clone it.
-    pub fn state(&self, key: &Sum) -> Option<&PartitionState<E>> {
+    pub fn state(&self, key: &Sum) -> Option<&PartState<E>> {
         self.states.get(key)
     }
     
     /// Try to find a state given a string representation of the key (as a byte array).
     /// 
     /// Like git, we accept partial keys (so long as they uniquely resolve a key).
-    pub fn state_from_string(&self, string: String) -> Result<&PartitionState<E>, MatchError> {
+    pub fn state_from_string(&self, string: String) -> Result<&PartState<E>, MatchError> {
         let string = string.to_uppercase().replace(" ", "");
         let mut matching = Vec::new();
         for state in self.states.iter() {
@@ -656,7 +656,7 @@ impl<E: ElementT> Partition<E> {
     }
     
     /// This creates a commit from the given state, converts the `MutPartState`
-    /// to a `PartitionState` and adds it to the list of internal states, as
+    /// to a `PartState` and adds it to the list of internal states, as
     /// the new tip (unless a merge is required, in which case it will be one
     /// of multiple tip states). The commit is added to the internal list
     /// waiting to be written to permanent storage (see `write()`).
@@ -686,7 +686,7 @@ impl<E: ElementT> Partition<E> {
         };
         
         if let Some(commit) = c {
-            let new_state = PartitionState::from_mut(state,
+            let new_state = PartState::from_mut(state,
                     commit.parents().clone(), commit.meta().clone());
             self.add_pair(commit, new_state);
             Ok(true)
@@ -697,7 +697,7 @@ impl<E: ElementT> Partition<E> {
     
     // Add a paired commit and state.
     // Assumptions: checksums match and parent state is present.
-    fn add_pair(&mut self, commit: Commit<E>, state: PartitionState<E>) {
+    fn add_pair(&mut self, commit: Commit<E>, state: PartState<E>) {
         assert_eq!(commit.parents(), state.parents());
         assert_eq!(commit.statesum(), state.statesum());
         trace!("Partition {}: new commit {}", self.part_id.into_num(), commit.statesum());

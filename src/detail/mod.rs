@@ -9,7 +9,7 @@ pub use self::commits::{Commit, CommitQueue, LogReplay, EltChange,
         CommitMeta, ExtraMeta};
 pub use self::sum::Sum;
 pub use self::sum::BYTES as SUM_BYTES;
-pub use self::repo::{Repo, RepoState};
+pub use self::repo::{Repository, RepoState};
 
 pub mod readwrite;
 pub mod partition;
