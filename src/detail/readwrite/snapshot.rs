@@ -28,7 +28,7 @@ use error::{Result, ReadError, ElementOp};
 /// The file version affects how data is read. Get it from a header with
 /// `header.ftype.ver()`.
 pub fn read_snapshot<T: ElementT>(reader: &mut Read, part_id: PartId,
-        file_ver: u32) -> Result<PartitionState<T>>
+        _file_ver: u32) -> Result<PartitionState<T>>
 {
     // A reader which calculates the checksum of what was read:
     let mut r = sum::HashReader::new(reader);
@@ -38,62 +38,47 @@ pub fn read_snapshot<T: ElementT>(reader: &mut Read, part_id: PartId,
     assert!(buf.len() >= SUM_BYTES);
     
     try!(r.read_exact(&mut buf[0..16]));
-    let num_parents = if file_ver < 2016_02_27 {
-        if buf[0..8] != *b"SNAPSHOT" {
-            return ReadError::err("unexpected contents (expected SNAPSHOT)", pos, (0, 8));
-        }
-        0
-    } else {
-        if buf[0..6] != *b"SNAPSH" || buf[7] != b'U' {
-            return ReadError::err("unexpected contents (expected SNAPSH_U where _ is any)", pos, (0, 8));
-        }
-        buf[6] as usize
-    };
+    if buf[0..6] != *b"SNAPSH" || buf[7] != b'U' {
+        return ReadError::err("unexpected contents (expected SNAPSH_U where _ is any)", pos, (0, 8));
+    }
+    let num_parents = buf[6] as usize;
     let secs = try!((&buf[8..16]).read_i64::<BigEndian>());
     pos += 16;
     
-    let meta = if file_ver >= 2016_02_22 {
-        try!(r.read_exact(&mut buf[0..16]));
-        if buf[0..4] != *b"CNUM" {
-            return ReadError::err("unexpected contents (expected CNUM)", pos, (0, 4));
-        }
-        let cnum = try!((&buf[4..8]).read_u32::<BigEndian>());
-        
-        if buf[8..10] != *b"XM" {
-            return ReadError::err("unexpected contents (expected XM)", pos, (8, 10));
-        }
-        let xm_type_txt = buf[10..12] == *b"TT";
-        let xm_len = try!((&buf[12..16]).read_u32::<BigEndian>()) as usize;
-        pos += 16;
-        
-        let mut xm_data = vec![0; xm_len];
-        try!(r.read_exact(&mut xm_data));
-        let xm = if xm_type_txt {
-            Some(try!(String::from_utf8(xm_data)
-                .map_err(|_| ReadError::new("content not valid UTF-8", pos, (0, xm_len)))))
-        } else {
-            // even if xm_len > 0 we ignore it
-            None
-        };
-        
-        pos += xm_len;
-        let pad_len = 16 * ((xm_len + 15) / 16) - xm_len;
-        if pad_len > 0 {
-            try!(r.read_exact(&mut buf[0..pad_len]));
-            pos += pad_len;
-        }
-        
-        CommitMeta {
-            number: cnum,
-            timestamp: secs,
-            extra: xm,
-        }
+    try!(r.read_exact(&mut buf[0..16]));
+    if buf[0..4] != *b"CNUM" {
+        return ReadError::err("unexpected contents (expected CNUM)", pos, (0, 4));
+    }
+    let cnum = try!((&buf[4..8]).read_u32::<BigEndian>());
+    
+    if buf[8..10] != *b"XM" {
+        return ReadError::err("unexpected contents (expected XM)", pos, (8, 10));
+    }
+    let xm_type_txt = buf[10..12] == *b"TT";
+    let xm_len = try!((&buf[12..16]).read_u32::<BigEndian>()) as usize;
+    pos += 16;
+    
+    let mut xm_data = vec![0; xm_len];
+    try!(r.read_exact(&mut xm_data));
+    let xm = if xm_type_txt {
+        Some(try!(String::from_utf8(xm_data)
+            .map_err(|_| ReadError::new("content not valid UTF-8", pos, (0, xm_len)))))
     } else {
-        CommitMeta {
-            number: 1,
-            timestamp: 0,
-            extra: None
-        }
+        // even if xm_len > 0 we ignore it
+        None
+    };
+    
+    pos += xm_len;
+    let pad_len = 16 * ((xm_len + 15) / 16) - xm_len;
+    if pad_len > 0 {
+        try!(r.read_exact(&mut buf[0..pad_len]));
+        pos += pad_len;
+    }
+    
+    let meta = CommitMeta {
+        number: cnum,
+        timestamp: secs,
+        extra: xm,
     };
     
     let mut parents = Vec::with_capacity(num_parents);

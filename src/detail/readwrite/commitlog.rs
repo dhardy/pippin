@@ -59,55 +59,46 @@ pub fn read_log<E: ElementT>(reader_: &mut Read, receiver: &mut CommitReceiver<E
         } else {
             return ReadError::err("unexpected contents (expected COMMIT or MERGE)", pos, (0, 6));
         };
-        let meta = if buf[6..8] == *b"\x00\x00" {
-            // Compatibility mode (2016_02_01 and older): no timestamp etc.
-            pos += 16;
-            CommitMeta {
-                number: 1,
-                timestamp: 0,
-                extra: None
-            }
-        } else if buf[6..8] == *b"\x00U" {
-            let secs = try!((&buf[8..16]).read_i64::<BigEndian>());
-            pos += 16;
-            
-            try!(r.read_exact(&mut buf[0..16]));
-            if buf[0..4] != *b"CNUM" {
-                return ReadError::err("unexpected contents (expected CNUM)", pos, (0, 4));
-            }
-            let cnum = try!((&buf[4..8]).read_u32::<BigEndian>());
-            
-            if buf[8..10] != *b"XM" {
-                return ReadError::err("unexpected contents (expected XM)", pos, (8, 10));
-            }
-            let xm_type_txt = buf[10..12] == *b"TT";
-            let xm_len = try!((&buf[12..16]).read_u32::<BigEndian>()) as usize;
-            pos += 16;
-            
-            let mut xm_data = vec![0; xm_len];
-            try!(r.read_exact(&mut xm_data));
-            let xm = if xm_type_txt {
-                Some(try!(String::from_utf8(xm_data)
-                    .map_err(|_| ReadError::new("content not valid UTF-8", pos, (0, xm_len)))))
-            } else {
-                // even if xm_len > 0 we ignore it
-                None
-            };
-            
-            pos += xm_len;
-            let pad_len = 16 * ((xm_len + 15) / 16) - xm_len;
-            if pad_len > 0 {
-                try!(r.read_exact(&mut buf[0..pad_len]));
-                pos += pad_len;
-            }
-            
-            CommitMeta {
-                number: cnum,
-                timestamp: secs,
-                extra: xm,
-            }
+        if buf[6..8] != *b"\x00U" {
+            return ReadError::err("unexpected contents (expected \\x00U)", pos, (6, 8));
+        }
+        let secs = try!((&buf[8..16]).read_i64::<BigEndian>());
+        pos += 16;
+        
+        try!(r.read_exact(&mut buf[0..16]));
+        if buf[0..4] != *b"CNUM" {
+            return ReadError::err("unexpected contents (expected CNUM)", pos, (0, 4));
+        }
+        let cnum = try!((&buf[4..8]).read_u32::<BigEndian>());
+        
+        if buf[8..10] != *b"XM" {
+            return ReadError::err("unexpected contents (expected XM)", pos, (8, 10));
+        }
+        let xm_type_txt = buf[10..12] == *b"TT";
+        let xm_len = try!((&buf[12..16]).read_u32::<BigEndian>()) as usize;
+        pos += 16;
+        
+        let mut xm_data = vec![0; xm_len];
+        try!(r.read_exact(&mut xm_data));
+        let xm = if xm_type_txt {
+            Some(try!(String::from_utf8(xm_data)
+                .map_err(|_| ReadError::new("content not valid UTF-8", pos, (0, xm_len)))))
         } else {
-            return ReadError::err("unexpected contents (expected \\x00U or \\x00\\x00)", pos, (6, 8));
+            // even if xm_len > 0 we ignore it
+            None
+        };
+        
+        pos += xm_len;
+        let pad_len = 16 * ((xm_len + 15) / 16) - xm_len;
+        if pad_len > 0 {
+            try!(r.read_exact(&mut buf[0..pad_len]));
+            pos += pad_len;
+        }
+        
+        let meta = CommitMeta {
+            number: cnum,
+            timestamp: secs,
+            extra: xm,
         };
         
         let mut parents = Vec::with_capacity(n_parents);
