@@ -8,14 +8,15 @@ use std::path::{Path, PathBuf};
 use std::io::{Read, Write, ErrorKind};
 use std::fs::{read_dir, File, OpenOptions};
 use std::any::Any;
-use std::collections::HashMap;
+use std::collections::hash_map::HashMap;
+use std::collections::hash_map;
 
 use regex::Regex;
 use vec_map::{VecMap, Entry};
 use walkdir::WalkDir;
 
 use {PartIO, RepoIO, PartId};
-use error::{Result, PathError, ArgError, make_io_err};
+use error::{Result, PathError, ArgError, make_io_err, OtherError};
 
 
 /// A helper to find files belonging to a partition (assuming a standard
@@ -123,6 +124,7 @@ impl DiscoverPartFiles {
     pub fn from_paths(paths: Vec<PathBuf>, mut part_id: Option<PartId>) ->
             Result<DiscoverPartFiles>
     {
+        info!("Loading partition files...");
         // Note: there are no defined rules about which characters are allowed
         // in the basename, so just match anything.
         let ss_pat = try!(Regex::new(r"^(.+)-ss(0|[1-9][0-9]*).pip$"));
@@ -157,14 +159,24 @@ impl DiscoverPartFiles {
                 // move `path`. (A more precise checker might make allow this.)
                 if let Some(fname) = path.file_name().expect("file path must have a file name").to_str() {
                     let file_is = if let Some(caps) = ss_pat.captures(fname) {
+                        let fname_base = caps.at(1).expect("match should yield capture").to_string();
                         if basename == None {
-                            basename = Some(caps.at(1).expect("match should yield capture").to_string());
+                            basename = Some(fname_base);
+                        } else if basename != Some(fname_base) {
+                            // Different basename: probably different partition
+                            // #0017: report warning or error?
+                            continue;   // ignore this file
                         }
                         let ss: usize = try!(caps.at(2).expect("match should yield capture").parse());
                         FileIs::SnapShot(ss)
                     } else if let Some(caps) = cl_pat.captures(fname) {
+                        let fname_base = caps.at(1).expect("match should yield capture").to_string();
                         if basename == None {
                             basename = Some(caps.at(1).expect("match should yield capture").to_string());
+                        } else if basename != Some(fname_base) {
+                            // Different basename: probably different partition
+                            // #0017: report warning or error?
+                            continue;   // ignore this file
                         }
                         let ss: usize = try!(caps.at(2).expect("match should yield capture").parse());
                         let cl: usize = try!(caps.at(3).expect("match should yield capture").parse());
@@ -366,12 +378,10 @@ impl DiscoverRepoFiles {
     /// Discover all repository files in some directory (including recursively).
     pub fn from_dir(path: &Path) -> Result<DiscoverRepoFiles> {
         if !path.is_dir() { return PathError::err("not a directory", path.to_path_buf()); }
-        info!("Scanning for repo files in: {}", path.display());
+        info!("Scanning for repository files in: {}", path.display());
         
-        let ss_pat = Regex::new("^(.*)pn(0|[1-9][0-9]*)-ss(0|[1-9][0-9]*).pip$")
-                .expect("valid regex");
-        let cl_pat = Regex::new("^(.*)pn(0|[1-9][0-9]*)-ss(0|[1-9][0-9]*)-cl(0|[1-9][0-9]*).piplog$")
-                .expect("valid regex");
+        let pat = Regex::new("^(.*)pn(0|[1-9][0-9]*)-ss(0|[1-9][0-9]*)\
+                (.pip|-cl(0|[1-9][0-9]*).piplog)$").expect("valid regex");
         
         let mut paths = HashMap::new();
         
@@ -381,21 +391,14 @@ impl DiscoverRepoFiles {
                 Some(s) => s,
                 None => { /* ignore non-unicode names */ continue; },
             };
-            let caps = if let Some(caps) = ss_pat.captures(fname) {
-                Some(caps)
-            } else if let Some(caps) = cl_pat.captures(fname) {
-                Some(caps)
-            } else {
-                None
-            };
-            if let Some(caps) = caps {
+            if let Some(caps) = pat.captures(fname) {
                 let num: u64 = try!(caps.at(2).expect("match should yield capture").parse());
                 let num = PartId::from_num(num);    //TODO: verify first for better error handling?
                 // Ignore if we already have this partition number or have other error
                 if !paths.contains_key(&num) {
-                    let basename = format!("{}pn{}",
-                        caps.at(1).expect("match should yield capture"),
-                        caps.at(2).unwrap());
+                    let mut basename = caps.at(1).expect("match should yield capture").to_string();
+                    basename.push_str("pn");
+                    basename.push_str(caps.at(2).unwrap());
                     if let Some(dir) = entry.path().parent() {
                         trace!("Adding partition {}/{}...", dir.display(), basename);
                         paths.insert(num, (dir.to_path_buf(), basename));
@@ -408,6 +411,63 @@ impl DiscoverRepoFiles {
             dir: path.to_path_buf(),
             partitions: paths
         })
+    }
+    
+    /// Discover partition files from a set of files
+    pub fn from_paths(paths: Vec<PathBuf>) -> Result<DiscoverRepoFiles> {
+        info!("Loading repository files...");
+        
+        let pat = Regex::new("^(.*)pn(0|[1-9][0-9]*)-ss(0|[1-9][0-9]*)\
+                (.pip|-cl(0|[1-9][0-9]*).piplog)$").expect("valid regex");
+        
+        let mut top = None; // path to top directory
+        let mut parts = HashMap::new();
+        
+        for path in paths {
+            let fname = match path.file_name().and_then(|n| n.to_str()){
+                Some(name) => name,
+                None => {
+                    // #0017: warn that path has no file name (is a dir?)
+                    continue;
+                },
+            };
+            if let Some(caps) = pat.captures(fname) {
+                let num: u64 = try!(caps.at(2).expect("match should yield capture").parse());
+                let num = PartId::from_num(num);    //TODO: verify first for better error handling?
+                let mut basename = caps.at(1).expect("match should yield capture").to_string();
+                basename.push_str("pn");
+                basename.push_str(caps.at(2).unwrap());
+                let dir = path.parent().expect("path has parent").to_path_buf();
+                if top == None {
+                    top = Some(dir.clone());
+                } else if top.as_ref() != Some(&dir) {
+                    // Since directories differ, creating new partitions may
+                    // put files in the wrong place. We could refuse to create
+                    // new partitions, but that's not exactly helpful. We could
+                    // warn about it, but that doesn't seem especially useful.
+                }
+                match parts.entry(num) {
+                    hash_map::Entry::Vacant(e) => { e.insert((dir, basename)); },
+                    hash_map::Entry::Occupied(_) => {
+                        // #0017: warn if dir/basename differ
+                    }
+                };
+            }
+        }
+        
+        if let Some(path) = top {
+            Ok(DiscoverRepoFiles {
+                dir: path,
+                partitions: parts
+            })
+        }else {
+            return OtherError::err("no Pippin files found!");
+        }
+    }
+    
+    /// Iterate over partitions
+    pub fn partitions(&self) -> RepoPartIter {
+        RepoPartIter { iter: self.partitions.iter() }
     }
 }
 impl RepoIO for DiscoverRepoFiles {
@@ -434,6 +494,45 @@ impl RepoIO for DiscoverRepoFiles {
             Ok(box try!(DiscoverPartFiles::from_dir_basename(path, basename, Some(num))))
         } else {
             make_io_err(ErrorKind::NotFound, "partition not found")
+        }
+    }
+}
+
+/// Item representing a partition discovered by a `DiscoverPartFiles`.
+pub struct RepoPartItem<'a> {
+    part_id: PartId,
+    data: &'a (PathBuf, String),
+}
+impl<'a> RepoPartItem<'a> {
+    /// Get the partition's identifier
+    pub fn part_id(&self) -> PartId {
+        self.part_id
+    }
+    /// Get the partition's directory
+    pub fn dir(&self) -> &'a Path {
+        &self.data.0
+    }
+    /// Get the partition's base-name
+    /// 
+    /// (This is an implementation detail and not guaranteed to remain fixed.)
+    pub fn basename(&self) -> &'a str {
+        &self.data.1
+    }
+}
+/// Iterator over partitions discovered by a `DiscoverRepoFiles`.
+pub struct RepoPartIter<'a> {
+    iter: hash_map::Iter<'a, PartId, (PathBuf, String)>
+}
+impl<'a> Iterator for RepoPartIter<'a> {
+    type Item = RepoPartItem<'a>;
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Some(item) = self.iter.next() {
+            Some(RepoPartItem {
+                part_id: *item.0,
+                data: item.1,
+            })
+        } else {
+            None
         }
     }
 }

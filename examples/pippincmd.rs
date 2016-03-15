@@ -21,7 +21,7 @@ use std::ffi::OsStr;
 use std::os::unix::ffi::OsStrExt;
 use docopt::Docopt;
 use pippin::{Partition, PartIO, ElementT, State, MutState};
-use pippin::discover::DiscoverPartFiles;
+use pippin::discover::*;
 use pippin::error::{Result, PathError, ErrorTrait};
 use pippin::util::rtrim;
 
@@ -188,7 +188,11 @@ fn inner(files: Vec<String>, op: Operation, args: Rest) -> Result<()>
             Ok(())
         },
         Operation::ListPartitions => {
-            println!("Multi-partition functionality not yet available");
+            // #0017: this should print warnings generated in discover::*
+            let discover = try!(DiscoverRepoFiles::from_paths(paths));
+            for part in discover.partitions() {
+                println!("Partition {}: {}/{}*", part.part_id(), part.dir().display(), part.basename());
+            }
             Ok(())
         },
         Operation::OnPartition(part_op) => {
