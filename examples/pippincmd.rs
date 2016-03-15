@@ -33,8 +33,8 @@ for automated usage and the UI may be subject to changes.
 Usage:
   pippincmd [-h] -n PREFIX [-N NAME] DIR
   pippincmd [-h] [-P] FILE...
-  pippincmd [-h] [-p PART] [-S] [-C] FILE...
-  pippincmd [-h] [-f] [-p PART] [-c COMMIT] [-s] [-E | -g ELT | -e ELT | -v ELT | -d ELT] FILE...
+  pippincmd [-h] [-p NUM] [-S] [-C] FILE...
+  pippincmd [-h] [-f] [-p NUM] [-c COMMIT] [-s] [-E | -g ELT | -e ELT | -v ELT | -d ELT] FILE...
   pippincmd --help | --version
 
 Options:
@@ -46,7 +46,7 @@ Options:
                         any changes, unless the state already has a snapshot.
   
   -P --partitions       List all partitions loaded
-  -p --partition PART   Select partition PART
+  -p --partition NUM   Select partition NUM
   -S --snapshots        List all snapshots loaded
   -C --commits          List all commits loaded (from snapshots and logs)
   -c --commit COMMIT    Select commit COMMIT. If not specified, most operations
@@ -187,15 +187,13 @@ fn inner(files: Vec<String>, op: Operation, args: Rest) -> Result<()>
             try!(Partition::<DataElt>::create(box io, &repo_name));
             Ok(())
         },
-        Operation::ListPartitions => {
-            // #0017: this should print warnings generated in discover::*
-            let discover = try!(DiscoverRepoFiles::from_paths(paths));
-            for part in discover.partitions() {
-                println!("Partition {}: {}/{}*", part.part_id(), part.dir().display(), part.basename());
-            }
-            Ok(())
-        },
         Operation::OnPartition(part_op) => {
+            if args.part.is_some() {
+                panic!("No support for -p / --partition option");
+            }
+            if args.commit.is_some() {
+                panic!("No support for -c / --commit option");
+            }
             println!("Scanning files ...");
             //TODO: verify all files belong to the same partition `args.part`
             let discover = try!(DiscoverPartFiles::from_paths(paths, None));
@@ -303,18 +301,15 @@ fn inner(files: Vec<String>, op: Operation, args: Rest) -> Result<()>
                 Ok(())
             }
         },
-        Operation::Default => {
+        Operation::ListPartitions | Operation::Default => {
+            assert_eq!(args.part, None);
+            assert_eq!(args.commit, None);
             println!("Scanning files ...");
-            
-            //TODO: this should not assume all files belong to the same
-            // partition, but discover this and use alternate behaviour in the
-            // case of multiple partitions. Not that there's much point to this
-            // default operation anyway.
-            let discover = try!(DiscoverPartFiles::from_paths(paths, None));
-            
-            println!("Found {} snapshot file(s) and {} log file(s)",
-                discover.num_ss_files(),
-                discover.num_cl_files());
+            // #0017: this should print warnings generated in discover::*
+            let discover = try!(DiscoverRepoFiles::from_paths(paths));
+            for part in discover.partitions() {
+                println!("Partition {}: {}/{}*", part.part_id(), part.dir().display(), part.basename());
+            }
             Ok(())
         },
     }
