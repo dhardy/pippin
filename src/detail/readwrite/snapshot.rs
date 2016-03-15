@@ -180,7 +180,7 @@ pub fn read_snapshot<T: ElementT>(reader: &mut Read, part_id: PartId,
     }
     
     trace!("Read snapshot (partition {} with {} elements): {}",
-        part_id.into_num(), num_elts, state.statesum());
+        part_id, num_elts, state.statesum());
     Ok(state)
 }
 
@@ -192,7 +192,7 @@ pub fn write_snapshot<T: ElementT>(state: &PartState<T>,
     writer: &mut Write) -> Result<()>
 {
     trace!("Writing snapshot (partition {} with {} elements): {}",
-        state.part_id().into_num(), state.num_avail(), state.statesum());
+        state.part_id(), state.num_avail(), state.statesum());
     
     // A writer which calculates the checksum of what was written:
     let mut w = sum::HashWriter::new(writer);

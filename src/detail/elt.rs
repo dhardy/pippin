@@ -4,6 +4,7 @@
 
 //! Base type of elements stored in Pippin repositories
 
+use std::fmt;
 use std::fmt::Debug;
 use std::io::{/*Read,*/ Write};
 use std::str::from_utf8;
@@ -20,6 +21,8 @@ use error::{Result};
 /// 
 /// Supports `Into<u64>` to extract an encoded form. Can be reconstructed from
 /// this via `try_from()`.
+/// 
+/// Supports `fmt::Display` (displays the same value as `id.into_num()`).
 #[derive(Copy, Clone, PartialEq, Eq, Debug, Hash)]
 pub struct PartId {
     // #0018: optimise usage as Option with NonZero?
@@ -56,6 +59,11 @@ impl PartId {
 impl Into<u64> for PartId {
     fn into(self) -> u64 {  
         self.id
+    }
+}
+impl fmt::Display for PartId {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.into_num())
     }
 }
 

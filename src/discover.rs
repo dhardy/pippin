@@ -425,7 +425,7 @@ impl RepoIO for DiscoverRepoFiles {
             path.push(Path::new(&prefix[..pos]));
             prefix = &prefix[pos+1..];
         }
-        let basename = format!("{}pn{}", prefix, num.into_num());
+        let basename = format!("{}pn{}", prefix, num);
         self.partitions.insert(num, (path, basename));
         Ok(())
     }
