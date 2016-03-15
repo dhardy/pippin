@@ -133,6 +133,7 @@ impl<'a> ops::BitXor for &'a Sum {
     }
 }
 
+//TODO: impls are identical and should share code
 impl fmt::Display for Sum {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{:02X}{:02X}{:02X}{:02X}{:02X}{:02X}{:02X}{:02X}\
@@ -143,8 +144,8 @@ impl fmt::Display for Sum {
 }
 impl fmt::Debug for Sum {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:02X} {:02X} {:02X} {:02X} {:02X} {:02X} {:02X} {:02X} \
-            {:02X} {:02X} {:02X} {:02X} {:02X} {:02X} {:02X} {:02X}",
+        write!(f, "{:02X}{:02X}{:02X}{:02X}{:02X}{:02X}{:02X}{:02X}\
+            {:02X}{:02X}{:02X}{:02X}{:02X}{:02X}{:02X}{:02X}",
             self.s[ 0], self.s[ 1], self.s[ 2], self.s[ 3], self.s[ 4], self.s[ 5], self.s[ 6], self.s[ 7],
             self.s[ 8], self.s[ 9], self.s[10], self.s[11], self.s[12], self.s[13], self.s[14], self.s[15])
     }

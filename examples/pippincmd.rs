@@ -33,7 +33,7 @@ for automated usage and the UI may be subject to changes.
 Usage:
   pippincmd [-h] -n PREFIX [-N NAME] DIR
   pippincmd [-h] [-P] FILE...
-  pippincmd [-h] [-p NUM] [-S] [-C] FILE...
+  pippincmd [-h] [-p NUM] [-S] [-L] [-C] FILE...
   pippincmd [-h] [-f] [-p NUM] [-c COMMIT] [-s] [-E | -g ELT | -e ELT | -v ELT | -d ELT] FILE...
   pippincmd --help | --version
 
@@ -48,6 +48,7 @@ Options:
   -P --partitions       List all partitions loaded
   -p --partition NUM   Select partition NUM
   -S --snapshots        List all snapshots loaded
+  -L --logs             List all log files loaded
   -C --commits          List all commits loaded (from snapshots and logs)
   -c --commit COMMIT    Select commit COMMIT. If not specified, most operations
                         on commits will use the head (i.e. the latest state).
@@ -77,6 +78,7 @@ struct Args {
     flag_partitions: bool,
     flag_partition: Option<String>,
     flag_snapshots: bool,
+    flag_logs: bool,
     flag_commits: bool,
     flag_commit: Option<String>,
     flag_elements: bool,
@@ -91,7 +93,7 @@ struct Args {
 
 #[derive(Debug)]
 enum PartitionOp {
-    List(bool /*list snapshot files?*/, bool /*list log files?*/),
+    List(bool /*list snapshot files?*/, bool /*list log files?*/, bool /*list commits?*/),
     ListElts,
     EltGet(String),
     EltEdit(String, Editor),
@@ -130,8 +132,9 @@ fn main() {
                 Operation::NewPartition(name, args.flag_repo_name)
             } else if args.flag_partitions {
                 Operation::ListPartitions
-            } else if args.flag_snapshots || args.flag_commits {
-                Operation::OnPartition(PartitionOp::List(args.flag_snapshots, args.flag_commits))
+            } else if args.flag_snapshots || args.flag_logs || args.flag_commits {
+                Operation::OnPartition(PartitionOp::List(args.flag_snapshots,
+                        args.flag_logs, args.flag_commits))
             } else if args.flag_elements {
                 Operation::OnPartition(PartitionOp::ListElts)
             } else if let Some(elt) = args.flag_get {
@@ -198,7 +201,7 @@ fn inner(files: Vec<String>, op: Operation, args: Rest) -> Result<()>
             //TODO: verify all files belong to the same partition `args.part`
             let discover = try!(DiscoverPartFiles::from_paths(paths, None));
             
-            if let PartitionOp::List(list_snapshots, list_logs) = part_op {
+            if let PartitionOp::List(list_snapshots, list_logs, list_commits) = part_op {
                 println!("ss_len: {}", discover.ss_len());
                 for i in 0..discover.ss_len() {
                     if list_snapshots {
@@ -210,6 +213,18 @@ fn inner(files: Vec<String>, op: Operation, args: Rest) -> Result<()>
                         if let Some(p) = discover.get_cl_path(i, j) {
                             println!("Snapshot {:4} log {:4}: {}", i, j, p.display());
                         }
+                    }
+                }
+                if list_commits {
+                    let mut part = try!(Partition::<DataElt>::open(box discover));
+                    try!(part.load(true));
+                    //TODO: ideally commits should be sorted before printing.
+                    // I'm not sure whether the sorting should happen here or
+                    // the `Partition::states()` fn should change.
+                    for state in part.states() {
+                        println!("Commit {:4}: {}; parents: {:?}",
+                                state.meta().number, state.statesum(), 
+                                state.parents());
                     }
                 }
                 Ok(())
@@ -225,7 +240,7 @@ fn inner(files: Vec<String>, op: Operation, args: Rest) -> Result<()>
                         (true, try!(part.tip()).clone_mut())
                     };
                     match part_op {
-                        PartitionOp::List(_,_) => { panic!("possibility already eliminated"); },
+                        PartitionOp::List(_,_,_) => { panic!("possibility already eliminated"); },
                         PartitionOp::ListElts => {
                             println!("Elements:");
                             for id in state.elt_map().keys() {

@@ -526,13 +526,12 @@ pub struct RepoPartIter<'a> {
 impl<'a> Iterator for RepoPartIter<'a> {
     type Item = RepoPartItem<'a>;
     fn next(&mut self) -> Option<Self::Item> {
-        if let Some(item) = self.iter.next() {
-            Some(RepoPartItem {
+        self.iter.next().map(|item|
+            RepoPartItem {
                 part_id: *item.0,
                 data: item.1,
-            })
-        } else {
-            None
-        }
+            }
+        )
     }
+    fn size_hint(&self) -> (usize, Option<usize>) { self.iter.size_hint() }
 }

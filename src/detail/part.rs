@@ -8,7 +8,8 @@ use std::io::{Read, Write, ErrorKind};
 use std::collections::{HashSet, VecDeque};
 use std::result;
 use std::any::Any;
-use hashindexed::HashIndexed;
+use std::ops::Deref;
+use hashindexed::{HashIndexed, Iter};
 
 pub use detail::states::{State, MutState, PartState, MutPartState};
 
@@ -216,7 +217,7 @@ pub struct Partition<E: ElementT> {
     unsaved: VecDeque<Commit<E>>,
 }
 
-// Methods creating a partition and loading its data
+// Methods creating a partition, loading its data or checking status
 impl<E: ElementT> Partition<E> {
     /// Create a partition, assigning an IO provider (this can only be done at
     /// time of creation). Create a blank state in the partition, write an
@@ -524,7 +525,7 @@ impl<E: ElementT> Partition<E> {
     }
 }
 
-// Methods saving a partition's data
+// Methods accessing or modifying a partition's data
 impl<E: ElementT> Partition<E> {
     /// Get the state-sum (key) of the tip. Fails when `tip()` fails.
     pub fn tip_key(&self) -> result::Result<&Sum, TipError> {
@@ -548,6 +549,21 @@ impl<E: ElementT> Partition<E> {
     /// last committed state and the new state.
     pub fn tip(&self) -> result::Result<&PartState<E>, TipError> {
         Ok(&self.states.get(try!(self.tip_key())).unwrap())
+    }
+    
+    /// Iterate over all states known. If `self.load(true)` was used to load
+    /// all history available, this will include all historical states found
+    /// (which may still not be all history), otherwise if `self.load(false)`
+    /// was used, only some recent states (in theory, everything back to the
+    /// last snapshot at time of loading) will be present.
+    /// 
+    /// Items are unordered (actually, they follow the order of an internal
+    /// hash map, which is randomised and usually different each time the
+    /// program is loaded).
+    /// 
+    /// NOTE: this API is may change.
+    pub fn states(&self) -> StateIter<E> {
+        StateIter { iter: self.states.iter(), tips: &self.tips }
     }
     
     /// Get a read-only reference to a state by its statesum, if found.
@@ -695,23 +711,6 @@ impl<E: ElementT> Partition<E> {
         }
     }
     
-    // Add a paired commit and state.
-    // Assumptions: checksums match and parent state is present.
-    fn add_pair(&mut self, commit: Commit<E>, state: PartState<E>) {
-        assert_eq!(commit.parents(), state.parents());
-        assert_eq!(commit.statesum(), state.statesum());
-        trace!("Partition {}: new commit {}", self.part_id, commit.statesum());
-        self.ss_policy.add_commits(1);
-        self.ss_policy.add_edits(commit.num_changes());
-        self.unsaved.push_back(commit);
-        // This might fail (if the parent was not a tip), but it doesn't matter:
-        for parent in state.parents() {
-            self.tips.remove(parent);
-        }
-        self.tips.insert(state.statesum().clone());
-        self.states.insert(state);
-    }
-    
     /// This will write all unsaved commits to a log on the disk.
     /// 
     /// If `fast` is true, no further actions will happen, otherwise required
@@ -820,7 +819,7 @@ impl<E: ElementT> Partition<E> {
     }
 }
 
-// Support functions
+// Internal support functions
 impl<E: ElementT> Partition<E> {
     // Take self and two sums. Return a copy of a key to avoid lifetime issues.
     // 
@@ -871,6 +870,63 @@ impl<E: ElementT> Partition<E> {
         
         Err(box OtherError::new("unable to find a common ancestor"))
     }
+    
+    // Add a paired commit and state.
+    // Assumptions: checksums match and parent state is present.
+    fn add_pair(&mut self, commit: Commit<E>, state: PartState<E>) {
+        assert_eq!(commit.parents(), state.parents());
+        assert_eq!(commit.statesum(), state.statesum());
+        trace!("Partition {}: new commit {}", self.part_id, commit.statesum());
+        self.ss_policy.add_commits(1);
+        self.ss_policy.add_edits(commit.num_changes());
+        self.unsaved.push_back(commit);
+        // This might fail (if the parent was not a tip), but it doesn't matter:
+        for parent in state.parents() {
+            self.tips.remove(parent);
+        }
+        self.tips.insert(state.statesum().clone());
+        self.states.insert(state);
+    }
+}
+
+/// Wrapper around a `PartState<E>`. Dereferences to this type.
+pub struct StateItem<'a, E: ElementT+'a> {
+    state: &'a PartState<E>,
+    tips: &'a HashSet<Sum>,
+}
+impl<'a, E: ElementT+'a> StateItem<'a, E> {
+    /// Returns true if and only if this state is a tip state (i.e. is not the
+    /// parent of any other state).
+    /// 
+    /// There is exactly one tip state unless a merge is required or no states
+    /// are loaded.
+    pub fn is_tip(&self) -> bool {
+        self.tips.contains(self.state.statesum())
+    }
+}
+impl<'a, E: ElementT+'a> Deref for StateItem<'a, E> {
+    type Target = PartState<E>;
+    fn deref(&self) -> &Self::Target {
+        self.state
+    }
+}
+
+/// Iterator over a partition's (historical or current) states
+pub struct StateIter<'a, E: ElementT+'a> {
+    iter: Iter<'a, PartState<E>, Sum, PartStateSumComparator>,
+    tips: &'a HashSet<Sum>,
+}
+impl<'a, E: ElementT+'a> Iterator for StateIter<'a, E> {
+    type Item = StateItem<'a, E>;
+    fn next(&mut self) -> Option<Self::Item> {
+        self.iter.next().map(|item|
+            StateItem {
+                state: item,
+                tips: self.tips,
+            }
+        )
+    }
+    fn size_hint(&self) -> (usize, Option<usize>) { self.iter.size_hint() }
 }
 
 
