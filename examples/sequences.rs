@@ -58,32 +58,48 @@ impl ElementT for Sequence {
 
 // —————  derived types for Repo  —————
 #[derive(Clone)]
-struct SeqClassifier;
-struct ReqRepo<R: RepoIO> {
-    csf: SeqClassifier,
-    io: R,
+struct SeqClassifier {
+    // For each class, the partition identifier and the min length of
+    // sequences in the class. Ordered by min length, increasing.
+    // 
+    // Note that using a BTreeMap with a "range" or "upper_bound" method would
+    // be more efficient, but such functionality is not yet stable in Rust and
+    // not needed for a little example like this.
+    classes: Vec<(PartId, usize)>,
 }
-impl<R: RepoIO> ReqRepo<R> {
-    pub fn new(r: R) -> ReqRepo<R> {
-        ReqRepo { csf: SeqClassifier, io: r }
+struct SeqRepo<IO: RepoIO> {
+    csf: SeqClassifier,
+    io: IO,
+}
+impl<IO: RepoIO> SeqRepo<IO> {
+    pub fn new(r: IO) -> SeqRepo<IO> {
+        let sc = SeqClassifier {
+            classes: vec![(PartId::from_num(1), 0)],
+        };
+        SeqRepo { csf: sc, io: r }
     }
 }
 impl ClassifierT for SeqClassifier {
     type Element = Sequence;
-    fn classify(&self, _elt: &Sequence) -> Option<PartId> {
-        // currently we do not partition
-        Some(PartId::from_num(1))
+    fn classify(&self, elt: &Sequence) -> Option<PartId> {
+        let mut part_id = None;
+        for t in &self.classes {
+            if t.1 > elt.v.len() { break; }
+            part_id = Some(t.0);
+        }
+        part_id // can be None
     }
     fn fallback(&self) -> ClassifyFallback {
-        ClassifyFallback::Default(PartId::from_num(1))
+        // classify() only returns None if something is broken; stop
+        ClassifyFallback::Fail
     }
 }
-impl<R: RepoIO> ClassifierT for ReqRepo<R> {
+impl<IO: RepoIO> ClassifierT for SeqRepo<IO> {
     type Element = Sequence;
     fn classify(&self, elt: &Sequence) -> Option<PartId> { self.csf.classify(elt) }
     fn fallback(&self) -> ClassifyFallback { self.csf.fallback() }
 }
-impl<R: RepoIO> RepoT<SeqClassifier> for ReqRepo<R> {
+impl<IO: RepoIO> RepoT<SeqClassifier> for SeqRepo<IO> {
     fn repo_io(&mut self) -> &mut RepoIO {
         &mut self.io
     }
@@ -93,6 +109,9 @@ impl<R: RepoIO> RepoT<SeqClassifier> for ReqRepo<R> {
     fn divide(&mut self, _class: PartId) ->
         Result<(Vec<PartId>, Vec<PartId>), RepoDivideError>
     {
+        //TODO: 1: choose new lengths to use for partitioning
+        //TODO: 2: find new partition numbers
+        //TODO: 3: consider revising API to find new partition numbers within Pippin
         // currently we do not partition
         Err(RepoDivideError::NotSubdivisible)
     }
@@ -318,7 +337,7 @@ fn run(dir: &Path, part_basename: Option<String>, mode: Mode, create: bool,
         }
     } else {
         let discover = try!(DiscoverRepoFiles::from_dir(dir));
-        let rt = ReqRepo::new(discover);
+        let rt = SeqRepo::new(discover);
         
         let mut repo = if create {
             try!(Repository::create(rt, "sequences db"))
