@@ -16,13 +16,14 @@ use std::path::{Path, PathBuf};
 use std::process::exit;
 use std::fs;
 use std::cmp::min;
+use std::collections::HashMap;
 
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use docopt::Docopt;
 use rand::Rng;
 use rand::distributions::{IndependentSample, Range, Normal, LogNormal};
 
-use pippin::{ElementT, PartId, Partition, State, MutState, PartIO};
+use pippin::{ElementT, PartId, Partition, State, MutState, PartIO, PartState};
 use pippin::discover::*;
 use pippin::repo::*;
 use pippin::merge::*;
@@ -61,33 +62,45 @@ impl ElementT for Sequence {
 struct SeqClassifier {
     // For each class, the partition identifier and the min length of
     // sequences in the class. Ordered by min length, increasing.
-    // 
-    // Note that using a BTreeMap with a "range" or "upper_bound" method would
-    // be more efficient, but such functionality is not yet stable in Rust and
-    // not needed for a little example like this.
-    classes: Vec<(PartId, usize)>,
+    classes: Vec<(usize, PartId)>,
 }
 struct SeqRepo<IO: RepoIO> {
     csf: SeqClassifier,
     io: IO,
+    // Each partition is allocated a *range* of numbers. The used number is the
+    // min and key here, the value here is the max.
+    max_part_id: HashMap<u64, u64>,
 }
 impl<IO: RepoIO> SeqRepo<IO> {
     pub fn new(r: IO) -> SeqRepo<IO> {
+        let num1 = 1;
         let sc = SeqClassifier {
-            classes: vec![(PartId::from_num(1), 0)],
+            classes: vec![(0, PartId::from_num(num1))],
         };
-        SeqRepo { csf: sc, io: r }
+        let mut max = HashMap::new();
+        max.insert(num1, PartId::max_num());
+        SeqRepo {
+            csf: sc,
+            io: r,
+            max_part_id: max,
+        }
     }
 }
 impl ClassifierT for SeqClassifier {
     type Element = Sequence;
     fn classify(&self, elt: &Sequence) -> Option<PartId> {
-        let mut part_id = None;
-        for t in &self.classes {
-            if t.1 > elt.v.len() { break; }
-            part_id = Some(t.0);
+        let len = elt.v.len();
+        match self.classes.binary_search_by(|x| x.0.cmp(&len)) {
+            Ok(i) => Some(self.classes[i].1), // len equals lower bound
+            Err(i) => {
+                if i == 0 {
+                    None    // shouldn't happen, since we should have a class with lower bound 0
+                } else {
+                    // i is index such that self.classes[i-1].0 < len < self.classes[i].0
+                    Some(self.classes[i-1].1)
+                }
+            }
         }
-        part_id // can be None
     }
     fn fallback(&self) -> ClassifyFallback {
         // classify() only returns None if something is broken; stop
@@ -106,14 +119,48 @@ impl<IO: RepoIO> RepoT<SeqClassifier> for SeqRepo<IO> {
     fn clone_classifier(&self) -> SeqClassifier {
         self.csf.clone()
     }
-    fn divide(&mut self, _class: PartId) ->
+    fn divide(&mut self, part: &PartState<Sequence>) ->
         Result<(Vec<PartId>, Vec<PartId>), RepoDivideError>
     {
-        //TODO: 1: choose new lengths to use for partitioning
-        //TODO: 2: find new partition numbers
-        //TODO: 3: consider revising API to find new partition numbers within Pippin
-        // currently we do not partition
-        Err(RepoDivideError::NotSubdivisible)
+        // 1: choose new lengths to use for partitioning
+        // Algorithm: sample up to 999 lengths, find the median
+        if part.num_avail() < 1 { return Err(RepoDivideError::NotSubdivisible); }
+        let mut lens = Vec::with_capacity(min(999, part.num_avail()));
+        for elt in part.elt_map() {
+            let seq: &Sequence = elt.1;
+            lens.push(seq.v.len());
+            if lens.len() >= 999 { break; }
+        }
+        lens.sort();
+        let mid_point = lens.len() / 2;
+        let median = lens[mid_point];
+        // 1st new class uses existing lower-bound; 2nd uses median as its lower bound
+        
+        // 2: find new partition numbers
+        let old_id = part.part_id();
+        let max_num = match self.max_part_id.get(&old_id.into_num()) {
+            Some(num) => *num,
+            None => {
+                return Err(RepoDivideError::msg("missing info"));
+            },
+        };
+        if max_num < old_id.into_num() + 2 {
+            // Not enough numbers
+            // TODO: steal numbers from other partitions
+            return Err(RepoDivideError::NotSubdivisible);
+        }
+        let num1 = old_id.into_num() + 1;
+        let num2 = num1 + (max_num - old_id.into_num()) / 2;
+        let (id1, id2) = (PartId::from_num(num1), PartId::from_num(num2));
+        
+        // 3: update and report
+        let i = try!(self.csf.classes.binary_search_by(|v| v.1.cmp(&old_id))
+            .map_err(|_| RepoDivideError::msg("missing info")));
+        self.csf.classes[i].1 = id1;
+        self.csf.classes.insert(i+1, (median, id2));
+        self.max_part_id.insert(num1, num2 - 1);
+        self.max_part_id.insert(num2, max_num);
+        Ok((vec![id1, id2], vec![]))
     }
     fn write_buf(&self, num: PartId, writer: &mut Write) -> Result<()> {
         // currently nothing to write

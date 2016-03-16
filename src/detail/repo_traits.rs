@@ -9,8 +9,8 @@ use std::any::Any;
 use std::io::Write;
 
 use PartIO;
-use {ElementT, PartId};
-use error::{Error, Result};
+use {ElementT, PartId, PartState};
+use error::{Error, Result, OtherError};
 
 
 /// Provides file discovery and creation for a repository.
@@ -134,10 +134,10 @@ pub trait RepoT<C: ClassifierT+Sized>: ClassifierT {
     }
     
     /// This function is called when too many elements correspond to the given
-    /// classification. The function should divide this classification into two
-    /// or more new classifications with new numbers; the number of the old
-    /// classification should not be used again (unless somehow the new
-    /// classifications were to recombined into the old).
+    /// classification. The function should divide some partition with two
+    /// or more new classifications each with new partition numbers;
+    /// the number of the old classification should not be used again (unless
+    /// somehow the new classifications were to recombined into the old).
     /// 
     /// The function should return the numbers of the new classifications,
     /// along with a list of other modified partitions (see below; if other
@@ -150,7 +150,7 @@ pub trait RepoT<C: ClassifierT+Sized>: ClassifierT {
     /// each, which will call `write_buf(...)` in the process). In case another
     /// partition needs to be loaded first, this function may fail with
     /// `RepoDivideError::LoadPart(num)`.
-    fn divide(&mut self, class: PartId) ->
+    fn divide(&mut self, part: &PartState<C::Element>) ->
         Result<(Vec<PartId>, Vec<PartId>), RepoDivideError>;
     
     // #0025: provide a choice of how to implement IO via a const bool?
@@ -181,6 +181,13 @@ pub enum RepoDivideError {
     LoadPart(PartId),
     /// Any other error.
     Other(Error),
+}
+impl RepoDivideError {
+    /// Create an `Other(box OtherError::new(msg))`; this is just a convenient
+    /// way to create with an error message.
+    pub fn msg(msg: &'static str) -> RepoDivideError {
+        RepoDivideError::Other(box OtherError::new(msg))
+    }
 }
 
 /// Trivial implementation for testing purposes. Always returns the same value,

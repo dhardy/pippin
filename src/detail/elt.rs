@@ -23,7 +23,7 @@ use error::{Result};
 /// this via `try_from()`.
 /// 
 /// Supports `fmt::Display` (displays the same value as `id.into_num()`).
-#[derive(Copy, Clone, PartialEq, Eq, Debug, Hash)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug, Hash, PartialOrd, Ord)]
 pub struct PartId {
     // #0018: optimise usage as Option with NonZero?
     id: u64,
@@ -33,7 +33,7 @@ impl PartId {
     /// bounds are not met.
     // #0011: should this return an Option / Result?
     pub fn from_num(n: u64) -> PartId {
-        assert!(n > 0 && n <= Self::max(), "PartId::from_num(n): n is invalid");
+        assert!(n > 0 && n <= Self::max_num(), "PartId::from_num(n): n is invalid");
         PartId { id: n << 24 }
     }
     /// Convert to a number (same restrictions as for input to `from_num()`).
@@ -51,8 +51,8 @@ impl PartId {
         assert!(n <= EltId::max(), "PartId::elt_id(n): n is invalid");
         EltId { id: self.id + n as u64 }
     }
-    /// The maximum value which can be passed to `from_num()`.
-    pub fn max() -> u64 {
+    /// The maximum number which can be passed to `from_num()`
+    pub fn max_num() -> u64 {
        0xFF_FFFF_FFFF
     }
 }
