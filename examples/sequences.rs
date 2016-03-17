@@ -16,7 +16,8 @@ use std::path::{Path, PathBuf};
 use std::process::exit;
 use std::fs;
 use std::cmp::min;
-use std::collections::HashMap;
+use std::u32;
+use std::collections::hash_map::{HashMap, Entry};
 
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use docopt::Docopt;
@@ -64,26 +65,42 @@ struct SeqClassifier {
     // sequences in the class. Ordered by min length, increasing.
     classes: Vec<(usize, PartId)>,
 }
+
+// Each classification has a PartId, a max PartId, a min length, a max length
+// and a version number. The PartId is stored as the key.
+#[derive(Clone)]
+struct PartInfo {
+    max_part_id: PartId,
+    // Information version; number increased each time partition changes
+    ver: u32,
+    min_len: u32,
+    max_len: u32,
+}
+
 struct SeqRepo<IO: RepoIO> {
     csf: SeqClassifier,
     io: IO,
-    // Each partition is allocated a *range* of numbers. The used number is the
-    // min and key here, the value here is the max.
-    max_part_id: HashMap<u64, u64>,
+    parts: HashMap<PartId, PartInfo>,
 }
 impl<IO: RepoIO> SeqRepo<IO> {
     pub fn new(r: IO) -> SeqRepo<IO> {
-        let num1 = 1;
-        let sc = SeqClassifier {
-            classes: vec![(0, PartId::from_num(num1))],
-        };
-        let mut max = HashMap::new();
-        max.insert(num1, PartId::max_num());
         SeqRepo {
-            csf: sc,
+            csf: SeqClassifier { classes: Vec::new() },
             io: r,
-            max_part_id: max,
+            parts: HashMap::new(),
         }
+    }
+    fn set_classifier(&mut self) {
+        let mut classes = Vec::with_capacity(self.parts.len());
+        for (part_id, part) in &self.parts {
+            if part.max_len > part.min_len {
+                classes.push((part.min_len as usize, part_id.clone()));
+            }
+        }
+        // Note: there *could* be overlap of ranges. We can't do much if there
+        // is and it won't cause failures later, so ignore this possibility.
+        classes.sort_by(|a, b| a.0.cmp(&b.0));
+        self.csf.classes = classes;
     }
 }
 impl ClassifierT for SeqClassifier {
@@ -107,17 +124,25 @@ impl ClassifierT for SeqClassifier {
         ClassifyFallback::Fail
     }
 }
-impl<IO: RepoIO> ClassifierT for SeqRepo<IO> {
-    type Element = Sequence;
-    fn classify(&self, elt: &Sequence) -> Option<PartId> { self.csf.classify(elt) }
-    fn fallback(&self) -> ClassifyFallback { self.csf.fallback() }
-}
 impl<IO: RepoIO> RepoT<SeqClassifier> for SeqRepo<IO> {
     fn repo_io(&mut self) -> &mut RepoIO {
         &mut self.io
     }
     fn clone_classifier(&self) -> SeqClassifier {
         self.csf.clone()
+    }
+    fn init_first(&mut self) -> Result<Box<PartIO>> {
+        assert!(self.parts.is_empty());
+        let p_id = PartId::from_num(1);
+        self.parts.insert(p_id, PartInfo {
+            max_part_id: PartId::from_num(PartId::max_num()),
+            ver: 0,
+            min_len: 0,
+            max_len: u32::MAX,
+        });
+        self.set_classifier();
+        try!(self.io.add_partition(p_id, ""));
+        Ok(try!(self.io.make_partition_io(p_id)))
     }
     fn divide(&mut self, part: &PartState<Sequence>) ->
         Result<(Vec<PartId>, Vec<PartId>), RepoDivideError>
@@ -128,7 +153,8 @@ impl<IO: RepoIO> RepoT<SeqClassifier> for SeqRepo<IO> {
         let mut lens = Vec::with_capacity(min(999, part.num_avail()));
         for elt in part.elt_map() {
             let seq: &Sequence = elt.1;
-            lens.push(seq.v.len());
+            assert!(seq.v.len() <= u32::MAX as usize);
+            lens.push(seq.v.len() as u32);
             if lens.len() >= 999 { break; }
         }
         lens.sort();
@@ -138,36 +164,110 @@ impl<IO: RepoIO> RepoT<SeqClassifier> for SeqRepo<IO> {
         
         // 2: find new partition numbers
         let old_id = part.part_id();
-        let max_num = match self.max_part_id.get(&old_id.into_num()) {
-            Some(num) => *num,
+        let old_num = old_id.into_num();
+        let (max_num, min_len, max_len) = match self.parts.get(&old_id) {
+            Some(part) => 
+                (part.max_part_id.into_num(), part.min_len, part.max_len),
             None => {
                 return Err(RepoDivideError::msg("missing info"));
             },
         };
-        if max_num < old_id.into_num() + 2 {
+        if max_num < old_num + 2 {
             // Not enough numbers
             // TODO: steal numbers from other partitions
             return Err(RepoDivideError::NotSubdivisible);
         }
-        let num1 = old_id.into_num() + 1;
-        let num2 = num1 + (max_num - old_id.into_num()) / 2;
+        let num1 = old_num + 1;
+        let num2 = num1 + (max_num - old_num) / 2;
         let (id1, id2) = (PartId::from_num(num1), PartId::from_num(num2));
         
         // 3: update and report
-        let i = try!(self.csf.classes.binary_search_by(|v| v.1.cmp(&old_id))
-            .map_err(|_| RepoDivideError::msg("missing info")));
-        self.csf.classes[i].1 = id1;
-        self.csf.classes.insert(i+1, (median, id2));
-        self.max_part_id.insert(num1, num2 - 1);
-        self.max_part_id.insert(num2, max_num);
+        let ver = self.parts.get(&id1).map_or(0, |pi| pi.ver + 1);
+        self.parts.insert(id1, PartInfo {
+            max_part_id: PartId::from_num(num2 - 1),
+            ver: ver,
+            min_len: min_len,
+            max_len: median - 1,
+        });
+        let ver = self.parts.get(&id2).map_or(0, |pi| pi.ver + 1);
+        self.parts.insert(id2, PartInfo {
+            max_part_id: PartId::from_num(max_num),
+            ver: ver,
+            min_len: median,
+            max_len: max_len,
+        });
+        if let Some(pi) = self.parts.get_mut(&old_id) {
+            pi.max_part_id = old_id;
+            pi.ver = pi.ver + 1;
+            pi.max_len = pi.min_len;    // mark as no longer in use
+        }
+        self.set_classifier();
+        //TODO: what happens with return value?
         Ok((vec![id1, id2], vec![]))
     }
-    fn write_buf(&self, num: PartId, writer: &mut Write) -> Result<()> {
-        // currently nothing to write
+    fn write_buf(&self, _num: PartId, w: &mut Write) -> Result<()> {
+        // Classifier data (little endian):
+        // "SeqCSF01" identifier
+        // Number of PartInfos (u32)
+        // PartInfos: two PartIds (u64 × 2), ver (u32), lengths (u32 × 2)
+        try!(w.write(b"SeqCSF01"));
+        assert!(self.parts.len() <= u32::MAX as usize);
+        try!(w.write_u32::<LittleEndian>(self.parts.len() as u32));
+        for (part_id, part) in &self.parts {
+            try!(w.write_u64::<LittleEndian>((*part_id).into()));
+            try!(w.write_u64::<LittleEndian>(part.max_part_id.into()));
+            try!(w.write_u32::<LittleEndian>(part.ver));
+            try!(w.write_u32::<LittleEndian>(part.min_len));
+            try!(w.write_u32::<LittleEndian>(part.max_len));
+        }
         Ok(())
     }
-    fn read_buf(&mut self, num: PartId, buf: &[u8]) -> Result<()> {
-        // currently nothing to read
+    fn read_buf(&mut self, _num: PartId, buf: &[u8]) -> Result<()> {
+        // Format is as defined in `write_buf()`.
+        
+        //TODO: how should errors be handled? Clean up handling.
+        if buf.len() < 12 {
+            return OtherError::err("Insufficient data for classifier's read_buf()");
+        }
+        if buf[0..8] != *b"SeqCSF01" {
+            return OtherError::err("Invalid format identifier for classifier's read_buf()");
+        }
+        let n_parts = try!((&mut &buf[8..12]).read_u32::<LittleEndian>()) as usize;
+        if buf.len() != 12 + (8*2 + 4*3) * n_parts {
+            return OtherError::err("Wrong data length for classifier's read_buf()");
+        }
+        let mut r = &mut &buf[12..];
+        for _ in 0..n_parts {
+            let part_id = try!(PartId::try_from(try!(r.read_u64::<LittleEndian>()))
+                    .ok_or(OtherError::new("Invalid PartId for classifier's read_buf()")));
+            let max_part_id = try!(PartId::try_from(try!(r.read_u64::<LittleEndian>()))
+                    .ok_or(OtherError::new("Invalid PartId for classifier's read_buf()")));
+            let ver = try!(r.read_u32::<LittleEndian>());
+            let min_len = try!(r.read_u32::<LittleEndian>());
+            let max_len = try!(r.read_u32::<LittleEndian>());
+            
+            match self.parts.entry(part_id) {
+                Entry::Occupied(mut e) => {
+                    if ver > e.get().ver {
+                        // Replace all entries with more recent information
+                        let v = e.get_mut();
+                        v.max_part_id = max_part_id;
+                        v.ver = ver;
+                        v.min_len = min_len;
+                        v.max_len = max_len;
+                    }   // else: information is not newer; ignore
+                },
+                Entry::Vacant(e) => {
+                    e.insert(PartInfo {
+                        max_part_id: max_part_id,
+                        ver: ver,
+                        min_len: min_len,
+                        max_len: max_len,
+                    });
+                },
+            }
+        }
+        self.set_classifier();
         Ok(())
     }
 }

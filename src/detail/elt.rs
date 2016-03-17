@@ -29,7 +29,7 @@ pub struct PartId {
     id: u64,
 }
 impl PartId {
-    /// Convert from number, `n`, where `n > 0` and `n <= max()`. Panics if
+    /// Convert from number, `n`, where `n > 0` and `n <= max_num()`. Panics if
     /// bounds are not met.
     // #0011: should this return an Option / Result?
     pub fn from_num(n: u64) -> PartId {

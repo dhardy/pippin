@@ -70,7 +70,7 @@ impl<C: ClassifierT, R: RepoT<C>> Repository<C, R> {
     pub fn create<S: Into<String>>(mut classifier: R, name: S) -> Result<Repository<C, R>> {
         let name = name.into();
         info!("Creating repository: {}", name);
-        let part_io = try!(classifier.first_part());
+        let part_io = try!(classifier.init_first());
         let part = try!(Partition::create(part_io, &name));
         let mut partitions = HashMap::new();
         partitions.insert(part.part_id(), part);

@@ -104,7 +104,7 @@ pub enum ClassifyFallback {
 
 /// Encapsulates a RepoIO and a ClassifierT, handling repartitioning and
 /// serialisation.
-pub trait RepoT<C: ClassifierT+Sized>: ClassifierT {
+pub trait RepoT<C: ClassifierT+Sized> {
     /// Get access to the I/O provider. This could be an instance of
     /// `DiscoverRepoFiles` or could be self (among other possibilities).
     fn repo_io<'a>(&'a mut self) -> &'a mut RepoIO;
@@ -116,22 +116,23 @@ pub trait RepoT<C: ClassifierT+Sized>: ClassifierT {
     /// classifications.
     fn clone_classifier(&self) -> C;
     
-    /// Initially there should only be one partition and one classification.
-    /// This function returns the `PartIO` of this classification, whose
-    /// `part_id()` property is set to the classification number.
+    /// This method is called once by `Repository::create()`. It may be used
+    /// initialise classification for a new repository. It must choose an
+    /// initial `PartId`, create a partition, and return its `PartIO`.
     /// 
-    /// It is allowed for this function to panic once there is more than one
-    /// classification available.
+    /// Sample code to do this (apart from any internal set-up required):
     /// 
-    /// The default implementation uses `PartId::from_num(1)` and calls
-    /// `add_partition` and `make_partition_io`.
-    fn first_part(&mut self) -> Result<Box<PartIO>> {
-        let num = PartId::from_num(1);
-        let mut io = self.repo_io();
-        try!(io.add_partition(num, "" /*no prefix*/));
-        let part_io = try!(io.make_partition_io(num));
-        Ok(part_io)
-    }
+    /// ```no_compile
+    /// fn init_first(&mut self) -> Result<Box<PartIO>> {
+    ///     let part_id = PartId::from_num(1);
+    ///     try!(self.repo_io().add_partition(part_id, "" /*no prefix*/));
+    ///     Ok(try!(self.repo_io().make_partition_io(part_id)))
+    /// }
+    /// ```
+    /// 
+    /// It is allowed for this function to panic if it is called a second time
+    /// or after any method besides `repo_io()` has been called.
+    fn init_first(&mut self) -> Result<Box<PartIO>>;
     
     /// This function is called when too many elements correspond to the given
     /// classification. The function should divide some partition with two
