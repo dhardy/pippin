@@ -9,11 +9,12 @@ use std::collections::{HashSet, VecDeque};
 use std::result;
 use std::any::Any;
 use std::ops::Deref;
+use std::rc::Rc;
 use hashindexed::{HashIndexed, Iter};
 
 pub use detail::states::{State, MutState, PartState, MutPartState};
 
-use detail::readwrite::{FileHeader, FileType, read_head, write_head, validate_repo_name};
+use detail::readwrite::{FileHeader, UserData, FileType, read_head, write_head, validate_repo_name};
 use detail::readwrite::{read_snapshot, write_snapshot};
 use detail::readwrite::{read_log, start_log, write_commit};
 use detail::states::{PartStateSumComparator};
@@ -231,9 +232,11 @@ impl<E: ElementT> Partition<E> {
     /// use pippin::part::DummyPartIO;
     /// 
     /// let io = Box::new(DummyPartIO::new(PartId::from_num(1)));
-    /// let partition = Partition::<String>::create(io, "example repo");
+    /// let partition = Partition::<String>::create(io, "example repo", vec![].into());
     /// ```
-    pub fn create(mut io: Box<PartIO>, name: &str) -> Result<Partition<E>> {
+    pub fn create<'a>(mut io: Box<PartIO>, name: &str,
+            user_fields: Rc<Vec<UserData>>) -> Result<Partition<E>>
+    {
         try!(validate_repo_name(name));
         let ss = 0;
         let part_id = try!(io.part_id().ok_or(
@@ -245,8 +248,7 @@ impl<E: ElementT> Partition<E> {
             ftype: FileType::Snapshot(0),
             name: name.to_string(),
             part_id: Some(part_id),
-            remarks: Vec::new(),
-            user_fields: Vec::new(),
+            user: user_fields,
         };
         if let Some(mut writer) = try!(io.new_ss(ss)) {
             try!(write_head(&header, &mut writer));
@@ -726,7 +728,7 @@ impl<E: ElementT> Partition<E> {
     /// 
     /// Note that writing to disk can fail. In this case it may be worth trying
     /// again.
-    pub fn write(&mut self, fast: bool) -> Result<bool> {
+    pub fn write(&mut self, fast: bool, user_fields: Rc<Vec<UserData>>) -> Result<bool> {
         // First step: write commits
         let has_changes = !self.unsaved.is_empty();
         if has_changes {
@@ -742,8 +744,7 @@ impl<E: ElementT> Partition<E> {
                         ftype: FileType::CommitLog(0),
                         name: self.repo_name.clone(),
                         part_id: Some(self.part_id),
-                        remarks: Vec::new(),
-                        user_fields: Vec::new(),
+                        user: user_fields.clone(),
                     };
                     try!(write_head(&header, &mut writer));
                     try!(start_log(&mut writer));
@@ -770,7 +771,7 @@ impl<E: ElementT> Partition<E> {
         // Second step: maintenance operations
         if !fast {
             if self.is_ready() && self.ss_policy.snapshot() {
-                try!(self.write_snapshot());
+                try!(self.write_snapshot(user_fields));
             }
         }
         
@@ -783,7 +784,7 @@ impl<E: ElementT> Partition<E> {
     /// when to write a new snapshot, though you can also call this directly.
     /// 
     /// Does nothing when `tip()` fails (returning `Ok(())`).
-    pub fn write_snapshot(&mut self) -> Result<()> {
+    pub fn write_snapshot(&mut self, user_fields: Rc<Vec<UserData>>) -> Result<()> {
         // fail early if not ready:
         let tip_key = try!(self.tip_key()).clone();
         
@@ -798,8 +799,7 @@ impl<E: ElementT> Partition<E> {
                     ftype: FileType::Snapshot(0),
                     name: self.repo_name.clone(),
                     part_id: Some(self.part_id),
-                    remarks: Vec::new(),
-                    user_fields: Vec::new(),
+                    user: user_fields,
                 };
                 //TODO: also write classifier stuff
                 try!(write_head(&header, &mut writer));
@@ -933,7 +933,8 @@ impl<'a, E: ElementT+'a> Iterator for StateIter<'a, E> {
 #[test]
 fn on_new_partition() {
     let io = box DummyPartIO::new(PartId::from_num(7));
-    let mut part = Partition::<String>::create(io, "on_new_partition").expect("partition creation");
+    let mut part = Partition::<String>::create(io, "on_new_partition", vec![].into())
+            .expect("partition creation");
     assert_eq!(part.tips.len(), 1);
     
     let state = part.tip().expect("getting tip").clone_mut();

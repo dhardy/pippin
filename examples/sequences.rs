@@ -456,7 +456,7 @@ fn run(dir: &Path, part_basename: Option<String>, mode: Mode, create: bool,
         }
             
         let mut part = if create {
-            try!(Partition::<Sequence>::create(io, "sequences db"))
+            try!(Partition::<Sequence>::create(io, "sequences db", vec![].into()))
         } else {
             let mut part = try!(Partition::<Sequence>::open(io));
             try!(part.load(false));
@@ -476,11 +476,11 @@ fn run(dir: &Path, part_basename: Option<String>, mode: Mode, create: bool,
             generate(&mut state);
             println!("Done modifying state");
             try!(part.push_state(state, None));
-            try!(part.write(false));
+            try!(part.write(false, vec![].into()));
         }
         
         if snapshot {
-            try!(part.write_snapshot());
+            try!(part.write_snapshot(vec![].into()));
         }
     } else {
         let discover = try!(DiscoverRepoFiles::from_dir(dir));

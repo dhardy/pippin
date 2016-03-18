@@ -87,7 +87,7 @@ fn create_small() {
             part_id: PartId::from_num(56),
             ss: VecMap::new() };
     let mut part = Partition::<String>::create(box part_streams,
-        "create_small").expect("creating partition");
+        "create_small", vec![].into()).expect("creating partition");
     
     // 2 Add a few elements over multiple commits
     let mut state = part.tip().expect("has tip").clone_mut();
@@ -113,7 +113,7 @@ fn create_small() {
     let state3 = part.tip().expect("has tip").clone_exact();
     
     // 3 Write to streams in memory
-    part.write(true).expect("writing");
+    part.write(true, vec![].into()).expect("writing");
     let boxed_io = part.unwrap_io();
     
     // 4 Check the generated streams

@@ -7,6 +7,7 @@
 use std::io::{Read, Write, ErrorKind};
 use std::cmp::min;
 use std::result::Result as stdResult;
+use std::rc::Rc;
 
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
@@ -65,6 +66,19 @@ impl FileType {
     }
 }
 
+/// Types of user-data which can be stored in header fields.
+/// 
+/// Maximum length of each field is currently 573 bytes (of text / data).
+/// The file format specification already covers longer fields but is not yet
+/// implemented (TODO).
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum UserData {
+    /// Free-form data
+    Data(Vec<u8>),
+    /// UTF-8, stored as a "remark"
+    Text(String),
+}
+
 // Information stored in a file header
 pub struct FileHeader {
     /// File type: snapshot or log file.
@@ -73,10 +87,8 @@ pub struct FileHeader {
     pub name: String,
     /// Partition identifier. Zero if not present.
     pub part_id: Option<PartId>,
-    /// User remarks
-    pub remarks: Vec<String>,
-    /// User data
-    pub user_fields: Vec<Vec<u8>>
+    /// User data fields, remarks, etc.
+    pub user: Rc<Vec<UserData>>,
 }
 
 // Decodes from a string to the format used in HEAD_VERSIONS. Returns zero on
@@ -129,14 +141,8 @@ pub fn read_head(r: &mut Read) -> Result<FileHeader> {
     };
     pos += 16;
     
-    let mut header = FileHeader{
-        ftype: ftype,
-        name: repo_name,
-        part_id: None,
-        remarks: Vec::new(),
-        user_fields: Vec::new(),
-    };
-    
+    let mut part_id = None;
+    let mut user_fields = Vec::new();
     loop {
         try!(sum_reader.read_exact(&mut buf[0..16]));
         let (block, off): (&[u8], usize) = if buf[0] == b'H' {
@@ -169,19 +175,19 @@ pub fn read_head(r: &mut Read) -> Result<FileHeader> {
             };
             break;      // "HSUM" must be last item of header before final checksum
         } else if block[0..7] == PARTID[1..] {
-            if header.part_id != None {
+            if part_id != None {
                 return ReadError::err("repeat of PARTID", pos, (off, off+7));
             }
             let id = try!((&block[7..15]).read_u64::<BigEndian>());
-            if let Some(part_id) = PartId::try_from(id) {
-                header.part_id = Some(part_id);
+            if let Some(p_id) = PartId::try_from(id) {
+                part_id = Some(p_id);
             } else {
                 return ReadError::err("invalid partition number", pos, (off+7, off+15));
             };
         } else if block[0] == b'R' {
-            header.remarks.push(try!(String::from_utf8(rtrim(&block, 0).to_vec())));
+            user_fields.push(UserData::Text(try!(String::from_utf8(rtrim(&block[1..], 0).to_vec()))));
         } else if block[0] == b'U' {
-            header.user_fields.push(rtrim(&block[1..], 0).to_vec());
+            user_fields.push(UserData::Data(rtrim(&block[1..], 0).to_vec()));
         } else if block[0] == b'O' {
             // Match optional extensions here; we currently have none
         } else if block[0] >= b'A' && block[0] <= b'Z' {
@@ -204,7 +210,12 @@ pub fn read_head(r: &mut Read) -> Result<FileHeader> {
         return ReadError::err("header checksum invalid", pos, (0, SUM_BYTES));
     }
     
-    Ok(header)
+    Ok(FileHeader{
+        ftype: ftype,
+        name: repo_name,
+        part_id: part_id,
+        user: Rc::new(user_fields),
+    })
 }
 
 /// Write a file header.
@@ -230,28 +241,12 @@ pub fn write_head(header: &FileHeader, writer: &mut Write) -> Result<()> {
         try!(w.write_u64::<BigEndian>(part_id.into()));
     }
     
-    for rem in &header.remarks {
-        let b = rem.as_bytes();
-        if b[0] != b'R' {
-            return ArgError::err("remark does not start 'R'");
-        }
-        if b.len() <= 15 {
-            try!(w.write(b"H"));
-            try!(w.write(b));
-            try!(pad(&mut w, 15 - b.len()));
-        } else if b.len() <= 16 * 36 - 2 {
-            let n = (b.len() + 2 /* Qx */ + 15 /* round up */) / 16;
-            let l = [b'Q', if n <= 9 { b'0' + n as u8 } else { b'A' - 10 + n as u8 } ];
-            try!(w.write(&l));
-            try!(w.write(b));
-            try!(pad(&mut w, n * 16 - b.len() + 2));
-        } else {
-            return ArgError::err("remark too long");
-        }
-    }
-    
-    for uf in &header.user_fields {
-        let mut l = [b'Q', b'H', b'U'];
+    for u in &*header.user {
+        let (t, uf) = match u {
+            &UserData::Data(ref b) => (b'U', &b[..]),
+            &UserData::Text(ref t) => (b'R', t.as_bytes()),
+        };
+        let mut l = [b'Q', b'H', t];
         if uf.len() <= 14 {
             try!(w.write(&l[1..3]));
             try!(w.write(&uf));
@@ -309,8 +304,11 @@ fn read_header() {
         Err(e) => { panic!("{}", e); }
     };
     assert_eq!(header.name, "test AbC αβγ");
-    assert_eq!(header.remarks, vec!["Remark 12345678", "REM  completely pointless text"]);
-    assert_eq!(header.user_fields, vec![b"user rule"]);
+    assert_eq!(*header.user, vec![
+        UserData::Text("emark 12345678".to_string()),
+        UserData::Data(b"user rule".to_vec()),
+        UserData::Text("EM  completely pointless text".to_string()),
+    ]);
 }
 
 #[test]
@@ -319,21 +317,24 @@ fn write_header() {
         ftype: FileType::Snapshot(0 /*version should be ignored*/),
         name: "Ähnliche Unsinn".to_string(),
         part_id: None,
-        remarks: vec!["Remark ω".to_string(), "R Quatsch Quatsch Quatsch".to_string()],
-        user_fields: vec![b" rsei noasr auyv 10()% xovn".to_vec()]
+        user: vec![
+            UserData::Text("Remark ω".to_string()),
+            UserData::Text(" Quatsch Quatsch Quatsch".to_string()),
+            UserData::Data(b" rsei noasr auyv 10()% xovn".to_vec()),
+        ].into(),
     };
     let mut buf = Vec::new();
     write_head(&header, &mut buf).unwrap();
     
     let expected = b"PIPPINSS20160310\
             \xc3\x84hnliche Unsinn\
-            HRemark \xcf\x89\x00\x00\x00\x00\x00\x00\
+            HRRemark \xcf\x89\x00\x00\x00\x00\x00\
             Q2R Quatsch Quatsch \
-            Quatsch\x00\x00\x00\x00\x00\x00\x00\x00\x00\
+            Quatsch\x00\x00\x00\x00\x00\
             Q2U rsei noasr a\
             uyv 10()% xovn\x00\x00\
             HSUM BLAKE2 16\x00\x00\
-            tk\xe5c\x03\x85`\xcb>\xb0l\x07\x0dt\xc5\xcf0;\xd9\xb8^\x98\x85\x89\x95\x83]e}\x1a`\'";
+            \x99\xf6\xfd\xa4\xa1\xf1\x82\xce\x09\xf3\x82\x9f;\xfcl2\xe5\x99f\xa1A9\x96\xba=\x1aA\xe6\x96g\x940";
     use ::util::ByteFormatter;
     println!("Checksum: '{}'", ByteFormatter::from(&buf[buf.len()-SUM_BYTES..buf.len()]));;
     assert_eq!(&buf[..], &expected[..]);

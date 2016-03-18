@@ -19,8 +19,9 @@ use std::path::PathBuf;
 use std::io::{Read, Write};
 use std::ffi::OsStr;
 use std::os::unix::ffi::OsStrExt;
+use std::rc::Rc;
 use docopt::Docopt;
-use pippin::{Partition, PartIO, ElementT, State, MutState};
+use pippin::{Partition, PartIO, ElementT, State, MutState, UserData};
 use pippin::discover::*;
 use pippin::error::{Result, PathError, ErrorTrait};
 use pippin::util::rtrim;
@@ -187,7 +188,8 @@ fn inner(files: Vec<String>, op: Operation, args: Rest) -> Result<()>
             });
             
             let io = try!(DiscoverPartFiles::from_dir_basename(path, &name, None));
-            try!(Partition::<DataElt>::create(box io, &repo_name));
+            try!(Partition::<DataElt>::create(box io, &repo_name,
+                    vec![UserData::Text("by pippincmd".to_string())].into()));
             Ok(())
         },
         Operation::OnPartition(part_op) => {
@@ -309,9 +311,10 @@ fn inner(files: Vec<String>, op: Operation, args: Rest) -> Result<()>
                     }
                 }       // destroy reference `state`
                 
-                let has_changes = try!(part.write(true));
+                let user_fields: Rc<Vec<UserData>> = vec![UserData::Text("by pippincmd".to_string())].into();
+                let has_changes = try!(part.write(true, user_fields.clone()));
                 if has_changes && args.snapshot {
-                    try!(part.write_snapshot());
+                    try!(part.write_snapshot(user_fields));
                 }
                 Ok(())
             }

@@ -11,6 +11,6 @@ mod header;
 mod snapshot;
 mod commitlog;
 
-pub use self::header::{FileHeader, FileType, read_head, write_head, validate_repo_name};
+pub use self::header::{UserData, FileHeader, FileType, read_head, write_head, validate_repo_name};
 pub use self::snapshot::{read_snapshot, write_snapshot};
 pub use self::commitlog::{CommitReceiver, read_log, start_log, write_commit};

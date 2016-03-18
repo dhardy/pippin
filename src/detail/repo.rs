@@ -71,7 +71,9 @@ impl<C: ClassifierT, R: RepoT<C>> Repository<C, R> {
         let name = name.into();
         info!("Creating repository: {}", name);
         let part_io = try!(classifier.init_first());
-        let part = try!(Partition::create(part_io, &name));
+        //TODO: insert classifier data:
+        let user_fields = Rc::new(Vec::new());
+        let part = try!(Partition::create(part_io, &name, user_fields));
         let mut partitions = HashMap::new();
         partitions.insert(part.part_id(), part);
         Ok(Repository{
@@ -136,16 +138,20 @@ impl<C: ClassifierT, R: RepoT<C>> Repository<C, R> {
     
     /// Call `Partition::write(fast)` on all loaded partitions.
     pub fn write_all(&mut self, fast: bool) -> Result<()> {
+        //TODO: insert classifier data:
+        let user_fields = Rc::new(Vec::new());
         for (_, part) in &mut self.partitions {
-            try!(part.write(fast));
+            try!(part.write(fast, user_fields.clone()));
         }
         Ok(())
     }
     
     /// Call `Partition::write_snapshot()` on all loaded partitions.
     pub fn write_snapshot_all(&mut self) -> Result<()> {
+        //TODO: insert classifier data:
+        let user_fields = Rc::new(Vec::new());
         for (_, part) in &mut self.partitions {
-            try!(part.write_snapshot());
+            try!(part.write_snapshot(user_fields.clone()));
         }
         Ok(())
     }
