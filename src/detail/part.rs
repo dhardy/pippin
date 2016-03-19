@@ -339,7 +339,7 @@ impl<E: ElementT> Partition<E> {
         for ss in (0 .. self.io.ss_len()).rev() {
             if let Some(mut ssf) = try!(self.io.read_ss(ss)) {
                 let header = try!(read_head(&mut *ssf));
-                try!(Self::verify_head(header, &mut self.repo_name, self.part_id));
+                try!(Self::verify_head(&header, &mut self.repo_name, self.part_id));
                 return Ok(&self.repo_name);
             }
         }
@@ -365,7 +365,10 @@ impl<E: ElementT> Partition<E> {
     /// known states, one directed graph of one or more states with a single
     /// tip (latest state), or a graph with multiple tips (requiring a merge
     /// operation).
-    pub fn load(&mut self, all_history: bool) -> Result<()> {
+    /// 
+    /// Returns the header from the most recent file read. TODO: ways of getting
+    /// other headers / loading files individually.
+    pub fn load(&mut self, all_history: bool) -> Result<FileHeader> {
         info!("Loading partition {} data", self.part_id);
         let ss_len = self.io.ss_len();
         if ss_len == 0 {
@@ -373,13 +376,17 @@ impl<E: ElementT> Partition<E> {
         }
         let mut num = ss_len - 1;
         
+        let mut header = None;
+        
         // Load a snapshot (if found); return Ok(true) if successful, Ok(false)
         // if not found.
-        let load_ss = |p: &mut Partition<E>, ss: usize| -> Result<bool> {
+        type OptHead = Option<FileHeader>;
+        let load_ss = |p: &mut Partition<E>, header: &mut OptHead, ss: usize| -> Result<bool> {
             if let Some(mut r) = try!(p.io.read_ss(ss)) {
                 let head = try!(read_head(&mut r));
                 let file_ver = head.ftype.ver();
-                try!(Self::verify_head(head, &mut p.repo_name, p.part_id));
+                try!(Self::verify_head(&head, &mut p.repo_name, p.part_id));
+                *header = Some(head);
                 let state = try!(read_snapshot(&mut r, p.part_id, file_ver));
                 
                 p.tips.insert(state.statesum().clone());
@@ -388,13 +395,14 @@ impl<E: ElementT> Partition<E> {
             } else { Ok(false) }
         };
         // Load all found log files for the given range of snapshot numbers
-        let load_cl = |p: &mut Partition<E>, range| -> Result<_> {
+        let load_cl = |p: &mut Partition<E>, header: &mut OptHead, range| -> Result<_> {
             let mut queue = CommitQueue::new();
             for ss in range {
                 for cl in 0..p.io.ss_cl_len(ss) {
                     if let Some(mut r) = try!(p.io.read_ss_cl(ss, cl)) {
                         let head = try!(read_head(&mut r));
-                        try!(Self::verify_head(head, &mut p.repo_name, p.part_id));
+                        try!(Self::verify_head(&head, &mut p.repo_name, p.part_id));
+                        *header = Some(head);
                         try!(read_log(&mut r, &mut queue));
                     }
                 }
@@ -407,9 +415,9 @@ impl<E: ElementT> Partition<E> {
             let mut num_commits = 0;
             let mut num_edits = 0;
             for ss in 0..ss_len {
-                try!(load_ss(self, ss));
+                try!(load_ss(self, &mut header, ss));
                 
-                let queue = try!(load_cl(self, ss..(ss+1)));
+                let queue = try!(load_cl(self, &mut header, ss..(ss+1)));
                 num_commits = queue.len();  // final value is number of commits after last snapshot
                 let mut replayer = LogReplay::from_sets(&mut self.states, &mut self.tips);
                 num_edits = try!(replayer.replay(queue));
@@ -419,7 +427,7 @@ impl<E: ElementT> Partition<E> {
         } else {
             // Latest only: load only the latest snapshot and subsequent commits
             loop {
-                if try!(load_ss(self, num)) {
+                if try!(load_ss(self, &mut header, num)) {
                     break;  // we stop at the most recent snapshot we find
                 }
                 if num == 0 {
@@ -430,7 +438,7 @@ impl<E: ElementT> Partition<E> {
                 num -= 1;
             }
             
-            let queue = try!(load_cl(self, num..ss_len));
+            let queue = try!(load_cl(self, &mut header, num..ss_len));
             self.ss_policy.add_commits(queue.len());
             if self.tips.is_empty() {
                 // Only for the case we couldn't find a snapshot file (see "num == 0" above)
@@ -448,12 +456,13 @@ impl<E: ElementT> Partition<E> {
         } else {
         }
         
-        if self.tips.is_empty() {
-            make_io_err(ErrorKind::NotFound, "load operation found no states")
-        } else {
-            // success, but a merge may still be required
-            Ok(())
+        if !self.tips.is_empty() {
+            if let Some(head) = header {
+                // success, but a merge may still be required
+                return Ok(head);
+            }
         }
+        OtherError::err("no data loaded")
     }
     
     /// Returns true when elements have been loaded (though also see
@@ -480,11 +489,11 @@ impl<E: ElementT> Partition<E> {
     /// 
     /// This function is called for every file loaded. It does not take self as
     /// an argument, since it is called in situations where self.io is in use.
-    pub fn verify_head(head: FileHeader, self_name: &mut String,
+    pub fn verify_head(head: &FileHeader, self_name: &mut String,
         self_partid: PartId) -> Result<()>
     {
         if self_name.len() == 0 {
-            *self_name = head.name;
+            *self_name = head.name.clone();
         } else if *self_name != head.name{
             return OtherError::err("repository name does not match when loading (wrong repo?)");
         }
