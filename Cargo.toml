@@ -21,7 +21,7 @@ chrono = "0.2"
 # simd = "*"
 
 # For reading and writing binary numbers with fixed endianness.
-byteorder = "0.4"
+byteorder = "0.5"
 
 # Data structure used internally.
 hashindexed = "0.1"
@@ -31,7 +31,7 @@ regex = "0.1"
 
 # Container seems like the best match for the job. There isn't any strong
 # reason to choose this over libstd containers however.
-vec_map = "0.4"
+vec_map = "0.6"
 
 # Used by `PartState::gen_id()` and the 'sequences' example
 rand = "0.3"
