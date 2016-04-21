@@ -264,13 +264,13 @@ impl DiscoverPartFiles {
     
     /// Returns a reference to the path of a snapshot file, if found.
     pub fn get_ss_path(&self, ss: usize) -> Option<&Path> {
-        self.ss.get(&ss).and_then(|&(ref p, _)| if *p == PathBuf::new() { None } else { Some(p.as_path()) })
+        self.ss.get(ss).and_then(|&(ref p, _)| if *p == PathBuf::new() { None } else { Some(p.as_path()) })
     }
     
     /// Returns a reference to the path of a log file, if found.
     pub fn get_cl_path(&self, ss: usize, cl: usize) -> Option<&Path> {
-        self.ss.get(&ss)
-            .and_then(|&(_, ref logs)| logs.get(&cl))
+        self.ss.get(ss)
+            .and_then(|&(_, ref logs)| logs.get(cl))
             .map(|p| p.as_path())
     }
 }
@@ -284,14 +284,14 @@ impl PartIO for DiscoverPartFiles {
         self.ss.keys().next_back().map(|x| x+1).unwrap_or(0)
     }
     fn ss_cl_len(&self, ss_num: usize) -> usize {
-        self.ss.get(&ss_num)
+        self.ss.get(ss_num)
             .and_then(|&(_, ref logs)| logs.keys().next_back())
             .map(|x| x+1).unwrap_or(0)
     }
     
     fn read_ss<'a>(&self, ss_num: usize) -> Result<Option<Box<Read+'a>>> {
         // Cannot replace `match` with `map` since `try!()` cannot be used in a closure
-        Ok(match self.ss.get(&ss_num) {
+        Ok(match self.ss.get(ss_num) {
             Some(&(ref p, _)) => {
                 trace!("Reading snapshot file: {}", p.display());
                 Some(box try!(File::open(p)))
@@ -301,7 +301,7 @@ impl PartIO for DiscoverPartFiles {
     }
     
     fn read_ss_cl<'a>(&self, ss_num: usize, cl_num: usize) -> Result<Option<Box<Read+'a>>> {
-        Ok(match self.ss.get(&ss_num).and_then(|&(_, ref logs)| logs.get(&cl_num)) {
+        Ok(match self.ss.get(ss_num).and_then(|&(_, ref logs)| logs.get(cl_num)) {
             Some(p) => {
                 trace!("Reading log file: {}", p.display());
                 Some(box try!(File::open(p)))
@@ -312,13 +312,13 @@ impl PartIO for DiscoverPartFiles {
     
     fn new_ss<'a>(&mut self, ss_num: usize) -> Result<Option<Box<Write+'a>>> {
         let p = self.dir.join(PathBuf::from(format!("{}-ss{}.pip", self.basename, ss_num)));
-        if self.ss.get(&ss_num).map_or(false, |&(ref p, _)| *p != PathBuf::new()) || p.exists() {
+        if self.ss.get(ss_num).map_or(false, |&(ref p, _)| *p != PathBuf::new()) || p.exists() {
             return Ok(None);
         }
         trace!("Creating snapshot file: {}", p.display());
         let stream = try!(File::create(&p));
-        if self.ss.contains_key(&ss_num) {
-            self.ss.get_mut(&ss_num).unwrap().0 = p;
+        if self.ss.contains_key(ss_num) {
+            self.ss.get_mut(ss_num).unwrap().0 = p;
         } else {
             self.ss.insert(ss_num, (p, VecMap::new()));
         }
@@ -326,7 +326,7 @@ impl PartIO for DiscoverPartFiles {
     }
     
     fn append_ss_cl<'a>(&mut self, ss_num: usize, cl_num: usize) -> Result<Option<Box<Write+'a>>> {
-        Ok(match self.ss.get(&ss_num).and_then(|&(_, ref logs)| logs.get(&cl_num)) {
+        Ok(match self.ss.get(ss_num).and_then(|&(_, ref logs)| logs.get(cl_num)) {
             Some(p) => {
                 trace!("Appending to log file: {}", p.display());
                 Some(box try!(OpenOptions::new().write(true).append(true).open(p)))
@@ -336,7 +336,7 @@ impl PartIO for DiscoverPartFiles {
     }
     fn new_ss_cl<'a>(&mut self, ss_num: usize, cl_num: usize) -> Result<Option<Box<Write+'a>>> {
         let mut logs = &mut self.ss.entry(ss_num).or_insert_with(|| (PathBuf::new(), VecMap::new())).1;
-        if logs.contains_key(&cl_num) {
+        if logs.contains_key(cl_num) {
             return Ok(None);
         }
         let p = self.dir.join(PathBuf::from(format!("{}-ss{}-cl{}.piplog", self.basename, ss_num, cl_num)));

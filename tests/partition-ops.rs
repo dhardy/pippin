@@ -35,29 +35,29 @@ impl PartIO for PartitionStreams {
         self.ss.keys().next_back().map(|x| x+1).unwrap_or(0)
     }
     fn ss_cl_len(&self, ss_num: usize) -> usize {
-        match self.ss.get(&ss_num) {
+        match self.ss.get(ss_num) {
             Some(&(_, ref logs)) => logs.keys().next_back().map(|x| x+1).unwrap_or(0),
             None => 0,
         }
     }
     fn read_ss<'a>(&'a self, ss_num: usize) -> Result<Option<Box<Read+'a>>> {
-        Ok(self.ss.get(&ss_num).map(|&(ref data, _)| box &data[..] as Box<Read+'a>))
+        Ok(self.ss.get(ss_num).map(|&(ref data, _)| box &data[..] as Box<Read+'a>))
     }
     fn read_ss_cl<'a>(&'a self, ss_num: usize, cl_num: usize) -> Result<Option<Box<Read+'a>>> {
-        Ok(self.ss.get(&ss_num)
-            .and_then(|&(_, ref logs)| logs.get(&cl_num))
+        Ok(self.ss.get(ss_num)
+            .and_then(|&(_, ref logs)| logs.get(cl_num))
             .map(|data| box &data[..] as Box<Read+'a>))
     }
     fn new_ss<'a>(&'a mut self, ss_num: usize) -> Result<Option<Box<Write+'a>>> {
-        if self.ss.contains_key(&ss_num) {
+        if self.ss.contains_key(ss_num) {
             Ok(None)
         } else {
             self.ss.insert(ss_num, (Vec::new(), VecMap::new()));
-            Ok(Some(Box::new(&mut self.ss.get_mut(&ss_num).unwrap().0)))
+            Ok(Some(Box::new(&mut self.ss.get_mut(ss_num).unwrap().0)))
         }
     }
     fn append_ss_cl<'a>(&'a mut self, ss_num: usize, cl_num: usize) -> Result<Option<Box<Write+'a>>> {
-        if let Some(data) = self.ss.get_mut(&ss_num).and_then(|&mut (_, ref mut logs)| logs.get_mut(&cl_num)) {
+        if let Some(data) = self.ss.get_mut(ss_num).and_then(|&mut (_, ref mut logs)| logs.get_mut(cl_num)) {
             let len = data.len();
             Ok(Some(Box::new(&mut data[len..])))
         } else {
@@ -65,12 +65,12 @@ impl PartIO for PartitionStreams {
         }
     }
     fn new_ss_cl<'a>(&'a mut self, ss_num: usize, cl_num: usize) -> Result<Option<Box<Write+'a>>> {
-        if let Some(&mut (_, ref mut logs)) = self.ss.get_mut(&ss_num) {
-            if logs.contains_key(&cl_num) {
+        if let Some(&mut (_, ref mut logs)) = self.ss.get_mut(ss_num) {
+            if logs.contains_key(cl_num) {
                 return Ok(None);
             }
             logs.insert(cl_num, Vec::new());
-            let data = logs.get_mut(&cl_num).unwrap();
+            let data = logs.get_mut(cl_num).unwrap();
             Ok(Some(box &mut *data))
         } else {
             make_io_err(ErrorKind::NotFound, "no snapshot corresponding to new commit log")
@@ -120,11 +120,11 @@ fn create_small() {
     {
         let io = boxed_io.as_any().downcast_ref::<PartitionStreams>().expect("downcasting io");
         assert_eq!(io.ss.len(), 1);
-        assert!(io.ss.contains_key(&0));
-        let &(ref ss_data, ref logs) = io.ss.get(&0).expect("io.ss.get(&0)");
+        assert!(io.ss.contains_key(0));
+        let &(ref ss_data, ref logs) = io.ss.get(0).expect("io.ss.get(0)");
         assert_eq!(logs.len(), 1);
-        assert!(logs.contains_key(&0));
-        let log = logs.get(&0).expect("logs.get(&0)");
+        assert!(logs.contains_key(0));
+        let log = logs.get(0).expect("logs.get(0)");
         
         // It is sometimes useful to be able to see these streams. This can be
         // done here:
