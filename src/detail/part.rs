@@ -21,7 +21,7 @@ use detail::states::{PartStateSumComparator};
 use detail::{Commit, ExtraMeta, CommitQueue, LogReplay};
 use merge::{TwoWayMerge, TwoWaySolver};
 use {ElementT, Sum, PartId};
-use error::{Result, ArgError, TipError, PatchOp, MatchError, OtherError, make_io_err};
+use error::{Result, TipError, PatchOp, MatchError, OtherError, make_io_err};
 
 /// An interface providing read and/or write access to a suitable location.
 /// 
@@ -32,13 +32,8 @@ pub trait PartIO {
     /// Convert self to a `&Any`
     fn as_any(&self) -> &Any;
     
-    /// Return the partition identifier (number), if known.
-    /// 
-    /// Note that this is currently required, though there is still the
-    /// possibility of adapting `Partition` to discover the number when loading
-    /// a file (the issue being that it must initially exist without knowing
-    /// its number).
-    fn part_id(&self) -> Option<PartId>;
+    /// Return the partition identifier.
+    fn part_id(&self) -> PartId;
     
     /// Return one greater than the snapshot number of the latest snapshot file
     /// or log file found.
@@ -137,7 +132,7 @@ impl DummyPartIO {
 
 impl PartIO for DummyPartIO {
     fn as_any(&self) -> &Any { self }
-    fn part_id(&self) -> Option<PartId> { Some(self.part_id) }
+    fn part_id(&self) -> PartId { self.part_id }
     fn ss_len(&self) -> usize { 0 }
     fn ss_cl_len(&self, _ss_num: usize) -> usize { 0 }
     fn read_ss(&self, _ss_num: usize) -> Result<Option<Box<Read+'static>>> {
@@ -239,8 +234,7 @@ impl<E: ElementT> Partition<E> {
     {
         try!(validate_repo_name(name));
         let ss = 0;
-        let part_id = try!(io.part_id().ok_or(
-                ArgError::new("PartIO's `part_id()` must not return None")));
+        let part_id = io.part_id();
         info!("Creating partiton {}; writing snapshot {}", part_id, ss);
         
         let state = PartState::new(part_id);
@@ -288,15 +282,14 @@ impl<E: ElementT> Partition<E> {
     /// ```no_run
     /// use std::path::Path;
     /// use pippin::Partition;
-    /// use pippin::discover::DiscoverPartFiles;
+    /// use pippin::discover;
     /// 
-    /// let path = Path::new(".");
-    /// let io = DiscoverPartFiles::from_dir_basename(path, "my-partition", None).unwrap();
+    /// let path = Path::new("./my-partition");
+    /// let io = discover::part_from_path(path, None).unwrap();
     /// let partition = Partition::<String>::open(Box::new(io));
     /// ```
     pub fn open(io: Box<PartIO>) -> Result<Partition<E>> {
-        let part_id = try!(io.part_id().ok_or(
-                ArgError::new("PartIO's `part_id()` must not return None")));
+        let part_id = io.part_id();
         trace!("Opening partition {}", part_id);
         Ok(Partition {
             io: io,

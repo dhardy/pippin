@@ -16,6 +16,8 @@ pub type Error = Box<ErrorTrait>;
 
 pub use std::error::Error as ErrorTrait;
 
+
+// —————  ReadError  —————
 /// For read errors; adds a read position
 #[derive(PartialEq, Debug)]
 pub struct ReadError {
@@ -24,7 +26,6 @@ pub struct ReadError {
     off_start: usize,
     off_end: usize,
 }
-
 impl ReadError {
     /// Create a "read" error with read position
     pub fn new(msg: &'static str, pos: usize, offset: (usize, usize)) -> ReadError {
@@ -42,7 +43,6 @@ impl ReadError {
         ReadErrorFormatter { err: self, data: data }
     }
 }
-
 impl ErrorTrait for ReadError {
     fn description(&self) -> &str { self.msg }
 }
@@ -52,7 +52,6 @@ impl fmt::Display for ReadError {
                 self.pos, self.off_start, self.off_end, self.msg)
     }
 }
-
 /// Type used to format an error message
 pub struct ReadErrorFormatter<'a> {
     err: &'a ReadError,
@@ -82,7 +81,6 @@ impl<'a> fmt::Display for ReadErrorFormatter<'a> {
         Ok(())
     }
 }
-
 // Utility function: dump a line as hex
 // 
 // Line length is determined by the slice passed.
@@ -103,6 +101,8 @@ fn write_hex_line(line: &[u8], f: &mut fmt::Formatter) -> result::Result<(), fmt
     Ok(())
 }
 
+
+// —————  ArgError  ————
 /// Any error where an invalid argument was supplied
 #[derive(PartialEq, Debug)]
 pub struct ArgError {
@@ -127,6 +127,8 @@ impl fmt::Display for ArgError {
     }
 }
 
+
+// —————  ElementOp  —————
 /// Reason for an element retrieval/insertion/deletion/etc. operation failing.
 #[derive(PartialEq, Eq, Debug, Clone, Copy)]
 pub enum ElementOp {
@@ -164,6 +166,8 @@ impl fmt::Display for ElementOp {
     }
 }
 
+
+// —————  PatchOp  —————
 /// Reason for a `push_commit` / `push_state` / commit patch operation failing.
 /// 
 /// Any ElementOp can automatically be converted to PatchOp::PatchApply.
@@ -202,6 +206,8 @@ impl From<ElementOp> for PatchOp {
     }
 }
 
+
+// —————  ReplayError  —————
 /// Errors in log replay (due either to corruption or providing incompatible
 /// states and commit logs)
 #[derive(PartialEq, Debug)]
@@ -227,6 +233,8 @@ impl fmt::Display for ReplayError {
     }
 }
 
+
+// —————  PathError  —————
 /// Error messages about some path on the file system
 #[derive(PartialEq, Debug)]
 pub struct PathError {
@@ -253,6 +261,8 @@ impl fmt::Display for PathError {
     }
 }
 
+
+// —————  MatchError  —————
 /// Error messages about some path on the file system
 #[derive(PartialEq, Debug)]
 pub enum MatchError {
@@ -279,6 +289,8 @@ impl fmt::Display for MatchError {
     }
 }
 
+
+// —————  TipError  —————
 /// Error type returned by `Partition::tip()`.
 #[derive(PartialEq, Eq, Debug)]
 pub enum TipError {
@@ -300,6 +312,8 @@ impl ErrorTrait for TipError {
     fn description(&self) -> &str { "tip not ready" }
 }
 
+
+// —————  OtherError  —————
 /// Unclassified, generally not recoverable errors
 #[derive(PartialEq, Eq, Debug)]
 pub struct OtherError {

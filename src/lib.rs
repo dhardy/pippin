@@ -103,6 +103,7 @@ pub use detail::merge;
 // dependencies without making the details public. In the future there may
 // be other ways to do this (i.e. better privacy control).
 mod detail;
+pub mod fileio;
 pub mod discover;
 pub mod error;
 pub mod util;

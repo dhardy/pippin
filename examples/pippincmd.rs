@@ -3,7 +3,6 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 //! Command-line UI for Pippin
-#![feature(box_syntax)]
 #![feature(str_char)]
 
 extern crate pippin;
@@ -21,8 +20,8 @@ use std::ffi::OsStr;
 use std::os::unix::ffi::OsStrExt;
 use std::rc::Rc;
 use docopt::Docopt;
-use pippin::{Partition, PartIO, ElementT, State, MutState, UserData};
-use pippin::discover::*;
+use pippin::{Partition, PartIO, ElementT, State, MutState, UserData, PartId};
+use pippin::{discover, fileio};
 use pippin::error::{Result, PathError, ErrorTrait};
 use pippin::util::rtrim;
 
@@ -187,8 +186,10 @@ fn inner(files: Vec<String>, op: Operation, args: Rest) -> Result<()>
                 name[0..len].to_string()
             });
             
-            let io = try!(DiscoverPartFiles::from_dir_basename(path, &name, None));
-            try!(Partition::<DataElt>::create(box io, &repo_name,
+            let prefix = path.join(name);
+            let part_id = PartId::from_num(1);  //NOTE: could be configurable
+            let io = fileio::PartFileIO::new_empty(part_id, prefix);
+            try!(Partition::<DataElt>::create(Box::new(io), &repo_name,
                     vec![UserData::Text("by pippincmd".to_string())].into()));
             Ok(())
         },
@@ -200,8 +201,12 @@ fn inner(files: Vec<String>, op: Operation, args: Rest) -> Result<()>
                 panic!("No support for -c / --commit option");
             }
             println!("Scanning files ...");
-            //TODO: verify all files belong to the same partition `args.part`
-            let discover = try!(DiscoverPartFiles::from_paths(paths, None));
+            assert!(paths.len() > 0);
+            if paths.len() > 1 {
+                //TODO: change CLI maybe?
+                println!("Warning: using first path to find partition, ignoring others");
+            }
+            let discover = try!(discover::part_from_path(&paths[0], None));
             
             if let PartitionOp::List(list_snapshots, list_logs, list_commits) = part_op {
                 println!("ss_len: {}", discover.ss_len());
@@ -218,7 +223,7 @@ fn inner(files: Vec<String>, op: Operation, args: Rest) -> Result<()>
                     }
                 }
                 if list_commits {
-                    let mut part = try!(Partition::<DataElt>::open(box discover));
+                    let mut part = try!(Partition::<DataElt>::open(Box::new(discover)));
                     try!(part.load(true));
                     //TODO: ideally commits should be sorted before printing.
                     // I'm not sure whether the sorting should happen here or
@@ -231,7 +236,7 @@ fn inner(files: Vec<String>, op: Operation, args: Rest) -> Result<()>
                 }
                 Ok(())
             } else {
-                let mut part = try!(Partition::<DataElt>::open(box discover));
+                let mut part = try!(Partition::<DataElt>::open(Box::new(discover)));
                 {
                     let (is_tip, mut state) = if let Some(ss) = args.commit {
                         try!(part.load(true));
@@ -324,9 +329,9 @@ fn inner(files: Vec<String>, op: Operation, args: Rest) -> Result<()>
             assert_eq!(args.commit, None);
             println!("Scanning files ...");
             // #0017: this should print warnings generated in discover::*
-            let discover = try!(DiscoverRepoFiles::from_paths(paths));
+            let discover = try!(discover::RepoFileIO::from_paths(paths));
             for part in discover.partitions() {
-                println!("Partition {}: {}/{}*", part.part_id(), part.dir().display(), part.basename());
+                println!("Partition {}: {}*", part.part_id(), part.path_prefix().display());
             }
             Ok(())
         },
@@ -385,10 +390,10 @@ pub struct CmdFailed {
 impl CmdFailed {
     /// Create an "external command" error.
     pub fn err<S, T: fmt::Display>(cmd: T, status: Option<i32>) -> Result<S> {
-        Err(box CmdFailed{ msg: match status {
+        Err(Box::new(CmdFailed{ msg: match status {
             Some(code) => format!("external command failed with status {}: {}", code, cmd),
             None => format!("external command failed (interrupted): {}", cmd),
-        }})
+        }}))
     }
 }
 impl fmt::Display for CmdFailed {

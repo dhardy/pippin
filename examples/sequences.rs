@@ -12,9 +12,8 @@ extern crate log;
 extern crate env_logger;
 
 use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::{Path};
 use std::process::exit;
-use std::fs;
 use std::cmp::min;
 use std::u32;
 use std::collections::hash_map::{HashMap, Entry};
@@ -25,7 +24,7 @@ use rand::Rng;
 use rand::distributions::{IndependentSample, Range, Normal, LogNormal};
 
 use pippin::{ElementT, PartId, Partition, State, MutState, PartIO, PartState};
-use pippin::discover::*;
+use pippin::{discover, fileio};
 use pippin::repo::*;
 use pippin::merge::*;
 use pippin::error::{Result, OtherError};
@@ -333,16 +332,16 @@ impl Generator for Power {
 // —————  main  —————
 const USAGE: &'static str = "
 Generates or reads a database of sequences.
+In repository mode, PATH should be a directory. In single-partition mode, PATH
+may be either a directory or a data file.
 
 Usage:
-  sequences [options]
+  sequences [options] PATH
 
 Options:
   -h --help             Show this message.
-  -d --directory DIR    Specify the directory to read/write the repository
-  -p --partition BASE   Instead of a whole repository, just use the partition
-                        with basename BASE (e.g. the basename of
-                        'xyz-pn1-ss0.pip' is 'xyz-pn1').
+  -p --partition PN     Create or read only a partition number PN. Use PN=0 for
+                        auto-detection but to still use single-partition mode.
   -c --create           Create a new repository
   -s --snapshot         Force creation of snapshot at end
   -g --generate NUM     Generate NUM new sequences and add to the repo.
@@ -356,8 +355,8 @@ sure the repository name and partition number are correct.
 #[derive(Debug, RustcDecodable)]
 #[allow(non_snake_case)]
 struct Args {
-    flag_directory: Option<String>,
-    flag_partition: Option<String>,
+    arg_PATH: String,
+    flag_partition: Option<u64>,
     flag_generate: Option<usize>,
     flag_create: bool,
     flag_snapshot: bool,
@@ -377,18 +376,6 @@ fn main() {
             .and_then(|d| d.decode())
             .unwrap_or_else(|e| e.exit());
     
-    let dir = PathBuf::from(match args.flag_directory {
-        Some(dir) => dir,
-        None => {
-            println!("Error: --directory option required (use --help for usage)");
-            exit(1);
-        },
-    });
-    if fs::create_dir_all(&dir).is_err() {
-        println!("Unable to create/find directory {}", dir.display());
-        exit(1);
-    }
-    
     let mode = match args.flag_generate {
         Some(num) => Mode::Generate(num),
         None => Mode::None,
@@ -396,7 +383,8 @@ fn main() {
     
     let repetitions = args.flag_repeat.unwrap_or(1);
     
-    let result = run(&dir, args.flag_partition, mode, args.flag_create,
+    let result = run(Path::new(&args.arg_PATH), args.flag_partition,
+            mode, args.flag_create,
             args.flag_snapshot, repetitions);
     if let Err(e) = result {
         println!("Error: {}", e);
@@ -404,7 +392,9 @@ fn main() {
     }
 }
 
-fn run(dir: &Path, part_basename: Option<String>, mode: Mode, create: bool,
+// part_num: None for repo mode, Some(PN) for partition mode, where PN may be
+// 0 (auto mode) or a partition number
+fn run(path: &Path, part_num: Option<u64>, mode: Mode, create: bool,
         snapshot: bool, repetitions: usize) -> Result<()>
 {
     let solver1 = AncestorSolver2W::new();
@@ -448,16 +438,15 @@ fn run(dir: &Path, part_basename: Option<String>, mode: Mode, create: bool,
         Mode::None => {},
     };
     
-    if let Some(basename) = part_basename {
-        let mut io = Box::new(try!(DiscoverPartFiles::from_dir_basename(dir, &basename, None)));
-        if io.part_id() == None {
-            // On creation or where discovery fails we need a number:
-            io.set_part_id(PartId::from_num(1));
-        }
-            
+    if let Some(pn) = part_num {
         let mut part = if create {
+            // On creation we need a number; 0 here means "default":
+            let part_id = PartId::from_num(if pn == 0 { 1 } else { pn });
+            let io = Box::new(fileio::PartFileIO::new_empty(part_id, path.join("seqdb")));
             try!(Partition::<Sequence>::create(io, "sequences db", vec![].into()))
         } else {
+            let part_id = if pn != 0 { Some(PartId::from_num(pn)) } else { None };
+            let io = Box::new(try!(discover::part_from_path(path, part_id)));
             let mut part = try!(Partition::<Sequence>::open(io));
             try!(part.load(false));
             part
@@ -483,7 +472,7 @@ fn run(dir: &Path, part_basename: Option<String>, mode: Mode, create: bool,
             try!(part.write_snapshot(vec![].into()));
         }
     } else {
-        let discover = try!(DiscoverRepoFiles::from_dir(dir));
+        let discover = try!(discover::RepoFileIO::from_dir(path));
         let rt = SeqRepo::new(discover);
         
         let mut repo = if create {

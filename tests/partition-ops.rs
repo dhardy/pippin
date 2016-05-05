@@ -30,7 +30,7 @@ struct PartitionStreams {
 
 impl PartIO for PartitionStreams {
     fn as_any(&self) -> &Any { self }
-    fn part_id(&self) -> Option<PartId> { Some(self.part_id) }
+    fn part_id(&self) -> PartId { self.part_id }
     fn ss_len(&self) -> usize {
         self.ss.keys().next_back().map(|x| x+1).unwrap_or(0)
     }

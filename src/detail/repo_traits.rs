@@ -34,9 +34,6 @@ pub trait RepoIO {
     /// fails if it is already taken. `prefix` is a relative path plus file-name
     /// prefix, e.g. `data/misc-` would result in a snapshot having a name like
     /// `misc-pn1-ss1.pip` inside the `data` subdirectory.
-    /// 
-    /// On success, returns the index of the new partition (for use with
-    /// `make_partition_io()`).
     fn add_partition(&mut self, num: PartId, prefix: &str) -> Result<()>;
     
     /// Construct and return a new PartIO for partition `num`.
