@@ -359,8 +359,8 @@ impl<E: ElementT> Partition<E> {
     /// tip (latest state), or a graph with multiple tips (requiring a merge
     /// operation).
     /// 
-    /// Returns the header from the most recent file read. TODO: ways of getting
-    /// other headers / loading files individually.
+    /// Returns the header from the most recent file read.
+    /// #0040: ways of getting other headers / loading files individually.
     pub fn load(&mut self, all_history: bool) -> Result<FileHeader> {
         info!("Loading partition {} data", self.part_id);
         let ss_len = self.io.ss_len();
@@ -564,8 +564,6 @@ impl<E: ElementT> Partition<E> {
     /// Items are unordered (actually, they follow the order of an internal
     /// hash map, which is randomised and usually different each time the
     /// program is loaded).
-    /// 
-    /// NOTE: this API is may change.
     pub fn states(&self) -> StateIter<E> {
         StateIter { iter: self.states.iter(), tips: &self.tips }
     }
@@ -617,7 +615,6 @@ impl<E: ElementT> Partition<E> {
             };
             if let Some(commit) = c {
                 trace!("Pushing merge commit: {} ({} changes)", commit.statesum(), commit.num_changes());
-                //FIXME: merge fails because merged state (and sum) equals one of the tips. What should we do?
                 try!(self.push_commit(commit));
             } else {
                 return OtherError::err("merge failed");
@@ -631,13 +628,12 @@ impl<E: ElementT> Partition<E> {
     /// true.
     /// 
     /// This is not eligant, but provides the user full control over the merge.
+    /// The order of merging between tips is not fixed (depends on hash order).
     /// Alternatively, use `self.merge(solver)`.
     pub fn merge_two(&mut self) -> Result<TwoWayMerge<E>> {
         if self.tips.len() < 2 {
             return OtherError::err("merge_two() called when no states need merging");
         }
-        // TODO: order is randomised (hash security). We want this operation to
-        // be reproducible, so should order tips or something.
         let (tip1, tip2) = {
             let mut iter = self.tips.iter();
             let tip1 = iter.next().unwrap();
