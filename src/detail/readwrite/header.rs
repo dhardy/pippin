@@ -18,9 +18,9 @@ use error::{Result, ArgError, ReadError, make_io_err};
 use util::rtrim;
 
 // Snapshot header. This is the latest version.
-const HEAD_SNAPSHOT : [u8; 16] = *b"PIPPINSS20160310";
+const HEAD_SNAPSHOT : [u8; 16] = *b"PIPPINSS20160516";
 // Commit log header. This is the latest version.
-const HEAD_COMMITLOG : [u8; 16] = *b"PIPPINCL20160310";
+const HEAD_COMMITLOG : [u8; 16] = *b"PIPPINCL20160516";
 // Versions of header (all versions, including latest), encoded as an integer.
 // All restrictions to specific versions should mention `HEAD_VERSIONS` in
 // comments to aid searches.
@@ -28,7 +28,7 @@ const HEAD_COMMITLOG : [u8; 16] = *b"PIPPINCL20160310";
 // Note: new versions can be implemented just by updating the three HEAD_...
 // constants and updating code, so long as the code will still read old
 // versions. The file format documentation should also be updated.
-const HEAD_VERSIONS : [u32; 1] = [
+const HEAD_VERSIONS : [u32; 2] = [
     /* unsupported versions:
     2015_09_29, // initial standardisation
     2016_01_05, // add 'PARTID' to header blocks (snapshot only)
@@ -38,6 +38,7 @@ const HEAD_VERSIONS : [u32; 1] = [
     2016_02_27, // add parent state-sums to snapshots (snapshots only)
     */
     2016_03_10, // new element and state sums break compatibility
+    2016_05_16, // support Bbbb header sections
 ];
 const SUM_SHA256 : [u8; 16] = *b"HSUM SHA-2 256\x00\x00";
 const SUM_BLAKE2_16 : [u8; 16] = *b"HSUM BLAKE2 16\x00\x00";
@@ -68,9 +69,8 @@ impl FileType {
 
 /// Types of user-data which can be stored in header fields.
 /// 
-/// Maximum length of each field is currently 573 bytes (of text / data).
-/// The file format specification already covers longer fields but is not yet
-/// implemented (TODO).
+/// Maximum length of each field is currently 2^24 - 5  bytes (almost 16 MB of
+/// text / data).
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum UserData {
     /// Free-form data
@@ -123,7 +123,7 @@ pub fn read_head(r: &mut Read) -> Result<FileHeader> {
     try!(sum_reader.read_exact(&mut buf[0..16]));
     let head_version = read_head_version(&buf[8..16]);
     if !HEAD_VERSIONS.contains(&head_version) {
-        return ReadError::err("Pippin file of unknown version", pos, (0, 16));
+        return ReadError::err("Pippin file of incompatible version", pos, (0, 16));
     }
     let ftype = if buf[0..8] == HEAD_SNAPSHOT[0..8] {
         FileType::Snapshot(head_version)
@@ -159,6 +159,15 @@ pub fn read_head(r: &mut Read) -> Result<FileHeader> {
             try!(sum_reader.read_exact(&mut buf[16..len]));
             pos += 2;
             (&buf[2..len], 2)
+        } else if buf[0] == b'B' {
+            let len: usize = ((buf[1] as usize) << 16)
+                           + ((buf[2] as usize) << 8)
+                           +  (buf[3] as usize);
+            let padded = ((len + 15) / 16) * 16; // round up
+            if buf.len() < padded { buf.resize(padded, 0); }
+            try!(sum_reader.read_exact(&mut buf[16..padded]));
+            pos += 4;
+            (&buf[4..len], 4)
         } else {
             return ReadError::err("unexpected header contents", pos, (0, 1));
         };
@@ -187,7 +196,7 @@ pub fn read_head(r: &mut Read) -> Result<FileHeader> {
         } else if block[0] == b'R' {
             user_fields.push(UserData::Text(try!(String::from_utf8(rtrim(&block[1..], 0).to_vec()))));
         } else if block[0] == b'U' {
-            user_fields.push(UserData::Data(rtrim(&block[1..], 0).to_vec()));
+            user_fields.push(UserData::Data(block[1..].to_vec()));
         } else if block[0] == b'O' {
             // Match optional extensions here; we currently have none
         } else if block[0] >= b'A' && block[0] <= b'Z' {
@@ -242,21 +251,32 @@ pub fn write_head(header: &FileHeader, writer: &mut Write) -> Result<()> {
     }
     
     for u in &*header.user {
-        let (t, uf) = match u {
-            &UserData::Data(ref b) => (b'U', &b[..]),
-            &UserData::Text(ref t) => (b'R', t.as_bytes()),
+        // We allow padding in text mode:
+        let (t, uf, is_text) = match u {
+            &UserData::Data(ref b) => (b'U', &b[..], false),
+            &UserData::Text(ref t) => (b'R', t.as_bytes(), true),
         };
-        let mut l = [b'Q', b'H', t];
-        if uf.len() <= 14 {
-            try!(w.write(&l[1..3]));
+        let mut l = [b'B', 0, b'Q', b'H', t];
+        if uf.len() <= 14 && (is_text || uf.len() == 14) {
+            try!(w.write(&l[3..5]));
             try!(w.write(&uf));
             try!(pad(&mut w, 14 - uf.len()));
-        } else if uf.len() <= 16 * 36 - 3 {
+        } else if uf.len() + 3 <= 16 * 36 && 
+            (is_text || (uf.len() + 3) % 16 == 0)
+        {
             let n = (uf.len() + 3 /* QxU */ + 15 /* round up */) / 16;
-            l[1] = if n <= 9 { b'0' + n as u8 } else { b'A' - 10 + n as u8 };
-            try!(w.write(&l[0..3]));
+            l[3] = if n <= 9 { b'0' + n as u8 } else { b'A' - 10 + n as u8 };
+            try!(w.write(&l[2..5]));
             try!(w.write(&uf));
             try!(pad(&mut w, n * 16 - uf.len() - 3));
+        } else if uf.len() <= (2 << 24) - 5 {
+            let len = uf.len() + 5; // length written includes leading `Bbbb` and 'U' or 'R'
+            l[1] = ((len >> 16) & 0xFF) as u8;
+            l[2] = ((len >> 8) & 0xFF) as u8;
+            l[3] = (len & 0xFF) as u8;
+            try!(w.write(&l[0..5]));
+            try!(w.write(&uf));
+            try!(pad(&mut w, ((len + 15) / 16) * 16 - len));
         } else {
             return ArgError::err("user field too long");
         }
@@ -285,16 +305,17 @@ pub fn write_head(header: &FileHeader, writer: &mut Write) -> Result<()> {
 
 #[test]
 fn read_header() {
-    let head = b"PIPPINSS20160310\
+    let head = b"PIPPINSS20160516\
                 test AbC \xce\xb1\xce\xb2\xce\xb3\x00\
                 HRemark 12345678\
                 HOoptional rule\x00\
+                B\x00\x00\x0eUuser rule\x00\x00\
                 HUuser rule\x00\x00\x00\x00\x00\
                 Q2REM  completel\
                 y pointless text\
                 H123456789ABCDEF\
                 HSUM BLAKE2 16\x00\x00\
-                \x8c>\x8d\x19DpJ9\x9d\xfbL\x1e\xbf\xba\x85\x1e\x9c,>\x87e\xac\x1a\x8a\xd0\xbb\xd06\xac]\x1a3";
+                \x03\xfa\xe2\xc5\x9f\xfa\x13\xc8-\xc3\"_\x08P\xaf\x01A\x14\x02\x18r$\x0a\xbf\xa2\xf8}\x82\xedX\x91\xa4";
     
     use ::Sum;
     let sum = Sum::calculate(&head[0..head.len() - SUM_BYTES]);
@@ -304,11 +325,11 @@ fn read_header() {
         Err(e) => { panic!("{}", e); }
     };
     assert_eq!(header.name, "test AbC αβγ");
-    assert_eq!(*header.user, vec![
-        UserData::Text("emark 12345678".to_string()),
-        UserData::Data(b"user rule".to_vec()),
-        UserData::Text("EM  completely pointless text".to_string()),
-    ]);
+    assert_eq!((*header.user).len(), 4);
+    assert_eq!((*header.user)[0], UserData::Text("emark 12345678".to_string()));
+    assert_eq!((*header.user)[1], UserData::Data(b"user rule".to_vec()));
+    assert_eq!((*header.user)[2], UserData::Data(b"user rule\x00\x00\x00\x00\x00".to_vec()));
+    assert_eq!((*header.user)[3], UserData::Text("EM  completely pointless text".to_string()));
 }
 
 #[test]
@@ -320,22 +341,29 @@ fn write_header() {
         user: vec![
             UserData::Text("Remark ω".to_string()),
             UserData::Text(" Quatsch Quatsch Quatsch".to_string()),
+            UserData::Data(b"0123456789abcdefghijklmnopqrs".to_vec()),
             UserData::Data(b" rsei noasr auyv 10()% xovn".to_vec()),
         ].into(),
     };
     let mut buf = Vec::new();
     write_head(&header, &mut buf).unwrap();
     
-    let expected = b"PIPPINSS20160310\
+    let expected = b"PIPPINSS20160516\
             \xc3\x84hnliche Unsinn\
             HRRemark \xcf\x89\x00\x00\x00\x00\x00\
             Q2R Quatsch Quatsch \
             Quatsch\x00\x00\x00\x00\x00\
-            Q2U rsei noasr a\
-            uyv 10()% xovn\x00\x00\
+            Q2U0123456789abc\
+            defghijklmnopqrs\
+            B\x00\x00\x20U rsei noasr a\
+            uyv 10()% xovn\
             HSUM BLAKE2 16\x00\x00\
-            \x99\xf6\xfd\xa4\xa1\xf1\x82\xce\x09\xf3\x82\x9f;\xfcl2\xe5\x99f\xa1A9\x96\xba=\x1aA\xe6\x96g\x940";
+            \x80\x89\xb1\x1c\xb6\xba\xa4\"q\x10W\xfbE\xe6\xbcL7\xd9=\xceP\xfdlE\xe5\xf5\x8c\xde|\x82T\xeb";
     use ::util::ByteFormatter;
-    println!("Checksum: '{}'", ByteFormatter::from(&buf[buf.len()-SUM_BYTES..buf.len()]));;
-    assert_eq!(&buf[..], &expected[..]);
+    println!("Checksum: '{}'", ByteFormatter::from(&buf[buf.len()-SUM_BYTES..buf.len()]));
+    if buf[..] != expected[..] {
+        println!("generated: {}", ByteFormatter::from(&buf));
+        println!("expected : {}", ByteFormatter::from(expected));
+        assert!(false);
+    }
 }

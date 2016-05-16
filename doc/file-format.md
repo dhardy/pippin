@@ -86,10 +86,11 @@ Where it says "header content" above, the following is allowed:
 *   A 16-byte "line" whose first byte is `H` (0x48); typically the next few
     bytes will indicate the purpose of the line as in `HSUM`.
 *   A variable-length section starting `Qx` where x is a base-36 number (1-9 or
-    A-Z); 'Q' for 'quad word'.
+    A-Z); 'Q' for 'quad word'. The section (including `Qx`) has length `16*x`.
 *   A variable-length section starting `Bbbb` where 'bbb' is a big-endian
     24-bit number and signifies the number of bytes in the section (including
-    the `Bbbb` part). The length must be a multiple of 16.
+    the `Bbbb` part). The length of the section (including `Bbbb`) is this
+    24-bit number rounded up to the next 16-byte boundary.
 
 NOTE: the `Bbbb` variant is not currently included.
 
