@@ -366,7 +366,7 @@ impl<'a, E: ElementT> TwoWayMerge<'a, E> {
             };
         }
         
-        //TODO: calculate sum1 / sum2.
+        ! need to calculate sum1 and sum2 !
         Some(if c1.len() < c2.len() {
             Commit::new(sum1, vec![state1.statesum().clone(), state2.statesum().clone()], c1)
         } else {
