@@ -234,9 +234,6 @@ fn inner(path: PathBuf, op: Operation, args: Rest) -> Result<()>
             if args.part.is_some() {
                 panic!("No support for -p / --partition option");
             }
-            if args.commit.is_some() {
-                panic!("No support for -c / --commit option");
-            }
             println!("Scanning files ...");
              let part_files = try!(discover::part_from_path(&path, None));
             

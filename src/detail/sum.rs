@@ -102,9 +102,9 @@ impl Sum {
         }
         let mut buf = [0u8; 2];
         for i in 0..string.len() / 2 /*note: rounds down*/ {
-            let byte = self.s[i];
-            buf[0] = HEX_CHARS[(byte / BYTES_U8) as usize];
-            buf[1] = HEX_CHARS[(byte % BYTES_U8) as usize];
+            let byte: u8 = self.s[i];
+            buf[0] = HEX_CHARS[(byte >> 4) as usize];
+            buf[1] = HEX_CHARS[(byte & 0xF) as usize];
             if string[i*2..i*2+2] != buf[..] {
                 return false;
             }
