@@ -218,10 +218,9 @@ fn inner(path: PathBuf, op: Operation, args: Rest) -> Result<()>
                 if list_commits {
                     let mut part = try!(Partition::<DataElt>::open(Box::new(part.clone())));
                     try!(part.load(true));
-                    //TODO: ideally commits should be sorted before printing.
-                    // I'm not sure whether the sorting should happen here or
-                    // the `Partition::states()` fn should change.
-                    for state in part.states() {
+                    let mut states: Vec<_> = part.states().collect();
+                    states.sort_by_key(|s| s.meta().number);
+                    for state in states {
                         println!("Commit {:4}: {}; parents: {:?}",
                                 state.meta().number, state.statesum(), 
                                 state.parents());
