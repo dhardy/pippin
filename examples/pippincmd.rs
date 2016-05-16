@@ -31,7 +31,7 @@ capabilities and to allow direct inspection of Pippin files. It is not intended
 for automated usage and the UI may be subject to changes.
 
 Usage:
-  pippincmd [-h] -n PREFIX [-N NAME] PATH
+  pippincmd [-h] -n PREFIX [-N NAME] [-i NUM] PATH
   pippincmd [-h] [-p NUM] [-P] [-S] [-L] [-C] PATH
   pippincmd [-h] [-f] [-p NUM] [-c COMMIT] [-s] [-E | -g ELT | -e ELT | -v ELT | -d ELT] PATH
   pippincmd --help | --version
@@ -40,7 +40,8 @@ Options:
   -n --new PREFIX       Create a new partition with file name prefix PREFIX.
                         A default state (no elements) is created.
                         If -N is not provided, PREFIX is used as the repo name.
-  -N --repo-name NAME   Specify the 'repo name' for a new partition.
+  -N --repo-name NAME   Specify the name of the repository (stored in header).
+  -i --part-num NUM     Specify the partition number (defaults to 1).
   -s --snapshot         Force writing of a snapshot after loading and applying
                         any changes, unless the state already has a snapshot.
   
@@ -72,6 +73,7 @@ struct Args {
     arg_PATH: Option<String>,
     flag_new: Option<String>,
     flag_repo_name: Option<String>,
+    flag_part_num: Option<String>,
     flag_snapshot: bool,
     flag_partitions: bool,
     flag_partition: Option<String>,
@@ -100,7 +102,7 @@ enum PartitionOp {
 enum Editor { Cmd, Visual }
 #[derive(Debug)]
 enum Operation {
-    NewPartition(String /*prefix*/, Option<String> /*repo name*/),
+    NewPartition(String /*prefix*/, Option<String> /*repo name*/, Option<String> /* part num */),
     List(bool /*list snapshot files?*/, bool /*list log files?*/, bool /*list commits?*/),
     OnPartition(PartitionOp),
 }
@@ -124,7 +126,7 @@ fn main() {
     } else {
         // Rely on docopt to spot invalid conflicting flags
         let op = if let Some(name) = args.flag_new {
-                Operation::NewPartition(name, args.flag_repo_name)
+                Operation::NewPartition(name, args.flag_repo_name, args.flag_part_num)
             } else if args.flag_partitions || args.flag_snapshots || args.flag_logs || args.flag_commits {
                 Operation::List(args.flag_snapshots,
                         args.flag_logs, args.flag_commits)
@@ -168,7 +170,7 @@ struct Rest {
 fn inner(path: PathBuf, op: Operation, args: Rest) -> Result<()>
 {
     match op {
-        Operation::NewPartition(name, repo_name) => {
+        Operation::NewPartition(name, repo_name, part_num) => {
             assert_eq!(args.part, None);
             assert_eq!(args.commit, None);
             if !path.is_dir() {
@@ -181,9 +183,12 @@ fn inner(path: PathBuf, op: Operation, args: Rest) -> Result<()>
                 while !name.is_char_boundary(len) { len -= 1; }
                 name[0..len].to_string()
             });
+            let part_id = PartId::from_num(match part_num {
+                Some(n) => try!(n.parse()),
+                None => 1,
+            });
             
             let prefix = path.join(name);
-            let part_id = PartId::from_num(1);  //NOTE: could be configurable
             let io = fileio::PartFileIO::new_empty(part_id, prefix);
             try!(Partition::<DataElt>::create(Box::new(io), &repo_name,
                     vec![UserData::Text("by pippincmd".to_string())].into()));
