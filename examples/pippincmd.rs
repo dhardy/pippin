@@ -31,10 +31,9 @@ capabilities and to allow direct inspection of Pippin files. It is not intended
 for automated usage and the UI may be subject to changes.
 
 Usage:
-  pippincmd [-h] -n PREFIX [-N NAME] DIR
-  pippincmd [-h] [-P] FILE...
-  pippincmd [-h] [-p NUM] [-S] [-L] [-C] FILE...
-  pippincmd [-h] [-f] [-p NUM] [-c COMMIT] [-s] [-E | -g ELT | -e ELT | -v ELT | -d ELT] FILE...
+  pippincmd [-h] -n PREFIX [-N NAME] PATH
+  pippincmd [-h] [-p NUM] [-P] [-S] [-L] [-C] PATH
+  pippincmd [-h] [-f] [-p NUM] [-c COMMIT] [-s] [-E | -g ELT | -e ELT | -v ELT | -d ELT] PATH
   pippincmd --help | --version
 
 Options:
@@ -70,8 +69,7 @@ Options:
 #[derive(Debug, RustcDecodable)]
 #[allow(non_snake_case)]        // names are mandated by docopt
 struct Args {
-    arg_DIR: Option<String>,
-    arg_FILE: Vec<String>,
+    arg_PATH: Option<String>,
     flag_new: Option<String>,
     flag_repo_name: Option<String>,
     flag_snapshot: bool,
@@ -93,7 +91,6 @@ struct Args {
 
 #[derive(Debug)]
 enum PartitionOp {
-    List(bool /*list snapshot files?*/, bool /*list log files?*/, bool /*list commits?*/),
     ListElts,
     EltGet(String),
     EltEdit(String, Editor),
@@ -104,10 +101,8 @@ enum Editor { Cmd, Visual }
 #[derive(Debug)]
 enum Operation {
     NewPartition(String /*prefix*/, Option<String> /*repo name*/),
-    ListPartitions,
+    List(bool /*list snapshot files?*/, bool /*list log files?*/, bool /*list commits?*/),
     OnPartition(PartitionOp),
-    /// Default operation: print out a few statistics or something
-    Default,
 }
 
 fn main() {
@@ -130,11 +125,9 @@ fn main() {
         // Rely on docopt to spot invalid conflicting flags
         let op = if let Some(name) = args.flag_new {
                 Operation::NewPartition(name, args.flag_repo_name)
-            } else if args.flag_partitions {
-                Operation::ListPartitions
-            } else if args.flag_snapshots || args.flag_logs || args.flag_commits {
-                Operation::OnPartition(PartitionOp::List(args.flag_snapshots,
-                        args.flag_logs, args.flag_commits))
+            } else if args.flag_partitions || args.flag_snapshots || args.flag_logs || args.flag_commits {
+                Operation::List(args.flag_snapshots,
+                        args.flag_logs, args.flag_commits)
             } else if args.flag_elements {
                 Operation::OnPartition(PartitionOp::ListElts)
             } else if let Some(elt) = args.flag_get {
@@ -146,13 +139,17 @@ fn main() {
             } else if let Some(elt) = args.flag_delete {
                 Operation::OnPartition(PartitionOp::EltDelete(elt))
             } else {
-                Operation::Default
+                Operation::List(false, false, false)
             };
         let rest = Rest{ part: args.flag_partition, commit: args.flag_commit,
                 snapshot: args.flag_snapshot, force: args.flag_force };
-        assert!(args.arg_DIR.is_none() || args.arg_FILE.is_empty());
-        let paths = if args.arg_DIR.is_some() { vec![args.arg_DIR.unwrap()] } else { args.arg_FILE };
-        match inner(paths, op, rest) {
+        let path = if let Some(path) = args.arg_PATH {
+            PathBuf::from(path)
+        } else {
+            println!("A path is required (see --help)!");
+            exit(1);
+        };
+        match inner(path, op, rest) {
             Ok(()) => {},
             Err(e) => {
                 println!("Error: {}", e);
@@ -168,16 +165,15 @@ struct Rest {
     snapshot: bool,
     force: bool,
 }
-fn inner(files: Vec<String>, op: Operation, args: Rest) -> Result<()>
+fn inner(path: PathBuf, op: Operation, args: Rest) -> Result<()>
 {
-    let paths: Vec<PathBuf> = files.into_iter().map(|f| PathBuf::from(f)).collect();
-    
     match op {
         Operation::NewPartition(name, repo_name) => {
-            assert_eq!(paths.len(), 1);
             assert_eq!(args.part, None);
             assert_eq!(args.commit, None);
-            let path = &paths[0];
+            if !path.is_dir() {
+                return PathError::err("Path to create new partition in must be a directory", path);
+            }
             println!("Creating new partition: '{}' in {}", name, path.display());
             
             let repo_name = repo_name.unwrap_or_else(|| {
@@ -193,37 +189,34 @@ fn inner(files: Vec<String>, op: Operation, args: Rest) -> Result<()>
                     vec![UserData::Text("by pippincmd".to_string())].into()));
             Ok(())
         },
-        Operation::OnPartition(part_op) => {
-            if args.part.is_some() {
-                panic!("No support for -p / --partition option");
-            }
-            if args.commit.is_some() {
-                panic!("No support for -c / --commit option");
-            }
+        Operation::List(list_snapshots, list_logs, list_commits) => {
+            assert_eq!(args.commit, None);
             println!("Scanning files ...");
-            assert!(paths.len() > 0);
-            if paths.len() > 1 {
-                //TODO: change CLI maybe?
-                println!("Warning: using first path to find partition, ignoring others");
-            }
-            let discover = try!(discover::part_from_path(&paths[0], None));
-            
-            if let PartitionOp::List(list_snapshots, list_logs, list_commits) = part_op {
-                println!("ss_len: {}", discover.ss_len());
-                for i in 0..discover.ss_len() {
-                    if list_snapshots {
-                        if let Some(p) = discover.get_ss_path(i) {
-                            println!("Snapshot {:4}: {}", i, p.display());
+            // #0017: this should print warnings generated in discover::*
+            let repo_files = try!(discover::repo_from_path(&path));
+            for part in repo_files.partitions() {
+                println!("Partition {}: {}*", part.part_id(), part.prefix().display());
+                let ss_len = part.ss_len();
+                if list_snapshots || list_logs {
+                    for i in 0..ss_len {
+                        if list_snapshots {
+                            if let Some(p) = part.paths().get_ss(i) {
+                                println!("Snapshot {:4}         : {}", i, p.display());
+                            }
+                        }
+                        for j in 0..(if list_logs{ part.ss_cl_len(i) }else{0}) {
+                            if let Some(p) = part.paths().get_cl(i, j) {
+                                println!("Snapshot {:4} log {:4}: {}", i, j, p.display());
+                            }
                         }
                     }
-                    for j in 0..(if list_logs{ discover.ss_cl_len(i) }else{0}) {
-                        if let Some(p) = discover.get_cl_path(i, j) {
-                            println!("Snapshot {:4} log {:4}: {}", i, j, p.display());
-                        }
+                } else {
+                    if ss_len > 0 {
+                        println!("Highest snapshot number: {}", ss_len - 1);
                     }
                 }
                 if list_commits {
-                    let mut part = try!(Partition::<DataElt>::open(Box::new(discover)));
+                    let mut part = try!(Partition::<DataElt>::open(Box::new(part.clone())));
                     try!(part.load(true));
                     //TODO: ideally commits should be sorted before printing.
                     // I'm not sure whether the sorting should happen here or
@@ -234,104 +227,102 @@ fn inner(files: Vec<String>, op: Operation, args: Rest) -> Result<()>
                                 state.parents());
                     }
                 }
-                Ok(())
-            } else {
-                let mut part = try!(Partition::<DataElt>::open(Box::new(discover)));
-                {
-                    let (is_tip, mut state) = if let Some(ss) = args.commit {
-                        try!(part.load(true));
-                        let state = try!(part.state_from_string(ss));
-                        (part.tip_key().map(|k| k == state.statesum()).unwrap_or(false), state.clone_mut())
-                    } else {
-                        try!(part.load(false));
-                        (true, try!(part.tip()).clone_mut())
-                    };
-                    match part_op {
-                        PartitionOp::List(_,_,_) => { panic!("possibility already eliminated"); },
-                        PartitionOp::ListElts => {
-                            println!("Elements:");
-                            for id in state.elt_map().keys() {
-                                let n: u64 = (*id).into();
-                                println!("  {}", n);
-                            }
-                        },
-                        PartitionOp::EltGet(elt) => {
-                            let id: u64 = try!(elt.parse());
-                            match state.get(id.into()) {
-                                Ok(d) => {
-                                    println!("Element {}:", id);
-                                    println!("{}", d);
-                                },
-                                Err(e) => { println!("Element {} {}", id, e.description()); },
-                            }
-                        },
-                        PartitionOp::EltEdit(elt, editor) => {
-                            if !is_tip && !args.force {
-                                panic!("Do you really want to make an edit from a historical state? If so specify '--force'.");
-                            }
-                            let output = try!(Command::new("mktemp")
-                                .arg("--tmpdir")
-                                .arg("pippin-element.XXXXXXXX").output());
-                            if !output.status.success() {
-                                return CmdFailed::err("mktemp", output.status.code());
-                            }
-                            let tmp_path = PathBuf::from(OsStr::from_bytes(rtrim(&output.stdout, b'\n')));
-                            if !tmp_path.is_file() {
-                                return PathError::err("temporary file created but not found", tmp_path);
-                            }
-                            
-                            let id: u64 = try!(elt.parse());
-                            {
-                                let elt_data: &DataElt = if let Ok(d) = state.get(id.into()) {
-                                    &d
-                                } else {
-                                    panic!("element not found");
-                                };
-                                let mut file = try!(fs::OpenOptions::new().write(true).open(&tmp_path));
-                                try!(file.write(elt_data.bytes()));
-                            }
-                            println!("Written to temporary file: {}", tmp_path.display());
-                            
-                            let editor_cmd = try!(env::var(match editor {
-                                Editor::Cmd => "EDITOR",
-                                Editor::Visual => "VISUAL",
-                            }));
-                            let status = try!(Command::new(&editor_cmd).arg(&tmp_path).status());
-                            if !status.success() {
-                                return CmdFailed::err(editor_cmd, status.code());
-                            }
-                            let mut file = try!(fs::File::open(&tmp_path));
-                            let mut buf = Vec::new();
-                            try!(file.read_to_end(&mut buf));
-                            try!(state.replace(id.into(), DataElt::from(buf)));
-                            try!(fs::remove_file(tmp_path));
-                        },
-                        PartitionOp::EltDelete(elt) => {
-                            if !is_tip && !args.force {
-                                panic!("Do you really want to make an edit from a historical state? If so specify '--force'.");
-                            }
-                            let id: u64 = try!(elt.parse());
-                            try!(state.remove(id.into()));
-                        },
-                    }
-                }       // destroy reference `state`
-                
-                let user_fields: Rc<Vec<UserData>> = vec![UserData::Text("by pippincmd".to_string())].into();
-                let has_changes = try!(part.write(true, user_fields.clone()));
-                if has_changes && args.snapshot {
-                    try!(part.write_snapshot(user_fields));
-                }
-                Ok(())
             }
+            Ok(())
         },
-        Operation::ListPartitions | Operation::Default => {
-            assert_eq!(args.part, None);
-            assert_eq!(args.commit, None);
+        Operation::OnPartition(part_op) => {
+            if args.part.is_some() {
+                panic!("No support for -p / --partition option");
+            }
+            if args.commit.is_some() {
+                panic!("No support for -c / --commit option");
+            }
             println!("Scanning files ...");
-            // #0017: this should print warnings generated in discover::*
-            let discover = try!(discover::RepoFileIO::from_paths(paths));
-            for part in discover.partitions() {
-                println!("Partition {}: {}*", part.part_id(), part.path_prefix().display());
+             let part_files = try!(discover::part_from_path(&path, None));
+            
+            let mut part = try!(Partition::<DataElt>::open(Box::new(part_files)));
+            {
+                let (is_tip, mut state) = if let Some(ss) = args.commit {
+                    try!(part.load(true));
+                    let state = try!(part.state_from_string(ss));
+                    (part.tip_key().map(|k| k == state.statesum()).unwrap_or(false), state.clone_mut())
+                } else {
+                    try!(part.load(false));
+                    (true, try!(part.tip()).clone_mut())
+                };
+                match part_op {
+                    PartitionOp::ListElts => {
+                        println!("Elements:");
+                        for id in state.elt_map().keys() {
+                            let n: u64 = (*id).into();
+                            println!("  {}", n);
+                        }
+                    },
+                    PartitionOp::EltGet(elt) => {
+                        let id: u64 = try!(elt.parse());
+                        match state.get(id.into()) {
+                            Ok(d) => {
+                                println!("Element {}:", id);
+                                println!("{}", d);
+                            },
+                            Err(e) => { println!("Element {} {}", id, e.description()); },
+                        }
+                    },
+                    PartitionOp::EltEdit(elt, editor) => {
+                        if !is_tip && !args.force {
+                            panic!("Do you really want to make an edit from a historical state? If so specify '--force'.");
+                        }
+                        let output = try!(Command::new("mktemp")
+                            .arg("--tmpdir")
+                            .arg("pippin-element.XXXXXXXX").output());
+                        if !output.status.success() {
+                            return CmdFailed::err("mktemp", output.status.code());
+                        }
+                        let tmp_path = PathBuf::from(OsStr::from_bytes(rtrim(&output.stdout, b'\n')));
+                        if !tmp_path.is_file() {
+                            return PathError::err("temporary file created but not found", tmp_path);
+                        }
+                        
+                        let id: u64 = try!(elt.parse());
+                        {
+                            let elt_data: &DataElt = if let Ok(d) = state.get(id.into()) {
+                                &d
+                            } else {
+                                panic!("element not found");
+                            };
+                            let mut file = try!(fs::OpenOptions::new().write(true).open(&tmp_path));
+                            try!(file.write(elt_data.bytes()));
+                        }
+                        println!("Written to temporary file: {}", tmp_path.display());
+                        
+                        let editor_cmd = try!(env::var(match editor {
+                            Editor::Cmd => "EDITOR",
+                            Editor::Visual => "VISUAL",
+                        }));
+                        let status = try!(Command::new(&editor_cmd).arg(&tmp_path).status());
+                        if !status.success() {
+                            return CmdFailed::err(editor_cmd, status.code());
+                        }
+                        let mut file = try!(fs::File::open(&tmp_path));
+                        let mut buf = Vec::new();
+                        try!(file.read_to_end(&mut buf));
+                        try!(state.replace(id.into(), DataElt::from(buf)));
+                        try!(fs::remove_file(tmp_path));
+                    },
+                    PartitionOp::EltDelete(elt) => {
+                        if !is_tip && !args.force {
+                            panic!("Do you really want to make an edit from a historical state? If so specify '--force'.");
+                        }
+                        let id: u64 = try!(elt.parse());
+                        try!(state.remove(id.into()));
+                    },
+                }
+            }       // destroy reference `state`
+            
+            let user_fields: Rc<Vec<UserData>> = vec![UserData::Text("by pippincmd".to_string())].into();
+            let has_changes = try!(part.write(true, user_fields.clone()));
+            if has_changes && args.snapshot {
+                try!(part.write_snapshot(user_fields));
             }
             Ok(())
         },

@@ -302,7 +302,7 @@ the repository is created. It also requires either meaningless code names or
 risks very long file names.
 
 
-Discovering partition files
+Discovering partition meta-info
 ---------------------
 
 Assuming a set of files are identified as beloning to the same partition (from
@@ -339,6 +339,46 @@ Option 1: a number.
 
 Option 2: the state-sum of the latest state. This requires writing from scratch
 or renaming on every new commit, which isn't ideal.
+
+
+Discovering partition files
+---------------------
+
+When some kind of `RepoIO` is created, *some* checking of available partitions
+and possibly files is required. Of the options below, 1 and 2 appear most
+sensible.
+
+### Option 1: discover all paths on creation and remember all
+
++ everything available early
+
+### Option 2: Discover partitions available on creation, parition files when a `PartIO` is created
+
++ partitions known early
++ partition files known early enough for most purposes
+- can't easily get stats of all partition files
+
+### Option 3 Discover partitions available on creation, partition files when first loaded
+
++ partitions known early
+- can't easily get stats of all partition files
+
+What is the point over option 2 though? Maybe that the `PartIO` can be created
+earlier without scanning all files.
+
+### Option 4: Discover partitions available on creation, partition files dynamically (on demand)
+
++ partitions known early
++ "live" view of files on disk without rescanning
+- getting file stats more difficult
+- loading the tip is more difficult
+- no easy way of spotting changes on the disk
+
+### Option 5: Discover at one partition, do the rest on demand
+
+- partitioning information will not be available at first
+- finding the correct partition will be slow the first time it is used
+- partition discovery cannot sanely be "live" (always done from the disk)
 
 
 Writing new commits

@@ -472,7 +472,7 @@ fn run(path: &Path, part_num: Option<u64>, mode: Mode, create: bool,
             try!(part.write_snapshot(vec![].into()));
         }
     } else {
-        let discover = try!(discover::RepoFileIO::from_dir(path));
+        let discover = try!(discover::repo_from_path(path));
         let rt = SeqRepo::new(discover);
         
         let mut repo = if create {

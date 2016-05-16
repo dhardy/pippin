@@ -14,6 +14,7 @@ use error::{Error, Result, OtherError};
 
 
 /// Provides file discovery and creation for a repository.
+//TODO: use 'part' instead of 'partition' in names?
 pub trait RepoIO {
     /// Convert self to a `&Any`
     fn as_any(&self) -> &Any;
@@ -30,10 +31,14 @@ pub trait RepoIO {
     /// compile-time polymorphism over type `RepoIO`.
     fn partitions(&self) -> Vec<PartId>;
     
+    /// True if there is a partition with this number
+    fn has_partition(&self, pn: PartId) -> bool;
+    
     /// Add a new partition. `num` is the partition number to use; this function
     /// fails if it is already taken. `prefix` is a relative path plus file-name
     /// prefix, e.g. `data/misc-` would result in a snapshot having a name like
     /// `misc-pn1-ss1.pip` inside the `data` subdirectory.
+    //TODO: should this be `new_part`?
     fn add_partition(&mut self, num: PartId, prefix: &str) -> Result<()>;
     
     /// Construct and return a new PartIO for partition `num`.
