@@ -90,21 +90,21 @@ impl<C: ClassifierT, R: RepoT<C>> Repository<C, R> {
     pub fn open(mut classifier: R)-> Result<Repository<C, R>> {
         let (name, parts) = {
             let io = classifier.repo_io();
-            let mut part_nums = io.partitions().into_iter();
+            let mut part_nums = io.parts().into_iter();
             let num0 = if let Some(num) = part_nums.next() {
                 num
             } else {
                 return OtherError::err("No repository files found");
             };
             
-            let part_io = try!(io.make_partition_io(num0));
+            let part_io = try!(io.make_part_io(num0));
             let mut part0 = try!(Partition::open(part_io));
             let name = try!(part0.get_repo_name()).to_string();
             
             let mut parts = HashMap::new();
             parts.insert(num0, part0);
             for n in part_nums {
-                let part_io = try!(io.make_partition_io(n));
+                let part_io = try!(io.make_part_io(n));
                 let mut part = try!(Partition::open(part_io));
                 try!(part.set_repo_name(&name));
                 parts.insert(n, part);

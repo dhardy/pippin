@@ -238,13 +238,13 @@ pub struct RepoFileIO {
     // Top directory of partition (which paths are relative to)
     dir: PathBuf,
     // For each partition number, a prefix
-    partitions: hi::HashIndexed<PartFileIO, PartId, PartFileIOIdComparator>,
+    parts: hi::HashIndexed<PartFileIO, PartId, PartFileIOIdComparator>,
 }
 impl RepoFileIO {
     /// Create a new instance. This could be for a new repository or existing
     /// partitions can be added afterwards with `insert_part(prefix, part)`.
     pub fn new(dir: PathBuf) -> RepoFileIO {
-        RepoFileIO { dir: dir, partitions: hi::HashIndexed::new() }
+        RepoFileIO { dir: dir, parts: hi::HashIndexed::new() }
     }
     /// Add a (probably existing) partition to the repository. This differs
     /// from `RepoIO::add_partition` in that the prefix is specified in full
@@ -254,32 +254,32 @@ impl RepoFileIO {
     /// Returns true if there was not already a partition with this number
     /// present, or false if a partition with this number just got replaced.
     pub fn insert_part(&mut self, part: PartFileIO) -> bool {
-        self.partitions.insert(part)
+        self.parts.insert(part)
     }
     /// Iterate over partitions
     pub fn partitions(&self) -> RepoPartIter {
-        RepoPartIter { iter: self.partitions.iter() }
+        RepoPartIter { iter: self.parts.iter() }
     }
 }
 impl RepoIO for RepoFileIO {
     fn as_any(&self) -> &Any { self }
-    fn num_partitions(&self) -> usize {
-        self.partitions.len()
+    fn num_parts(&self) -> usize {
+        self.parts.len()
     }
-    fn partitions(&self) -> Vec<PartId> {
-        self.partitions.iter().map(|p| p.part_id).collect()
+    fn parts(&self) -> Vec<PartId> {
+        self.parts.iter().map(|p| p.part_id).collect()
     }
-    fn has_partition(&self, pn: PartId) -> bool {
-        self.partitions.contains(&pn)
+    fn has_part(&self, pn: PartId) -> bool {
+        self.parts.contains(&pn)
     }
-    fn add_partition(&mut self, num: PartId, prefix: &str) -> Result<()> {
+    fn new_part(&mut self, num: PartId, prefix: &str) -> Result<()> {
         // "pn{}" part is not essential so long as prefix is unique but is useful
         let path = self.dir.join(format!("{}pn{}", prefix, num));
-        self.partitions.insert(PartFileIO::new_empty(num, path));
+        self.parts.insert(PartFileIO::new_empty(num, path));
         Ok(())
     }
-    fn make_partition_io(&self, num: PartId) -> Result<Box<PartIO>> {
-        if let Some(ref io) = self.partitions.get(&num) {
+    fn make_part_io(&self, num: PartId) -> Result<Box<PartIO>> {
+        if let Some(ref io) = self.parts.get(&num) {
             Ok(box (**io).clone())
         } else {
             OtherError::err("partition not found")

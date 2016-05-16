@@ -140,8 +140,8 @@ impl<IO: RepoIO> RepoT<SeqClassifier> for SeqRepo<IO> {
             max_len: u32::MAX,
         });
         self.set_classifier();
-        try!(self.io.add_partition(p_id, ""));
-        Ok(try!(self.io.make_partition_io(p_id)))
+        try!(self.io.new_part(p_id, ""));
+        Ok(try!(self.io.make_part_io(p_id)))
     }
     fn divide(&mut self, part: &PartState<Sequence>) ->
         Result<(Vec<PartId>, Vec<PartId>), RepoDivideError>

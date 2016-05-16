@@ -242,7 +242,7 @@ pub fn repo_from_path(path: &Path) -> Result<RepoFileIO> {
         } else {
             // It is possible that multiple prefixes exist for the same
             // partition number, thus the part_files were already used
-            assert!(repo.has_partition(pn));
+            assert!(repo.has_part(pn));
         }
     }
     Ok(repo)
