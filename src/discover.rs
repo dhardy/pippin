@@ -26,7 +26,7 @@ use error::{Result, PathError, OtherError};
 /// all files in the same directory and with the same prefix (the part before
 /// the snapshot number, `ssN`).
 /// 
-/// TODO: consider supporting blobs or partial file names (i.e. patterns of
+/// #0040: consider supporting blobs or partial file names (i.e. patterns of
 /// some kind). Is there any use-case besides lazy entry in command-line tools?
 /// 
 /// If `opt_part_num` is `None`, this will discover the partition number from
@@ -120,7 +120,7 @@ pub fn part_from_path(path: &Path, opt_part_num: Option<PartId>) -> Result<PartF
             let ss: usize = try!(caps.at(2).expect("cap").parse());
             trace!("Adding snapshot {}: {}", ss, fpath.display());
             let has_prev = part_paths.insert_ss(ss, entry.path());
-            //TODO: better error handling
+            // #0011: better error handling
             assert!(!has_prev, "multiple files map to same basename/number");
         } else if let Some(caps) = cl_pat.captures(fname) {
             let bname = caps.at(1).expect("cap");
@@ -130,7 +130,7 @@ pub fn part_from_path(path: &Path, opt_part_num: Option<PartId>) -> Result<PartF
             let cl: usize = try!(caps.at(3).expect("cap").parse());
             trace!("Adding snapshot {} log {}: {}", ss, cl, fpath.display());
             let has_prev = part_paths.insert_cl(ss, cl, entry.path());
-            //TODO: better error handling
+            // #0011: better error handling
             assert!(!has_prev, "multiple files map to same basename/number");
         } else {
             warn!(".pip or .piplog file does not match expected pattern: {}", fname);
@@ -161,7 +161,7 @@ pub fn part_from_path(path: &Path, opt_part_num: Option<PartId>) -> Result<PartF
 /// If it points to a file, this method will proceed as if
 /// it were run with the parent directory instead.
 /// 
-/// TODO: it would be nice to specify whether this should be recursive
+/// #0040: it would be nice to specify whether this should be recursive
 /// (max_depth) and whether it should follow links, but without adding extra
 /// required arguments (builder pattern like WalkDir?).
 pub fn repo_from_path(path: &Path) -> Result<RepoFileIO> {
@@ -178,7 +178,7 @@ pub fn repo_from_path(path: &Path) -> Result<RepoFileIO> {
     };
     info!("Scanning for repository files in: {}", dir.display());
     
-    //TODO: do we need to store the prefix as a string?
+    // #0039: do we need to store the prefix as a string?
     let mut prefixes = HashMap::<String, PartId>::new();
     let mut partitions = HashMap::<PartId, PartPaths>::new();
     
