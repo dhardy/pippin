@@ -29,7 +29,6 @@ pub struct Sum {
 }
 
 impl Sum {
-    
     /// A "sum" containing all zeros
     pub fn zero() -> Sum {
 //         Sum { s1: u8x16::splat(0), s2: u8x16::splat(0) }
@@ -117,6 +116,15 @@ impl Sum {
         }
         return true;
     }
+    
+    /// Write a formatted version to a formatter
+    fn fmt_to(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        // #0019: this could probably be faster
+        write!(f, "{:02X}{:02X}{:02X}{:02X}{:02X}{:02X}{:02X}{:02X}\
+            {:02X}{:02X}{:02X}{:02X}{:02X}{:02X}{:02X}{:02X}",
+            self.s[ 0], self.s[ 1], self.s[ 2], self.s[ 3], self.s[ 4], self.s[ 5], self.s[ 6], self.s[ 7],
+            self.s[ 8], self.s[ 9], self.s[10], self.s[11], self.s[12], self.s[13], self.s[14], self.s[15])
+    }
 }
 
 const HEX_CHARS : &'static [u8; 16] = b"0123456789ABCDEF";
@@ -133,20 +141,13 @@ impl<'a> ops::BitXor for &'a Sum {
     }
 }
 
-//TODO: impls are identical and should share code
 impl fmt::Display for Sum {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:02X}{:02X}{:02X}{:02X}{:02X}{:02X}{:02X}{:02X}\
-            {:02X}{:02X}{:02X}{:02X}{:02X}{:02X}{:02X}{:02X}",
-            self.s[ 0], self.s[ 1], self.s[ 2], self.s[ 3], self.s[ 4], self.s[ 5], self.s[ 6], self.s[ 7],
-            self.s[ 8], self.s[ 9], self.s[10], self.s[11], self.s[12], self.s[13], self.s[14], self.s[15])
+        self.fmt_to(f)
     }
 }
 impl fmt::Debug for Sum {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:02X}{:02X}{:02X}{:02X}{:02X}{:02X}{:02X}{:02X}\
-            {:02X}{:02X}{:02X}{:02X}{:02X}{:02X}{:02X}{:02X}",
-            self.s[ 0], self.s[ 1], self.s[ 2], self.s[ 3], self.s[ 4], self.s[ 5], self.s[ 6], self.s[ 7],
-            self.s[ 8], self.s[ 9], self.s[10], self.s[11], self.s[12], self.s[13], self.s[14], self.s[15])
+        self.fmt_to(f)
     }
 }
