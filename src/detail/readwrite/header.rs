@@ -79,13 +79,13 @@ pub enum UserData {
     Text(String),
 }
 
-// Information stored in a file header
+/// Information stored in a file header
 pub struct FileHeader {
     /// File type: snapshot or log file.
     pub ftype: FileType,
     /// Repo name. Always present.
     pub name: String,
-    /// Partition identifier. Zero if not present.
+    /// Partition identifier.
     pub part_id: Option<PartId>,
     /// User data fields, remarks, etc.
     pub user: Rc<Vec<UserData>>,
@@ -102,6 +102,8 @@ fn read_head_version(s: &[u8]) -> u32 {
     v
 }
 
+/// Performs basic validation of a repository name. This same function is used
+/// on the name given to a new partition or repository on creation.
 pub fn validate_repo_name(name: &str) -> stdResult<(), ArgError> {
     if name.len() == 0 {
         return Err(ArgError::new("repo name missing (length 0)"));

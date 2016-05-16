@@ -98,6 +98,8 @@ pub use detail::readwrite::UserData;
 pub use detail::repo;
 pub use detail::part;
 pub use detail::merge;
+/// `readwrite` may not remain public'
+pub use detail::readwrite;
 
 // Most Pippin code is put in this private module to allow inter-module
 // dependencies without making the details public. In the future there may

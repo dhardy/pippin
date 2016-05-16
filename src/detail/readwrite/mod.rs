@@ -3,8 +3,12 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 //! Pippin support for reading from and writing to files.
-
-//! Many code forms shamelessly lifted from Alex Crichton's flate2 library.
+//! 
+//! Many code patterns shamelessly lifted from Alex Crichton's flate2 library.
+//! 
+//! Note that code in this module is not guaranteed to remain public. Probably
+//! only some of the header items are useful, and of those only `UserData` is
+//! needed (excepting some introspection like pippincmd does to read headers).
 
 mod sum;
 mod header;

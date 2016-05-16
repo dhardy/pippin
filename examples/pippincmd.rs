@@ -24,6 +24,7 @@ use pippin::{Partition, PartIO, ElementT, State, MutState, UserData, PartId};
 use pippin::{discover, fileio};
 use pippin::error::{Result, PathError, ErrorTrait};
 use pippin::util::rtrim;
+use pippin::readwrite::{read_head, FileType};
 
 const USAGE: &'static str = "
 Pippin command-line UI. This program is designed to demonstrate Pippin's
@@ -32,6 +33,7 @@ for automated usage and the UI may be subject to changes.
 
 Usage:
   pippincmd [-h] -n PREFIX [-N NAME] [-i NUM] PATH
+  pippincmd [-h] -H PATH
   pippincmd [-h] [-p NUM] [-P] [-S] [-L] [-C] PATH
   pippincmd [-h] [-f] [-p NUM] [-c COMMIT] [-s] [-E | -g ELT | -e ELT | -v ELT | -d ELT] PATH
   pippincmd --help | --version
@@ -45,11 +47,14 @@ Options:
   -s --snapshot         Force writing of a snapshot after loading and applying
                         any changes, unless the state already has a snapshot.
   
+  -H --header           Print out information from the file's header.
+  
   -P --partitions       List all partitions loaded
   -p --partition NUM   Select partition NUM
   -S --snapshots        List all snapshots loaded
   -L --logs             List all log files loaded
   -C --commits          List all commits loaded (from snapshots and logs)
+  
   -c --commit COMMIT    Select commit COMMIT. If not specified, most operations
                         on commits will use the head (i.e. the latest state).
   -E --elements         List all elements
@@ -75,6 +80,7 @@ struct Args {
     flag_repo_name: Option<String>,
     flag_part_num: Option<String>,
     flag_snapshot: bool,
+    flag_header: bool,
     flag_partitions: bool,
     flag_partition: Option<String>,
     flag_snapshots: bool,
@@ -103,6 +109,7 @@ enum Editor { Cmd, Visual }
 #[derive(Debug)]
 enum Operation {
     NewPartition(String /*prefix*/, Option<String> /*repo name*/, Option<String> /* part num */),
+    Header,
     List(bool /*list snapshot files?*/, bool /*list log files?*/, bool /*list commits?*/),
     OnPartition(PartitionOp),
 }
@@ -127,6 +134,8 @@ fn main() {
         // Rely on docopt to spot invalid conflicting flags
         let op = if let Some(name) = args.flag_new {
                 Operation::NewPartition(name, args.flag_repo_name, args.flag_part_num)
+            } else if args.flag_header {
+                Operation::Header
             } else if args.flag_partitions || args.flag_snapshots || args.flag_logs || args.flag_commits {
                 Operation::List(args.flag_snapshots,
                         args.flag_logs, args.flag_commits)
@@ -192,6 +201,28 @@ fn inner(path: PathBuf, op: Operation, args: Rest) -> Result<()>
             let io = fileio::PartFileIO::new_empty(part_id, prefix);
             try!(Partition::<DataElt>::create(Box::new(io), &repo_name,
                     vec![UserData::Text("by pippincmd".to_string())].into()));
+            Ok(())
+        },
+        Operation::Header => {
+            println!("Reading header from: {}", path.display());
+            let head = try!(read_head(&mut try!(fs::File::open(path))));
+            println!("{} file, version: {}",
+                match head.ftype { FileType::Snapshot(_) => "Snapshot", FileType::CommitLog(_) => "Commit log" },
+                head.ftype.ver());
+            println!("Repository name: {}", head.name);
+            print!("Partition number: ");
+            match head.part_id {
+                Some(id) => println!("{}", id.into_num()),
+                None => println!("not specified"),
+            };
+            for ud in &*head.user {
+                match ud {
+                    &UserData::Data(ref d) =>
+                        println!("User data (binary, length {})", d.len()),
+                    &UserData::Text(ref t) =>
+                        println!("User text: {}", t),
+                };
+            }
             Ok(())
         },
         Operation::List(list_snapshots, list_logs, list_commits) => {
