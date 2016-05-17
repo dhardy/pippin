@@ -660,30 +660,31 @@ impl<E: ElementT> Partition<E> {
     /// Fails if the commit's parent is not found or the patch cannot be
     /// applied to it. In this case the commit is lost, but presumably either
     /// there was a programmatic error or memory corruption for this to occur.
-    pub fn push_commit(&mut self, commit: Commit<E>) -> Result<(), PatchOp> {
+    /// 
+    /// Returns `Ok(true)` on success or `Ok(false)` if the commit matches an
+    /// already known state.
+    pub fn push_commit(&mut self, commit: Commit<E>) -> Result<bool, PatchOp> {
         let state = {
             let parent = try!(self.states.get(commit.first_parent())
                 .ok_or(PatchOp::NoParent));
             try!(commit.apply(parent))
         };  // end borrow on self (from parent)
-        self.add_pair(commit, state);
-        Ok(())
+        Ok(self.add_pair(commit, state))
     }
     
     /// This creates a commit from the given state, converts the `MutPartState`
-    /// to a `PartState` and adds it to the list of internal states, as
-    /// the new tip (unless a merge is required, in which case it will be one
-    /// of multiple tip states). The commit is added to the internal list
+    /// to a `PartState` and adds it to the list of internal states, and
+    /// updates the tip. The commit is added to the internal list
     /// waiting to be written to permanent storage (see `write()`).
-    /// 
-    /// Returns `Ok(true)` on success, or `Ok(false)` if the state matches its
-    /// parent (i.e. hasn't been changed).
     /// 
     /// We assume there are no extra parents; merges should be pushed via
     /// `push_commit` instead.
     /// 
-    /// TODO: this operation should not fail, since failure might result in
-    /// data loss.
+    /// Mutates the commit in the (very unlikely) case that its statesum
+    /// clashes with another commit whose data is different.
+    /// 
+    /// Returns `Ok(true)` on success, or `Ok(false)` if the state matches its
+    /// parent (i.e. hasn't been changed) or another already known state.
     pub fn push_state(&mut self, state: MutPartState<E>,
             extra_meta: ExtraMeta) -> Result<bool, PatchOp>
     {
@@ -703,8 +704,7 @@ impl<E: ElementT> Partition<E> {
         if let Some(commit) = c {
             let new_state = PartState::from_mut(state,
                     commit.parents().clone(), commit.meta().clone());
-            self.add_pair(commit, new_state);
-            Ok(true)
+            Ok(self.add_pair(commit, new_state))
         } else {
             Ok(false)
         }
@@ -868,13 +868,16 @@ impl<E: ElementT> Partition<E> {
         Err(box OtherError::new("unable to find a common ancestor"))
     }
     
-    /// Add a paired commit and state, assuming that the checksums match and
+    /// Add a paired commit and state, asserting that the checksums match and
     /// the parent state is present.
     /// 
     /// If an element with the states's statesum already exists and differs
     /// from the state passed, the state and commit passed will be mutated to
     /// achieve a unique statesum.
-    fn add_pair(&mut self, mut commit: Commit<E>, mut state: PartState<E>) {
+    /// 
+    /// Returns true unless the given state (including metadata) equals a
+    /// stored one (in which case nothing happens and false is returned).
+    fn add_pair(&mut self, mut commit: Commit<E>, mut state: PartState<E>) -> bool {
         assert_eq!(commit.parents(), state.parents());
         assert_eq!(commit.statesum(), state.statesum());
         assert!(self.states.contains(commit.first_parent()));
@@ -882,7 +885,7 @@ impl<E: ElementT> Partition<E> {
         while let Some(ref old_state) = self.states.get(state.statesum()) {
             if state == **old_state {
                 trace!("Partition {} already contains commit {}", self.part_id, commit.statesum());
-                return;
+                return false;
             } else {
                 commit.mutate_meta(state.mutate_meta());
             }
@@ -898,6 +901,7 @@ impl<E: ElementT> Partition<E> {
         }
         self.tips.insert(state.statesum().clone());
         self.states.insert(state);
+        true
     }
 }
 
