@@ -80,7 +80,6 @@ impl PartIO for PartitionStreams {
 
 #[test]
 fn create_small() {
-    use pippin::State;
     env_logger::init().unwrap();
     
     let part_streams = PartitionStreams {

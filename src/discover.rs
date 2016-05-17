@@ -11,7 +11,7 @@ use std::collections::hash_map::{HashMap, Entry};
 use regex::Regex;
 use walkdir::WalkDir;
 
-use {PartIO, RepoIO, PartId};
+use {RepoIO, PartId};
 use fileio::{PartFileIO, RepoFileIO, PartPaths};
 use detail::readwrite::read_head;
 use error::{Result, PathError, OtherError};

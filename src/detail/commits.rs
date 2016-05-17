@@ -14,7 +14,7 @@ use chrono::{DateTime, NaiveDateTime, UTC};
 
 use detail::states::PartStateSumComparator;
 use detail::readwrite::CommitReceiver;
-use {PartState, MutPartState, State, MutState};
+use {PartState, MutPartState, MutState};
 use {ElementT, EltId, Sum};
 use error::{Result, ReplayError, PatchOp, ElementOp};
 

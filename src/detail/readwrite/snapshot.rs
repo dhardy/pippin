@@ -12,7 +12,7 @@ use std::collections::hash_map::{HashMap, Entry};
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
 use detail::readwrite::{sum};
-use {PartState, State, MutState};
+use {PartState, State};
 use {ElementT, PartId, Sum, CommitMeta};
 use detail::SUM_BYTES;
 use error::{Result, ReadError, ElementOp};
@@ -275,6 +275,8 @@ pub fn write_snapshot<T: ElementT>(state: &PartState<T>,
 
 #[test]
 fn snapshot_writing() {
+    use ::MutState;
+    
     let part_id = PartId::from_num(1);
     let mut state = PartState::<String>::new(part_id).clone_mut();
     let data = "But I must explain to you how all this \
