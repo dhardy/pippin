@@ -654,19 +654,18 @@ impl<E: ElementT> Partition<E> {
     /// the states and 'tips' stored internally by creating a new state from
     /// the commit.
     /// 
-    /// Fails if there is a checksum collision or the patch does not apply.
+    /// Mutates the commit in the (very unlikely) case that its statesum
+    /// clashes with another commit whose data is different.
     /// 
-    /// TODO: this operation should not fail, since failure might result in
-    /// data loss.
+    /// Fails if the commit's parent is not found or the patch cannot be
+    /// applied to it. In this case the commit is lost, but presumably either
+    /// there was a programmatic error or memory corruption for this to occur.
     pub fn push_commit(&mut self, commit: Commit<E>) -> Result<(), PatchOp> {
-        if self.states.contains(commit.statesum()) {
-            return Err(PatchOp::SumClash);
-        }
-        let first_parent = commit.parents().iter().next().expect("commit 1st parent").clone();
         let state = {
-            let parent = try!(self.states.get(&first_parent).ok_or(PatchOp::NoParent));
+            let parent = try!(self.states.get(commit.first_parent())
+                .ok_or(PatchOp::NoParent));
             try!(commit.apply(parent))
-        };
+        };  // end borrow on self (from parent)
         self.add_pair(commit, state);
         Ok(())
     }
@@ -869,11 +868,26 @@ impl<E: ElementT> Partition<E> {
         Err(box OtherError::new("unable to find a common ancestor"))
     }
     
-    // Add a paired commit and state.
-    // Assumptions: checksums match and parent state is present.
-    fn add_pair(&mut self, commit: Commit<E>, state: PartState<E>) {
+    /// Add a paired commit and state, assuming that the checksums match and
+    /// the parent state is present.
+    /// 
+    /// If an element with the states's statesum already exists and differs
+    /// from the state passed, the state and commit passed will be mutated to
+    /// achieve a unique statesum.
+    fn add_pair(&mut self, mut commit: Commit<E>, mut state: PartState<E>) {
         assert_eq!(commit.parents(), state.parents());
         assert_eq!(commit.statesum(), state.statesum());
+        assert!(self.states.contains(commit.first_parent()));
+        
+        while let Some(ref old_state) = self.states.get(state.statesum()) {
+            if state == **old_state {
+                trace!("Partition {} already contains commit {}", self.part_id, commit.statesum());
+                return;
+            } else {
+                commit.mutate_meta(state.mutate_meta());
+            }
+        }
+        
         trace!("Partition {}: new commit {}", self.part_id, commit.statesum());
         self.ss_policy.add_commits(1);
         self.ss_policy.add_edits(commit.num_changes());

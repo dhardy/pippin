@@ -199,7 +199,19 @@ impl<E: ElementT> PartState<E> {
         }
     }
     
-    /// Get the state sum
+    /// Mutate the metadata in order to yield a new `statesum()` while
+    /// otherwise not changing the state.
+    /// 
+    /// Output may be passed to `Commit::mutate_meta()`.
+    pub fn mutate_meta(&mut self) -> (u32, Sum) {
+        let old_metasum = Sum::state_meta_sum(self.part_id, &self.parents, &self.meta);
+        self.meta.number = self.meta.next_number();
+        let new_metasum = Sum::state_meta_sum(self.part_id, &self.parents, &self.meta);
+        self.statesum = &(&self.statesum ^ &old_metasum) ^ &new_metasum;
+        (self.meta.number, self.statesum.clone())
+    }
+    
+    /// Get the state sum (depends on data and metadata)
     pub fn statesum(&self) -> &Sum { &self.statesum }
     /// Get the metadata sum (this is part of the statesum)
     /// 

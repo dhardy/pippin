@@ -173,8 +173,6 @@ impl fmt::Display for ElementOp {
 /// Any ElementOp can automatically be converted to PatchOp::PatchApply.
 #[derive(PartialEq, Eq, Debug, Clone, Copy)]
 pub enum PatchOp {
-    /// State-sum of commit / state clashes with an existing one
-    SumClash,
     /// Parent state not found
     NoParent,
     /// Incorrect parent supplied to patch operationn
@@ -185,7 +183,6 @@ pub enum PatchOp {
 impl ErrorTrait for PatchOp {
     fn description(&self) -> &'static str {
         match *self {
-            PatchOp::SumClash => "state-sum of commit or state already used by partition",
             PatchOp::NoParent => "parent state of commit not found",
             PatchOp::WrongParent => "applying commit patch failed: wrong parent",
             PatchOp::PatchApply => "applying commit patch failed: data mismatch",

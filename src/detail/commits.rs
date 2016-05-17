@@ -212,7 +212,7 @@ impl<E: ElementT> Commit<E> {
         let mut changes = HashMap::new();
         for (id, old_elt) in old_state.elt_map() {
             if let Some(new_elt) = elt_map.remove(id) {
-                //TODO: should we compare sums? Would this be faster?
+                // #0019: should we compare sums? Would this be faster?
                 if new_elt == *old_elt {
                     /* no change */
                 } else {
@@ -307,11 +307,24 @@ impl<E: ElementT> Commit<E> {
         Ok(())
     }
     
+    /// Mutate the metadata in order to yield a new `statesum()` while
+    /// otherwise not changing the state.
+    /// 
+    /// Requires the output of `State::mutate_meta()` to work correctly.
+    /// Warning: the state used to do this must match this commit or this
+    /// commit will be messed up!
+    pub fn mutate_meta(&mut self, mutated: (u32, Sum)) {
+        self.meta.number = mutated.0;
+        self.statesum = mutated.1;
+    }
+    
     /// Get the state checksum
     pub fn statesum(&self) -> &Sum { &self.statesum }
     /// Get the parents. There must be at least one. The first is the primary,
     /// which can be patched by this commit.
     pub fn parents(&self) -> &Vec<Sum> { &self.parents }
+    /// Get the first parent. This is the one the commit is applied against.
+    pub fn first_parent(&self) -> &Sum { &self.parents[0] }
     /// Get the number of changes in the "patch"
     pub fn num_changes(&self) -> usize { self.changes.len() }
     /// Get an iterator over changes
