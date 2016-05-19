@@ -453,7 +453,7 @@ fn run(path: &Path, part_num: Option<u64>, mode: Mode, create: bool,
         };
         
         if part.merge_required() {
-            try!(part.merge(&merge_solver));
+            try!(part.merge(&merge_solver, true));
         }
         
         for _ in 0..repetitions {
@@ -484,7 +484,7 @@ fn run(path: &Path, part_num: Option<u64>, mode: Mode, create: bool,
         };
         
         if repo.merge_required() {
-            try!(repo.merge(&merge_solver));
+            try!(repo.merge(&merge_solver, true));
         }
         
         for _ in 0..repetitions {

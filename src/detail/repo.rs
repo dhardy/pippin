@@ -189,10 +189,13 @@ impl<C: ClassifierT, R: RepoT<C>> Repository<C, R> {
     /// If no merge work is required and you have your solver ready, calling
     /// this should be roughly as efficient as calling `merge_required()`.
     /// 
+    /// If `auto_load` is true, additional history will be loaded as necessary
+    /// to find a common ancestor (*TODO: not implemented yet*).
+    /// 
     /// TODO: clearer names, maybe move some of the work around.
-    pub fn merge<S: TwoWaySolver<C::Element>>(&mut self, solver: &S) -> Result<()> {
+    pub fn merge<S: TwoWaySolver<C::Element>>(&mut self, solver: &S, auto_load: bool) -> Result<()> {
         for (_, part) in &mut self.partitions {
-            try!(part.merge(solver));
+            try!(part.merge(solver, auto_load));
         }
         Ok(())
     }

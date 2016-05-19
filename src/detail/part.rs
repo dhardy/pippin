@@ -21,7 +21,7 @@ use detail::states::{PartStateSumComparator};
 use detail::{Commit, ExtraMeta, CommitQueue, LogReplay};
 use merge::{TwoWayMerge, TwoWaySolver};
 use {ElementT, Sum, PartId};
-use error::{Result, TipError, PatchOp, MatchError, OtherError, make_io_err};
+use error::{Result, TipError, PatchOp, MatchError, MergeError, OtherError, make_io_err};
 
 /// An interface providing read and/or write access to a suitable location.
 /// 
@@ -542,6 +542,12 @@ impl<E: ElementT> Partition<E> {
         }
     }
     
+    /// Get the set of all tips. Is empty before loading and has more than one
+    /// entry when `merge_required()`. May be useful for merging.
+    pub fn tips(&self) -> &HashSet<Sum> {
+        &self.tips
+    }
+    
     /// Get a reference to the PartState of the current tip. You can read
     /// this directly or make a clone in order to make your modifications.
     /// 
@@ -598,53 +604,82 @@ impl<E: ElementT> Partition<E> {
     }
     
     /// Merge all latest states into a single tip.
+    /// This is a convenience wrapper around `merge_two(...)`.
     /// 
-    /// This is a convenience version of `merge_two`.
+    /// This works through all 'tip' states in an order determined by a
+    /// `HashSet`'s random keying, thus the exact result may not be repeatable
+    /// if the program were run multiple times with the same initial state.
     /// 
-    /// Given more than two tips, there are multiple orders in which a merge
-    /// could take place, or one could in theory merge more than two tips at
-    /// once. This function simply selects any two tips and merges, then
-    /// repeats until done.
-    pub fn merge<S: TwoWaySolver<E>>(&mut self, solver: &S) -> Result<()> {
-        trace!("Partition::merge ({} tips)", self.tips.len());
+    /// If `auto_load` is true, additional history will be loaded as necessary
+    /// to find a common ancestor (*TODO: not implemented yet*).
+    pub fn merge<S: TwoWaySolver<E>>(&mut self, solver: &S, auto_load: bool) -> Result<(), MergeError> {
+        fn make_merger<'a, E: ElementT>(part: &'a Partition<E>,
+            tip1: &'a Sum, tip2: &'a Sum, auto_load: bool) ->
+                Result<TwoWayMerge<'a, E>, MergeError>
+        {
+            loop {
+                match part.merge_two(&tip1, &tip2) {
+                    Err(MergeError::NoCommonAncestor) if auto_load => {
+                        //TODO: load previous snapshot
+                        warn!("not implemented: loading specified snapshot");
+                        return Err(MergeError::NoCommonAncestor);
+                    },
+                    Err(e) => {
+                        return Err(e);
+                    },
+                    Ok(merger) => {
+                        return Ok(merger);
+                    },
+                }
+            }
+        }
         while self.tips.len() > 1 {
-            let c = {
-                let mut merger = try!(self.merge_two());
-                merger.solve(solver);
-                merger.make_commit(None)
+            let (tip1, tip2): (Sum, Sum) = {
+                let mut iter = self.tips.iter();
+                let tip1 = iter.next().unwrap();
+                let tip2 = iter.next().unwrap();
+                (tip1.clone(), tip2.clone())
             };
+            trace!("Partition {}: attempting merge of tips {} and {}", self.part_id, &tip1, &tip2);
+            let c = try!(make_merger(self, &tip1, &tip2, auto_load))
+                    .solve_inline(solver).make_commit(None);
             if let Some(commit) = c {
-                trace!("Pushing merge commit: {} ({} changes)", commit.statesum(), commit.num_changes());
+                trace!("Pushing merge commit: {} ({} changes)",
+                        commit.statesum(), commit.num_changes());
                 try!(self.push_commit(commit));
             } else {
-                return OtherError::err("merge failed");
+                return Err(MergeError::NotSolved);
             }
         }
         Ok(())
     }
     
-    /// Create a `TwoWayMerge` for any two tips. Use this to make a commit,
-    /// then call `push_commit()`. Repeat while `self.merge_required()` holds
-    /// true.
+    /// Creates a `TwoWayMerge` for two given states (presumably tip states,
+    /// but not required).
+    /// 
+    /// In order to merge multiple tips, either use `self.merge(solver)` or
+    /// proceed step-by-step:
+    /// 
+    /// *   find two tip states (probably from `self.tips()`)
+    /// *   call `part.merge_two(tip1, tip2)` to get a `merger`
+    /// *   call `merger.solve(solver)` or solve manually
+    /// *   call `merger.make_commit(...)` to obtain a `commit`
+    /// *   call `part.push_commit(commit)`
+    /// *   repeat while `part.merge_required()` remains true
     /// 
     /// This is not eligant, but provides the user full control over the merge.
-    /// The order of merging between tips is not fixed (depends on hash order).
     /// Alternatively, use `self.merge(solver)`.
-    pub fn merge_two(&mut self) -> Result<TwoWayMerge<E>> {
-        if self.tips.len() < 2 {
-            return OtherError::err("merge_two() called when no states need merging");
-        }
-        let (tip1, tip2) = {
-            let mut iter = self.tips.iter();
-            let tip1 = iter.next().unwrap();
-            let tip2 = iter.next().unwrap();
-            (tip1, tip2)
-        };
+    /// 
+    /// If `auto_load` is true, additional history will be loaded as necessary
+    /// to find a common ancestor, *when this feature is implemented*. *This is
+    /// a placeholder to (hopefully) avoid having to change the API in the
+    /// future.*
+    pub fn merge_two(&self, tip1: &Sum, tip2: &Sum) -> Result<TwoWayMerge<E>, MergeError> {
         let common = try!(self.latest_common_ancestor(tip1, tip2));
-        Ok(TwoWayMerge::new(
-            self.states.get(tip1).unwrap(),
-            self.states.get(tip2).unwrap(),
-            self.states.get(&common).unwrap()))
+        let s1 = try!(self.states.get(tip1).ok_or(MergeError::NoState));
+        let s2 = try!(self.states.get(tip2).ok_or(MergeError::NoState));
+        let s3 = try!(self.states.get(&common).ok_or(MergeError::NoState));
+        Ok(TwoWayMerge::new(s1, s2, s3))
     }
     
     // #0003: allow getting a reference to other states listing snapshots,
@@ -819,10 +854,7 @@ impl<E: ElementT> Partition<E> {
 // Internal support functions
 impl<E: ElementT> Partition<E> {
     // Take self and two sums. Return a copy of a key to avoid lifetime issues.
-    // 
-    // TODO: enable loading of additional history on demand. Or do we not need
-    // this?
-    fn latest_common_ancestor(&self, k1: &Sum, k2: &Sum) -> Result<Sum> {
+    fn latest_common_ancestor(&self, k1: &Sum, k2: &Sum) -> Result<Sum, MergeError> {
         // #0019: there are multiple strategies here; we just find all
         // ancestors of one, then of the other. This simplifies lopic.
         let mut a1 = HashSet::new();
@@ -865,7 +897,7 @@ impl<E: ElementT> Partition<E> {
             }
         }
         
-        Err(box OtherError::new("unable to find a common ancestor"))
+        Err(MergeError::NoCommonAncestor)
     }
     
     /// Add a paired commit and state, asserting that the checksums match and

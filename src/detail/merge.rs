@@ -99,6 +99,13 @@ impl<'a, E: ElementT> TwoWayMerge<'a, E> {
         }
     }
     
+    /// Run a solver. Same as `solve()` but consumes and returns self to allow
+    /// chaining.
+    pub fn solve_inline<S>(mut self, s: &S) -> Self where S: TwoWaySolver<E> {
+        self.solve(s);
+        self
+    }
+    
     /// Get the number of conflicts, solved or not.
     /// 
     /// Operation is `O(1)`.

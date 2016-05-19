@@ -297,16 +297,53 @@ pub enum TipError {
     /// tip.
     MergeRequired,
 }
-impl fmt::Display for TipError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> result::Result<(), fmt::Error> {
+impl ErrorTrait for TipError {
+    fn description(&self) -> &str {
         match self {
-            &TipError::NotReady => write!(f, "tip not ready: no tips loaded"),
-            &TipError::MergeRequired => write!(f, "tip not ready: merge required"),
+            &TipError::NotReady => "tip not ready: no tips loaded",
+            &TipError::MergeRequired => "tip not ready: merge required",
         }
     }
 }
-impl ErrorTrait for TipError {
-    fn description(&self) -> &str { "tip not ready" }
+impl fmt::Display for TipError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> result::Result<(), fmt::Error> {
+        write!(f, "{}", self.description())
+    }
+}
+
+
+// —————  MergeError  —————
+/// Error type returned when a merge fails
+#[derive(PartialEq, Eq, Debug)]
+pub enum MergeError {
+    /// One of the states to be merged was not found
+    NoState,
+    /// No common ancestor found
+    NoCommonAncestor,
+    /// Solver did not find a solution
+    NotSolved,
+    /// Patching failed
+    PatchOp(PatchOp),
+}
+impl ErrorTrait for MergeError {
+    fn description(&self) -> &str {
+        match self {
+            &MergeError::NoState => "merge: could not find state",
+            &MergeError::NoCommonAncestor => "merge: could not find a common ancestor",
+            &MergeError::NotSolved => "merge: solver failed",
+            &MergeError::PatchOp(ref p) => p.description(),
+        }
+    }
+}
+impl fmt::Display for MergeError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> result::Result<(), fmt::Error> {
+        write!(f, "{}", self.description())
+    }
+}
+impl From<PatchOp> for MergeError {
+    fn from(e: PatchOp) -> MergeError {
+        MergeError::PatchOp(e)
+    }
 }
 
 
