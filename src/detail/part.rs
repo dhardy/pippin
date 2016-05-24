@@ -646,7 +646,7 @@ impl<E: ElementT> Partition<E> {
     /// if the program were run multiple times with the same initial state.
     /// 
     /// If `auto_load` is true, additional history will be loaded as necessary
-    /// to find a common ancestor (*TODO: not implemented yet*).
+    /// to find a common ancestor.
     pub fn merge<S: TwoWaySolver<E>>(&mut self, solver: &S, auto_load: bool) -> Result<()> {
         while self.tips.len() > 1 {
             let (tip1, tip2): (Sum, Sum) = {

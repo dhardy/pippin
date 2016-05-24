@@ -163,7 +163,7 @@ pub fn read_log<E: ElementT>(reader_: &mut Read, receiver: &mut CommitReceiver<E
                     }
                     pos += SUM_BYTES;
                     
-                    let elt = Rc::new(try!(E::from_vec(data)));
+                    let elt = Rc::new(try!(E::from_vec_sum(data, elt_sum)));
                     match change_t {
                         Change::Insert => EltChange::insertion(elt),
                         Change::Replace => EltChange::replacement(elt),

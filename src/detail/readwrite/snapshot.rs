@@ -130,8 +130,7 @@ pub fn read_snapshot<T: ElementT>(reader: &mut Read, part_id: PartId,
         
         combined_elt_sum.permute(&elt_sum);
         
-        //TODO: allow use of already-calculated elt_sum
-        let elt = try!(T::from_vec(data));
+        let elt = try!(T::from_vec_sum(data, elt_sum));
         if ident.part_id() != part_id { return Err(box ElementOp::WrongPartition); }
         match elts.entry(ident) {
             Entry::Occupied(_) => { return Err(box ElementOp::IdClash); },

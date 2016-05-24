@@ -207,7 +207,14 @@ pub trait ElementT where Self: Sized+PartialEq+Debug {
         Self::read_buf(&vec)
     }
     
-    /// This can either return a copy of an internally stored element sum or
+    /// Create an instance from a vector + a sum (equal to what `sum()` should
+    /// output, so can be cached). The default implementation just calls
+    /// `from_vec(vec)` and throws away the sum.
+    fn from_vec_sum(vec: Vec<u8>, _sum: Sum) -> Result<Self>{
+        Self::from_vec(vec)
+    }
+    
+    /// This can either return a copy of an internally cached element sum or
     /// calculate one on the fly. It is used when inserting, removing or
     /// replacing an element in a state, and when merging states where the
     /// element differs.
