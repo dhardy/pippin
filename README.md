@@ -12,20 +12,40 @@ smaller subset.
 For more, see the documentation in [src/lib.rs](src/lib.rs) or take a look at the [examples](examples/).
 
 
-Status
+Change-log
 ----------
 
-Pippin is 'alpha' status. Some of the core features work fine:
+### Pippin 0.1.0
 
-*   persistance of data within a single 'partition' via snapshots and change logs
-*   checksumming
+Pippin is 'alpha' status.
 
-Some are only partially there:
+Partition-oriented usage (i.e. a single 'partition') should have all the basic
+features there and is ready for testing, but the API may change. Perhaps the
+biggest caveat is that every commit is written to a new file due to not yet
+working out how to safely extend files.
 
-*   real partitioning support
-*   merging of conflicting changes
+Repository-oriented usage is still far from ready.
 
-File formats are still being tweaked, sometimes rendering old files incompatible.
+What should work:
+
+*   persistance of data within a single 'partition' via snapshots
+*   storing changes via commit logs
+*   reconstruction of state from snapshot + logs
+*   auto-detecting latest state(s)
+*   merging of multiple latest states (may require user-interaction)
+*   checksumming & detecting corrupt stuff
+*   recovery of some data when files are missing (though this needs more work)
+*   file formats are mosly final except that headers will get extra data and object diffs
+
+What is planned:
+
+*   tracking mutliple partitions in a distributed manner via file headers
+*   user-specified classifiers
+*   (possibly) indexes of some kind
+*   reclassification of objects as necessary
+*   partially-automated division of "large" partitions via classifiers
+*   object diffs (current commits include a full copy of all changed entries)
+*   log file extension (currently a new file is used per commit to avoid data loss)
 
 
 Doc
