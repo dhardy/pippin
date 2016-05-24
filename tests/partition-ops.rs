@@ -25,7 +25,7 @@ use pippin::error::{make_io_err, Result};
 struct PartitionStreams {
     part_id: PartId,
     // Map of snapshot-number to pair (snapshot, map of log number to log)
-    ss: VecMap<(Vec<u8>, VecMap<Vec<u8>>)>,
+    ss: VecMap<(Option<Vec<u8>>, VecMap<Vec<u8>>)>,
 }
 
 impl PartIO for PartitionStreams {
@@ -40,8 +40,13 @@ impl PartIO for PartitionStreams {
             None => 0,
         }
     }
+    fn has_ss(&self, ss_num: usize) -> bool {
+        self.ss.get(ss_num).map(|&(ref ss, _)| ss.is_some()).unwrap_or(false)
+    }
     fn read_ss<'a>(&'a self, ss_num: usize) -> Result<Option<Box<Read+'a>>> {
-        Ok(self.ss.get(ss_num).map(|&(ref data, _)| box &data[..] as Box<Read+'a>))
+        Ok(self.ss.get(ss_num)
+                .and_then(|&(ref ss, _)| 
+                    ss.as_ref().map(|ref data| box &data[..] as Box<Read+'a>)))
     }
     fn read_ss_cl<'a>(&'a self, ss_num: usize, cl_num: usize) -> Result<Option<Box<Read+'a>>> {
         Ok(self.ss.get(ss_num)
@@ -49,12 +54,16 @@ impl PartIO for PartitionStreams {
             .map(|data| box &data[..] as Box<Read+'a>))
     }
     fn new_ss<'a>(&'a mut self, ss_num: usize) -> Result<Option<Box<Write+'a>>> {
-        if self.ss.contains_key(ss_num) {
-            Ok(None)
-        } else {
-            self.ss.insert(ss_num, (Vec::new(), VecMap::new()));
-            Ok(Some(Box::new(&mut self.ss.get_mut(ss_num).unwrap().0)))
+        {
+            let pair = self.ss.entry(ss_num).or_insert((None, VecMap::new()));
+            if pair.0 == None {
+                pair.0 = Some(Vec::new());
+            } else {
+                return Ok(None);
+            }
         }
+        let data: &'a mut Vec<u8> = (&mut self.ss.get_mut(ss_num).unwrap().0).as_mut().unwrap();
+        Ok(Some(Box::new(data)))
     }
     fn append_ss_cl<'a>(&'a mut self, ss_num: usize, cl_num: usize) -> Result<Option<Box<Write+'a>>> {
         if let Some(data) = self.ss.get_mut(ss_num).and_then(|&mut (_, ref mut logs)| logs.get_mut(cl_num)) {
@@ -150,7 +159,7 @@ fn create_small() {
         // in which elements occur can and does vary (thanks to Rust's hash
         // function randomisation). Instead we compare file length here and
         // read the files back below.
-        assert_eq!(ss_data.len(), 224);
+        assert_eq!(ss_data.as_ref().map_or(0, |d| d.len()), 224);
         assert_eq!(log.len(), 1184);
     }
     

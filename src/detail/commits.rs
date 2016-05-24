@@ -4,19 +4,17 @@
 
 //! Pippin: commit structs and functionality
 
-use std::collections::{HashSet, HashMap, hash_map};
+use std::collections::{HashMap, hash_map};
 use std::clone::Clone;
 use std::rc::Rc;
 use std::u32;
 
-use hashindexed::HashIndexed;
 use chrono::{DateTime, NaiveDateTime, UTC};
 
-use detail::states::PartStateSumComparator;
 use detail::readwrite::CommitReceiver;
 use {PartState, MutPartState, MutState};
 use {ElementT, EltId, Sum};
-use error::{Result, ReplayError, PatchOp, ElementOp};
+use error::{Result, PatchOp, ElementOp};
 
 
 /// Type of extra metadata (this may change)
@@ -91,9 +89,9 @@ impl<E: ElementT> CommitQueue<E> {
     pub fn new() -> CommitQueue<E> {
         CommitQueue { commits: Vec::new() }
     }
-    /// Get the number of items in the queue
-    pub fn len(&self) -> usize {
-        self.commits.len()
+    /// Destroy the CommitQueue, returning the internal list of commits
+    pub fn unwrap(self) -> Vec<Commit<E>> {
+        self.commits
     }
 }
 
@@ -333,153 +331,4 @@ impl<E: ElementT> Commit<E> {
     pub fn meta(&self) -> &CommitMeta { &self.meta }
     /// Write acces to the commit's meta-data
     pub fn meta_mut(&mut self) -> &mut CommitMeta { &mut self.meta }
-}
-
-
-// —————  log replay  —————
-
-pub type StatesSet<E> = HashIndexed<PartState<E>, Sum, PartStateSumComparator>;
-
-/// Struct holding data used during log replay.
-///
-/// This stores *all* recreated states since it does not know which may be used
-/// as parents of future commits. API currently only allows access to the tip,
-/// but could be modified.
-pub struct LogReplay<'a, E: ElementT+'a> {
-    states: &'a mut StatesSet<E>,
-    tips: &'a mut HashSet<Sum>
-}
-
-impl<'a, E: ElementT> LogReplay<'a, E> {
-    /// Create the structure, binding to two sets. These may be empty; in this
-    /// case call `add_state()` to add an initial state.
-    pub fn from_sets(states: &'a mut StatesSet<E>, tips: &'a mut HashSet<Sum>) -> LogReplay<'a, E> {
-        LogReplay { states: states, tips: tips }
-    }
-    
-    /// Recreate all known states from a set of commits. On success, return the
-    /// number of edits (insertions, deletions or replacements).
-    /// 
-    /// Will fail if a commit applies to an unknown state or
-    /// any checksum is incorrect.
-    pub fn replay(&mut self, commits: CommitQueue<E>) -> Result<usize> {
-        let mut edits = 0;
-        for commit in commits.commits {
-            let state = {
-                let parent = try!(self.states.get(&commit.parents()[0])
-                    .ok_or(ReplayError::new("parent state of commit not found")));
-                if self.states.contains(&commit.statesum) {
-                    // #0022: could verify that this state matches that derived from
-                    // the commit and warn if not.
-                    
-                    // Since the state is already known, it either is already
-                    // marked a tip or it has been unmarked. Do not set again!
-                    // However, we now know that the parent states aren't tips, which
-                    // might not have been known before (if new state is a snapshot).
-                    for parent in commit.parents() {
-                        self.tips.remove(parent);
-                    }
-                    continue;
-                }
-                try!(commit.apply(parent))
-            };
-            
-            let has_existing = if let Some(existing) = self.states.get(&state.statesum()) {
-                if *existing != state {
-                    // Collision. We can't do much in this case, so just warn about it.
-                    // #0017: warn about collision
-                }
-                true
-            } else { false };
-            if !has_existing {
-                self.states.insert(state);
-            }
-            
-            for parent in commit.parents() {
-                self.tips.remove(parent);
-            }
-            self.tips.insert(commit.statesum);
-            edits += commit.changes.len();
-        }
-        Ok(edits)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use ::{ElementT, PartState, MutPartState, MutState};
-    use hashindexed::HashIndexed;
-    use std::collections::HashSet;
-    
-    impl<E: ElementT> CommitQueue<E> {
-        /// Add a commit to the end of the queue.
-        pub fn push(&mut self, commit: Commit<E>) {
-            self.commits.push(commit);
-        }
-    }
-    
-    impl<'a, E: ElementT> LogReplay<'a, E> {
-        /// Insert an initial state, marked as a tip (pass by value or clone).
-        pub fn add_state(&mut self, state: PartState<E>) {
-            self.tips.insert(state.statesum().clone());
-            self.states.insert(state);
-        }
-    }
-    
-    
-    #[test]
-    fn commit_creation_and_replay(){
-        use {PartId};
-        use std::rc::Rc;
-        
-        let p = PartId::from_num(1);
-        let mut commits = CommitQueue::<String>::new();
-        
-        let insert = |state: &mut MutPartState<_>, num, string: &str| -> Result<_, _> {
-            state.insert_with_id(p.elt_id(num), Rc::new(string.to_string()))
-        };
-        
-        let mut state = PartState::new(p).clone_mut();
-        insert(&mut state, 1, "one").unwrap();
-        insert(&mut state, 2, "two").unwrap();
-        let meta = CommitMeta::now_empty();
-        let parents = vec![state.parent().clone()];
-        let state_a = PartState::from_mut(state, parents, meta);
-        
-        let mut state = state_a.clone_mut();
-        insert(&mut state, 3, "three").unwrap();
-        insert(&mut state, 4, "four").unwrap();
-        insert(&mut state, 5, "five").unwrap();
-        let commit = Commit::from_diff(&state_a, &state, None).unwrap();
-        let state_b = commit.apply(&state_a).expect("commit apply b");
-        commits.push(commit);
-        
-        let mut state = state_b.clone_mut();
-        insert(&mut state, 6, "six").unwrap();
-        insert(&mut state, 7, "seven").unwrap();
-        state.remove(p.elt_id(4)).unwrap();
-        state.replace(p.elt_id(3), "half six".to_string()).unwrap();
-        let commit = Commit::from_diff(&state_b, &state, None).unwrap();
-        let state_c = commit.apply(&state_b).expect("commit apply c");
-        commits.push(commit);
-        
-        let mut state = state_c.clone_mut();
-        insert(&mut state, 8, "eight").unwrap();
-        insert(&mut state, 4, "half eight").unwrap();
-        let commit = Commit::from_diff(&state_c, &state, None).unwrap();
-        let state_d = commit.apply(&state_c).expect("commit apply d");
-        commits.push(commit);
-        
-        let (mut states, mut tips) = (HashIndexed::new(), HashSet::new());
-        {
-            let mut replayer = LogReplay::from_sets(&mut states, &mut tips);
-            replayer.add_state(state_a);
-            replayer.replay(commits).unwrap();
-        }
-        assert_eq!(tips.len(), 1);
-        let tip_sum = tips.iter().next().unwrap();
-        let replayed_state = states.remove(&tip_sum).unwrap();
-        assert_eq!(replayed_state, state_d);
-    }
 }

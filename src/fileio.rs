@@ -154,6 +154,10 @@ impl PartIO for PartFileIO {
         self.paths.ss_cl_len(ss_num)
     }
     
+    fn has_ss(&self, ss_num: usize) -> bool {
+        self.paths.paths.get(ss_num).map(|&(ref p, _)| p.is_some()).unwrap_or(false)
+    }
+    
     fn read_ss<'a>(&self, ss_num: usize) -> Result<Option<Box<Read+'a>>> {
         // Cannot replace `match` with `map` since `try!()` cannot be used in a closure
         Ok(match self.paths.paths.get(ss_num) {

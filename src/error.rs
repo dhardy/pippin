@@ -204,33 +204,6 @@ impl From<ElementOp> for PatchOp {
 }
 
 
-// —————  ReplayError  —————
-/// Errors in log replay (due either to corruption or providing incompatible
-/// states and commit logs)
-#[derive(PartialEq, Debug)]
-pub struct ReplayError {
-    msg: &'static str
-}
-impl ReplayError {
-    /// Create a "log replay" error
-    pub fn new(msg: &'static str) -> ReplayError {
-        ReplayError { msg: msg }
-    }
-    /// New instance, wrapped with `Err`
-    pub fn err<T>(msg: &'static str) -> Result<T> {
-        Err(box ReplayError::new(msg))
-    }
-}
-impl ErrorTrait for ReplayError {
-    fn description(&self) -> &str { self.msg }
-}
-impl fmt::Display for ReplayError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> result::Result<(), fmt::Error> {
-        write!(f, "failed to recreate state from log: {}", self.msg)
-    }
-}
-
-
 // —————  PathError  —————
 /// Error messages about some path on the file system
 #[derive(PartialEq, Debug)]

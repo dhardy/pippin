@@ -10,6 +10,8 @@ use std::result;
 use std::any::Any;
 use std::ops::Deref;
 use std::rc::Rc;
+use std::usize;
+use std::cmp::min;
 use hashindexed::{HashIndexed, Iter};
 
 pub use detail::states::{State, MutState, PartState, MutPartState};
@@ -18,7 +20,7 @@ use detail::readwrite::{FileHeader, UserData, FileType, read_head, write_head, v
 use detail::readwrite::{read_snapshot, write_snapshot};
 use detail::readwrite::{read_log, start_log, write_commit};
 use detail::states::{PartStateSumComparator};
-use detail::{Commit, ExtraMeta, CommitQueue, LogReplay};
+use detail::{Commit, ExtraMeta, CommitQueue};
 use merge::{TwoWayMerge, TwoWaySolver};
 use {ElementT, Sum, PartId};
 use error::{Result, TipError, PatchOp, MatchError, MergeError, OtherError, make_io_err};
@@ -55,6 +57,10 @@ pub trait PartIO {
     
     /// One greater than the number of the last log file available for some snapshot
     fn ss_cl_len(&self, ss_num: usize) -> usize;
+    
+    /// Tells whether a snapshot file with this number is available. If true,
+    /// `read_ss(ss_num)` *should* succeed (assuming no I/O failure).
+    fn has_ss(&self, ss_num: usize) -> bool;
     
     /// Get a snapshot with the given number. If no snapshot is present or if
     /// ss_num is too large, None will be returned.
@@ -135,6 +141,7 @@ impl PartIO for DummyPartIO {
     fn part_id(&self) -> PartId { self.part_id }
     fn ss_len(&self) -> usize { 0 }
     fn ss_cl_len(&self, _ss_num: usize) -> usize { 0 }
+    fn has_ss(&self, _ss_num: usize) -> bool { false }
     fn read_ss(&self, _ss_num: usize) -> Result<Option<Box<Read+'static>>> {
         Ok(None)
     }
@@ -194,6 +201,10 @@ impl SnapshotPolicy {
 /// 
 /// A partition is in one of three possible states: (1) unloaded, (2) loaded
 /// but requiring a merge (multiple tips), (3) ready for use.
+/// 
+/// Terminology: a *tip* (as in *point* or *peak*) is a state without a known
+/// successor. Normally there is exactly one tip, but see `is_ready`,
+/// `is_loaded` and `merge_required`.
 pub struct Partition<E: ElementT> {
     // IO provider
     io: Box<PartIO>,
@@ -201,12 +212,16 @@ pub struct Partition<E: ElementT> {
     repo_name: String,
     // Partition identifier
     part_id: PartId,
-    // Number of the current snapshot file
-    ss_num: usize,
+    // Number of first snapshot file loaded (equal to ss1 if nothing is loaded)
+    ss0: usize,
+    // Number of latest snapshot file loaded + 1; 0 if nothing loaded and never less than ss0
+    ss1: usize,
     // Determines when to write new snapshots
     ss_policy: SnapshotPolicy,
     // Known committed states indexed by statesum 
     states: HashIndexed<PartState<E>, Sum, PartStateSumComparator>,
+    // All states not in `states` which are known to be superceded
+    parents: HashSet<Sum>,
     // All states without a known successor
     tips: HashSet<Sum>,
     // Commits created but not yet saved to disk. First in at front; use as queue.
@@ -255,9 +270,11 @@ impl<E: ElementT> Partition<E> {
             io: io,
             repo_name: header.name,
             part_id: part_id,
-            ss_num: 0,
+            ss0: ss,
+            ss1: ss + 1,
             ss_policy: SnapshotPolicy::new(),
             states: HashIndexed::new(),
+            parents: HashSet::new(),
             tips: HashSet::new(),
             unsaved: VecDeque::new(),
         };
@@ -295,9 +312,11 @@ impl<E: ElementT> Partition<E> {
             io: io,
             repo_name: "".to_string() /*temporary value; checked before usage elsewhere*/,
             part_id: part_id,
-            ss_num: 0,
+            ss0: 0,
+            ss1: 0,
             ss_policy: SnapshotPolicy::new(),
             states: HashIndexed::new(),
+            parents: HashSet::new(),
             tips: HashSet::new(),
             unsaved: VecDeque::new(),
         })
@@ -340,8 +359,8 @@ impl<E: ElementT> Partition<E> {
     }
     
     /// Load either all history available or only that required to find the
-    /// latest state of the partition. Uses snapshot and log files provided by
-    /// the provided `PartIO`.
+    /// latest state of the partition. (This is just a wrapper around
+    /// `load_range`.)
     /// 
     /// If `all_history == true`, all snapshots and commits found are loaded.
     /// In this case it is possible that the history graph is not connected
@@ -361,116 +380,130 @@ impl<E: ElementT> Partition<E> {
     /// 
     /// Returns the header from the most recent file read.
     /// #0040: ways of getting other headers / loading files individually.
-    pub fn load(&mut self, all_history: bool) -> Result<FileHeader> {
-        info!("Loading partition {} data", self.part_id);
-        let ss_len = self.io.ss_len();
-        if ss_len == 0 {
-            return make_io_err(ErrorKind::NotFound, "no snapshot files found");
-        }
-        let mut num = ss_len - 1;
-        
-        let mut header = None;
-        
-        // Load a snapshot (if found); return Ok(true) if successful, Ok(false)
-        // if not found.
-        type OptHead = Option<FileHeader>;
-        let load_ss = |p: &mut Partition<E>, header: &mut OptHead, ss: usize| -> Result<bool> {
-            if let Some(mut r) = try!(p.io.read_ss(ss)) {
-                let head = try!(read_head(&mut r));
-                let file_ver = head.ftype.ver();
-                try!(Self::verify_head(&head, &mut p.repo_name, p.part_id));
-                *header = Some(head);
-                let state = try!(read_snapshot(&mut r, p.part_id, file_ver));
-                
-                p.tips.insert(state.statesum().clone());
-                p.states.insert(state);
-                Ok(true)
-            } else { Ok(false) }
-        };
-        // Load all found log files for the given range of snapshot numbers
-        let load_cl = |p: &mut Partition<E>, header: &mut OptHead, range| -> Result<_> {
-            let mut queue = CommitQueue::new();
-            for ss in range {
-                for cl in 0..p.io.ss_cl_len(ss) {
-                    if let Some(mut r) = try!(p.io.read_ss_cl(ss, cl)) {
-                        let head = try!(read_head(&mut r));
-                        try!(Self::verify_head(&head, &mut p.repo_name, p.part_id));
-                        *header = Some(head);
-                        try!(read_log(&mut r, &mut queue));
-                    }
-                }
-            }
-            Ok(queue)
-        };
-        
-        if all_history {
-            // All history: load all snapshots and commits in order
-            let mut num_commits = 0;
-            let mut num_edits = 0;
-            for ss in 0..ss_len {
-                try!(load_ss(self, &mut header, ss));
-                
-                let queue = try!(load_cl(self, &mut header, ss..(ss+1)));
-                num_commits = queue.len();  // final value is number of commits after last snapshot
-                let mut replayer = LogReplay::from_sets(&mut self.states, &mut self.tips);
-                num_edits = try!(replayer.replay(queue));
-            }
-            self.ss_policy.add_commits(num_commits);
-            self.ss_policy.add_edits(num_edits);
-        } else {
-            // Latest only: load only the latest snapshot and subsequent commits
-            loop {
-                if try!(load_ss(self, &mut header, num)) {
-                    break;  // we stop at the most recent snapshot we find
-                }
-                if num == 0 {
-                    // no more snapshot numbers to try; below we insert an empty state
-                    // #0017: we should warn about the missing snapshot file
-                    break;
-                }
-                num -= 1;
-            }
-            
-            let queue = try!(load_cl(self, &mut header, num..ss_len));
-            self.ss_policy.add_commits(queue.len());
-            if self.tips.is_empty() {
-                // Only for the case we couldn't find a snapshot file (see "num == 0" above)
-                let state = PartState::new(self.part_id);
-                self.tips.insert(state.statesum().clone());
-                self.states.insert(state);
-            }
-            let mut replayer = LogReplay::from_sets(&mut self.states, &mut self.tips);
-            self.ss_policy.add_edits(try!(replayer.replay(queue)));
-        }
-        
-        self.ss_num = ss_len - 1;
-        if num < ss_len -1 {
-            self.ss_policy.require();
-        } else {
-        }
-        
-        if !self.tips.is_empty() {
-            if let Some(head) = header {
-                // success, but a merge may still be required
-                return Ok(head);
-            }
-        }
-        OtherError::err("no data loaded")
+    pub fn load(&mut self, all_history: bool) -> Result<()> {
+        self.load_range(if all_history { 0 } else { usize::MAX }, usize::MAX)
     }
     
-    /// Returns true when elements have been loaded (though also see
-    /// `merge_required`).
+    /// Load snapshots `ss` where `ss0 <= ss < ss1`, and all log files for each
+    /// snapshot loaded. Special behaviour 1: if some snapshots are already
+    /// loaded and the range does not overlap with this range, all snapshots in
+    /// between will be loaded. Special behaviour 2: if no snapshot file is
+    /// found for `ss0`, it will be decremented by one until a snapshot file is
+    /// found (if none is found for snapshot 0, an empty state is assumed).
+    /// 
+    /// It is legal for the range to include numbers beyond the last known
+    /// snapshot; e.g. `(0, usize::MAX)` means load everything available and
+    /// `(usize::MAX, usize::MAX)` means load only the latest state.
+    /// 
+    /// Returns the header from the most recent file read.
+    /// #0040: ways of getting other headers / loading files individually.
+    pub fn load_range(&mut self, ss0: usize, ss1: usize) -> Result<()> {
+        // We have to consider several cases: nothing previously loaded, that
+        // we're loading data older than what was previously loaded, or newer,
+        // or even overlapping. The algorithm we use is:
+        // 
+        //  while ss0 > 0 and not has_ss(ss0), ss0 -= 1
+        //  if ss0 == 0 and not has_ss(0), assume initial state
+        //  for ss in ss0..ss1:
+        //      if this snapshot was already loaded, skip
+        //      load snapshot if found, skip if not
+        //      load all logs found and rebuild states, aborting if parents are missing
+        
+        // Input arguments may be greater than the available snapshot numbers. Clamp:
+        let ss_len = self.io.ss_len();
+        let mut ss0 = min(ss0, ss_len - 1);
+        let mut ss1 = min(ss1, ss_len);
+        // If data is already loaded, we must load snapshots between it and the new range too:
+        if self.ss1 > self.ss0 {
+            if ss0 > self.ss1 { ss0 = self.ss1; }
+            if ss1 < self.ss0 { ss1 = self.ss0; }
+        }
+        // If snapshot files are missing, we need to load older files:
+        while ss0 > 0 && !self.io.has_ss(ss0) { ss0 -= 1; }
+        info!("Loading partition {} data with snapshot range ({}, {})", self.part_id, ss0, ss1);
+        
+        if ss0 == 0 && !self.io.has_ss(ss0) {
+            assert!(self.states.is_empty());
+            // No initial snapshot; assume a blank state
+            let state = PartState::new(self.part_id);
+            self.tips.insert(state.statesum().clone());
+            self.states.insert(state);
+        }
+        
+        let mut require_ss = false;
+        for ss in ss0..ss1 {
+            // If already loaded, skip this snapshot:
+            if self.ss0 <= ss && ss < self.ss1 { continue; }
+            let at_tip = ss >= self.ss1;
+            
+            if let Some(mut r) = try!(self.io.read_ss(ss)) {
+                let head = try!(read_head(&mut r));
+                try!(Self::verify_head(&head, &mut self.repo_name, self.part_id));
+                let file_ver = head.ftype.ver();
+                
+                let state = try!(read_snapshot(&mut r, self.part_id, file_ver));
+                
+                if !self.parents.contains(state.statesum()) {
+                    self.tips.insert(state.statesum().clone());
+                }
+                for parent in state.parents() {
+                    if !self.states.contains(parent) {
+                        self.parents.insert(parent.clone());
+                    }
+                }
+                self.states.insert(state);
+                require_ss = false;
+                if at_tip { self.ss_policy.reset(); }
+            } else {
+                // Missing snapshot; if at head require a new one
+                require_ss = at_tip;
+            }
+            
+            let mut queue = CommitQueue::new();
+            for cl in 0..self.io.ss_cl_len(ss) {
+                if let Some(mut r) = try!(self.io.read_ss_cl(ss, cl)) {
+                    let head = try!(read_head(&mut r));
+                    try!(Self::verify_head(&head, &mut self.repo_name, self.part_id));
+                    try!(read_log(&mut r, &mut queue));
+                }
+            }
+            for commit in queue.unwrap() {
+                try!(self.add_commit(commit));
+            }
+            if at_tip {
+                self.ss1 = ss + 1;
+            }
+        }
+        
+        if ss0 < self.ss0 {
+            // Older history was loaded. In this case we can only update ss0
+            // once all older snapshots have been loaded. If there was a failure
+            // and retry, some snapshots could be reloaded unnecessarily.
+            self.ss0 = ss0;
+        }
+        assert!(self.ss0 <= ss1 && ss1 <= self.ss1);
+        
+        if require_ss {
+            self.ss_policy.require();
+        }
+        Ok(())
+    }
+    
+    /// Returns true when elements have been loaded (i.e. there is at least one
+    /// tip; see also `is_ready` and `merge_required`).
     pub fn is_loaded(&self) -> bool {
         self.tips.len() > 0
     }
     
     /// Returns true when ready for use (this is equivalent to
-    /// `part.is_loaded() && !part.merge_required()`).
+    /// `self.is_loaded() && !self.merge_required()`, i.e. there is exactly
+    /// one tip).
     pub fn is_ready(&self) -> bool {
         self.tips.len() == 1
     }
     
-    /// Returns true while a merge is required.
+    /// Returns true while a merge is required (i.e. there is more than one
+    /// tip).
     /// 
     /// Returns false if not ready or no tip is found as well as when a single
     /// tip is present and ready to use.
@@ -507,6 +540,7 @@ impl<E: ElementT> Partition<E> {
         trace!("Unloading partition {} data", self.part_id);
         if force || self.unsaved.is_empty() {
             self.states.clear();
+            self.parents.clear();
             self.tips.clear();
             true
         } else {
@@ -586,18 +620,19 @@ impl<E: ElementT> Partition<E> {
     /// Like git, we accept partial keys (so long as they uniquely resolve a key).
     pub fn state_from_string(&self, string: String) -> Result<&PartState<E>, MatchError> {
         let string = string.to_uppercase().replace(" ", "");
-        let mut matching = Vec::new();
+        let mut matching: Option<&Sum> = None;
         for state in self.states.iter() {
             if state.statesum().matches_string(&string.as_bytes()) {
-                matching.push(state.statesum());
-            }
-            if matching.len() > 1 {
-                return Err(MatchError::MultiMatch(
-                    matching[0].as_string(false), matching[1].as_string(false)));
+                if let Some(prev) = matching {
+                    return Err(MatchError::MultiMatch(
+                        prev.as_string(false), state.statesum().as_string(false)));
+                } else {
+                    matching = Some(state.statesum());
+                }
             }
         }
-        if matching.len() == 1 {
-            Ok(self.states.get(&matching[0]).unwrap())
+        if let Some(m) = matching {
+            Ok(self.states.get(&m).unwrap())
         } else {
             Err(MatchError::NoMatch)
         }
@@ -613,26 +648,6 @@ impl<E: ElementT> Partition<E> {
     /// If `auto_load` is true, additional history will be loaded as necessary
     /// to find a common ancestor (*TODO: not implemented yet*).
     pub fn merge<S: TwoWaySolver<E>>(&mut self, solver: &S, auto_load: bool) -> Result<(), MergeError> {
-        fn make_merger<'a, E: ElementT>(part: &'a Partition<E>,
-            tip1: &'a Sum, tip2: &'a Sum, auto_load: bool) ->
-                Result<TwoWayMerge<'a, E>, MergeError>
-        {
-            loop {
-                match part.merge_two(&tip1, &tip2) {
-                    Err(MergeError::NoCommonAncestor) if auto_load => {
-                        //TODO: load previous snapshot
-                        warn!("not implemented: loading specified snapshot");
-                        return Err(MergeError::NoCommonAncestor);
-                    },
-                    Err(e) => {
-                        return Err(e);
-                    },
-                    Ok(merger) => {
-                        return Ok(merger);
-                    },
-                }
-            }
-        }
         while self.tips.len() > 1 {
             let (tip1, tip2): (Sum, Sum) = {
                 let mut iter = self.tips.iter();
@@ -641,8 +656,26 @@ impl<E: ElementT> Partition<E> {
                 (tip1.clone(), tip2.clone())
             };
             trace!("Partition {}: attempting merge of tips {} and {}", self.part_id, &tip1, &tip2);
-            let c = try!(make_merger(self, &tip1, &tip2, auto_load))
-                    .solve_inline(solver).make_commit(None);
+            let c = {
+                let merger;
+                loop {
+                    match self.merge_two(&tip1, &tip2) {
+                        Err(MergeError::NoCommonAncestor) if auto_load && self.ss0 > 0 => {
+                            //TODO: load previous snapshot
+                            warn!("not implemented: loading specified snapshot");
+                            return Err(MergeError::NoCommonAncestor);
+                        },
+                        Err(e) => {
+                            return Err(e);
+                        },
+                        Ok(m) => {
+                            merger = m;
+                            break;
+                        },
+                    }
+                }
+                merger.solve_inline(solver).make_commit(None)
+            };
             if let Some(commit) = c {
                 trace!("Pushing merge commit: {} ({} changes)",
                         commit.statesum(), commit.num_changes());
@@ -707,6 +740,8 @@ impl<E: ElementT> Partition<E> {
         Ok(self.add_pair(commit, state))
     }
     
+    /// Add a new state, assumed to be derived from an existing known state.
+    /// 
     /// This creates a commit from the given state, converts the `MutPartState`
     /// to a `PartState` and adds it to the list of internal states, and
     /// updates the tip. The commit is added to the internal list
@@ -760,6 +795,7 @@ impl<E: ElementT> Partition<E> {
     /// 
     /// Note that writing to disk can fail. In this case it may be worth trying
     /// again.
+    // #0040: better to specify user_fields via a closure maybe?
     pub fn write(&mut self, fast: bool, user_fields: Rc<Vec<UserData>>) -> Result<bool> {
         // First step: write commits
         let has_changes = !self.unsaved.is_empty();
@@ -768,9 +804,9 @@ impl<E: ElementT> Partition<E> {
                 self.part_id, self.unsaved.len());
             
             // #0012: extend existing logs instead of always writing a new log file.
-            let mut cl_num = self.io.ss_cl_len(self.ss_num);
+            let mut cl_num = self.io.ss_cl_len(self.ss1 - 1);
             loop {
-                if let Some(mut writer) = try!(self.io.new_ss_cl(self.ss_num, cl_num)) {
+                if let Some(mut writer) = try!(self.io.new_ss_cl(self.ss1 - 1, cl_num)) {
                     // Write a header since this is a new file:
                     let header = FileHeader {
                         ftype: FileType::CommitLog(0),
@@ -820,7 +856,7 @@ impl<E: ElementT> Partition<E> {
         // fail early if not ready:
         let tip_key = try!(self.tip_key()).clone();
         
-        let mut ss_num = self.ss_num + 1;
+        let mut ss_num = self.ss1;
         loop {
             // Try to get a writer for this snapshot number:
             if let Some(mut writer) = try!(self.io.new_ss(ss_num)) {
@@ -836,7 +872,7 @@ impl<E: ElementT> Partition<E> {
                 //TODO: also write classifier stuff
                 try!(write_head(&header, &mut writer));
                 try!(write_snapshot(self.states.get(&tip_key).unwrap(), &mut writer));
-                self.ss_num = ss_num;
+                self.ss1 = ss_num + 1;
                 self.ss_policy.reset();
                 return Ok(())
             } else {
@@ -900,8 +936,59 @@ impl<E: ElementT> Partition<E> {
         Err(MergeError::NoCommonAncestor)
     }
     
+    /// Add a state, assuming that this isn't a new one (i.e. it's been loaded
+    /// from a file and doesn't need to be saved).
+    /// 
+    /// Unlike add_pair, mutating isn't possible, so this just returns false
+    /// if the sum is known without checking whether the state is different.
+    /// 
+    /// `n_edits` is the number of changes in a commit. Normally the state is
+    /// created from a commit, and `n_edits = commit.num_changes()`; in the
+    /// case the state is a loaded snapshot the "snapshot policy" should be
+    /// reset afterwards, hence n_edits does not matter.
+    /// 
+    /// Returns true unless the given state's sum equals an existing one.
+    fn add_state(&mut self, state: PartState<E>, n_edits: usize) {
+        trace!("Partition {}: add state {}", self.part_id, state.statesum());
+        if self.states.contains(state.statesum()) {
+            trace!("Partition {} already contains state {}", self.part_id, state.statesum());
+            return;
+        }
+        
+        for parent in state.parents() {
+            // Remove from 'tips' if it happened to be there:
+            self.tips.remove(parent);
+            // Add to 'parents' if not in 'states':
+            if !self.states.contains(parent) {
+                self.parents.insert(parent.clone());
+            }
+        }
+        // We know from above 'state' is not in 'self.states'; if it's not in
+        // 'self.parents' either then it must be a tip:
+        if !self.parents.contains(state.statesum()) {
+            self.ss_policy.add_commits(1);
+            self.ss_policy.add_edits(n_edits);
+            self.tips.insert(state.statesum().clone());
+        }
+        self.states.insert(state);
+    }
+    
+    /// Creates a state from the commit and adds to self. Updates tip if this
+    /// state is new.
+    pub fn add_commit(&mut self, commit: Commit<E>) -> Result<(), PatchOp> {
+        if self.states.contains(commit.statesum()) { return Ok(()); }
+        
+        let state = {
+            let parent = try!(self.states.get(commit.first_parent())
+                .ok_or(PatchOp::NoParent));
+            try!(commit.apply(parent))
+        };  // end borrow on self (from parent)
+        self.add_state(state, commit.num_changes());
+        Ok(())
+    }
+    
     /// Add a paired commit and state, asserting that the checksums match and
-    /// the parent state is present.
+    /// the parent state is present. Also add to the queue awaiting `write()`.
     /// 
     /// If an element with the states's statesum already exists and differs
     /// from the state passed, the state and commit passed will be mutated to
@@ -910,6 +997,7 @@ impl<E: ElementT> Partition<E> {
     /// Returns true unless the given state (including metadata) equals a
     /// stored one (in which case nothing happens and false is returned).
     fn add_pair(&mut self, mut commit: Commit<E>, mut state: PartState<E>) -> bool {
+        trace!("Partition {}: add commit {}", self.part_id, commit.statesum());
         assert_eq!(commit.parents(), state.parents());
         assert_eq!(commit.statesum(), state.statesum());
         assert!(self.states.contains(commit.first_parent()));
@@ -920,19 +1008,12 @@ impl<E: ElementT> Partition<E> {
                 return false;
             } else {
                 commit.mutate_meta(state.mutate_meta());
+                trace!("Partition {}: mutated commit to {}", self.part_id, commit.statesum());
             }
         }
         
-        trace!("Partition {}: new commit {}", self.part_id, commit.statesum());
-        self.ss_policy.add_commits(1);
-        self.ss_policy.add_edits(commit.num_changes());
+        self.add_state(state, commit.num_changes());
         self.unsaved.push_back(commit);
-        // This might fail (if the parent was not a tip), but it doesn't matter:
-        for parent in state.parents() {
-            self.tips.remove(parent);
-        }
-        self.tips.insert(state.statesum().clone());
-        self.states.insert(state);
         true
     }
 }
@@ -978,36 +1059,99 @@ impl<'a, E: ElementT+'a> Iterator for StateIter<'a, E> {
 }
 
 
-#[test]
-fn on_new_partition() {
-    let io = box DummyPartIO::new(PartId::from_num(7));
-    let mut part = Partition::<String>::create(io, "on_new_partition", vec![].into())
-            .expect("partition creation");
-    assert_eq!(part.tips.len(), 1);
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use detail::{Commit, CommitMeta, CommitQueue};
+    use detail::{PartId};
+    use detail::readwrite::CommitReceiver;
     
-    let state = part.tip().expect("getting tip").clone_mut();
-    assert_eq!(part.push_state(state, None).expect("committing"), false);
+    #[test]
+    fn commit_creation_and_replay(){
+        use {PartId};
+        use std::rc::Rc;
+        
+        let p = PartId::from_num(1);
+        let mut queue = CommitQueue::<String>::new();
+        
+        let insert = |state: &mut MutPartState<_>, num, string: &str| -> Result<_, _> {
+            state.insert_with_id(p.elt_id(num), Rc::new(string.to_string()))
+        };
+        
+        let mut state = PartState::new(p).clone_mut();
+        insert(&mut state, 1, "one").unwrap();
+        insert(&mut state, 2, "two").unwrap();
+        let meta = CommitMeta::now_empty();
+        let parents = vec![state.parent().clone()];
+        let state_a = PartState::from_mut(state, parents, meta);
+        
+        let mut state = state_a.clone_mut();
+        insert(&mut state, 3, "three").unwrap();
+        insert(&mut state, 4, "four").unwrap();
+        insert(&mut state, 5, "five").unwrap();
+        let commit = Commit::from_diff(&state_a, &state, None).unwrap();
+        let state_b = commit.apply(&state_a).expect("commit apply b");
+        queue.receive(commit);
+        
+        let mut state = state_b.clone_mut();
+        insert(&mut state, 6, "six").unwrap();
+        insert(&mut state, 7, "seven").unwrap();
+        state.remove(p.elt_id(4)).unwrap();
+        state.replace(p.elt_id(3), "half six".to_string()).unwrap();
+        let commit = Commit::from_diff(&state_b, &state, None).unwrap();
+        let state_c = commit.apply(&state_b).expect("commit apply c");
+        queue.receive(commit);
+        
+        let mut state = state_c.clone_mut();
+        insert(&mut state, 8, "eight").unwrap();
+        insert(&mut state, 4, "half eight").unwrap();
+        let commit = Commit::from_diff(&state_c, &state, None).unwrap();
+        let state_d = commit.apply(&state_c).expect("commit apply d");
+        queue.receive(commit);
+        
+        let io = box DummyPartIO::new(PartId::from_num(1));
+        let mut part = Partition::create(io, "replay part", vec![].into()).unwrap();
+        part.add_state(state_a, 0);
+        for commit in queue.unwrap() {
+            part.push_commit(commit).unwrap();
+        }
+        
+        assert_eq!(part.tips.len(), 1);
+        let replayed_state = part.tip().unwrap();
+        assert_eq!(*replayed_state, state_d);
+    }
     
-    let mut state = part.tip().expect("getting tip").clone_mut();
-    assert!(!state.any_avail());
-    
-    let elt1 = "This is element one.".to_string();
-    let elt2 = "Element two data.".to_string();
-    let e1id = state.insert(elt1).expect("inserting elt");
-    let e2id = state.insert(elt2).expect("inserting elt");
-    
-    assert_eq!(part.push_state(state, None).expect("comitting"), true);
-    assert_eq!(part.unsaved.len(), 1);
-    assert_eq!(part.states.len(), 2);
-    let key = part.tip().expect("tip").statesum().clone();
-    {
-        let state = part.state(&key).expect("getting state by key");
-        assert!(state.is_avail(e1id));
-        assert_eq!(state.get(e2id), Ok(&"Element two data.".to_string()));
-    }   // `state` goes out of scope
-    assert_eq!(part.tips.len(), 1);
-    let state = part.tip().expect("getting tip").clone_mut();
-    assert_eq!(*state.parent(), key);
-    
-    assert_eq!(part.push_state(state, None).expect("committing"), false);
+    #[test]
+    fn on_new_partition() {
+        let io = box DummyPartIO::new(PartId::from_num(7));
+        let mut part = Partition::<String>::create(io, "on_new_partition", vec![].into())
+                .expect("partition creation");
+        assert_eq!(part.tips.len(), 1);
+        
+        let state = part.tip().expect("getting tip").clone_mut();
+        assert_eq!(part.push_state(state, None).expect("committing"), false);
+        
+        let mut state = part.tip().expect("getting tip").clone_mut();
+        assert!(!state.any_avail());
+        
+        let elt1 = "This is element one.".to_string();
+        let elt2 = "Element two data.".to_string();
+        let e1id = state.insert(elt1).expect("inserting elt");
+        let e2id = state.insert(elt2).expect("inserting elt");
+        
+        assert_eq!(part.push_state(state, None).expect("comitting"), true);
+        assert_eq!(part.unsaved.len(), 1);
+        assert_eq!(part.states.len(), 2);
+        let key = part.tip().expect("tip").statesum().clone();
+        {
+            let state = part.state(&key).expect("getting state by key");
+            assert!(state.is_avail(e1id));
+            assert_eq!(state.get(e2id), Ok(&"Element two data.".to_string()));
+        }   // `state` goes out of scope
+        assert_eq!(part.tips.len(), 1);
+        let state = part.tip().expect("getting tip").clone_mut();
+        assert_eq!(*state.parent(), key);
+        
+        assert_eq!(part.push_state(state, None).expect("committing"), false);
+    }
 }

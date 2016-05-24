@@ -3,7 +3,6 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 //! Command-line UI for Pippin
-#![feature(str_char)]
 
 extern crate pippin;
 extern crate rustc_serialize;
