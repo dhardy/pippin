@@ -647,7 +647,7 @@ impl<E: ElementT> Partition<E> {
     /// 
     /// If `auto_load` is true, additional history will be loaded as necessary
     /// to find a common ancestor (*TODO: not implemented yet*).
-    pub fn merge<S: TwoWaySolver<E>>(&mut self, solver: &S, auto_load: bool) -> Result<(), MergeError> {
+    pub fn merge<S: TwoWaySolver<E>>(&mut self, solver: &S, auto_load: bool) -> Result<()> {
         while self.tips.len() > 1 {
             let (tip1, tip2): (Sum, Sum) = {
                 let mut iter = self.tips.iter();
@@ -656,32 +656,14 @@ impl<E: ElementT> Partition<E> {
                 (tip1.clone(), tip2.clone())
             };
             trace!("Partition {}: attempting merge of tips {} and {}", self.part_id, &tip1, &tip2);
-            let c = {
-                let merger;
-                loop {
-                    match self.merge_two(&tip1, &tip2) {
-                        Err(MergeError::NoCommonAncestor) if auto_load && self.ss0 > 0 => {
-                            //TODO: load previous snapshot
-                            warn!("not implemented: loading specified snapshot");
-                            return Err(MergeError::NoCommonAncestor);
-                        },
-                        Err(e) => {
-                            return Err(e);
-                        },
-                        Ok(m) => {
-                            merger = m;
-                            break;
-                        },
-                    }
-                }
-                merger.solve_inline(solver).make_commit(None)
-            };
+            let c = try!(self.merge_two(&tip1, &tip2, auto_load))
+                    .solve_inline(solver).make_commit(None);
             if let Some(commit) = c {
                 trace!("Pushing merge commit: {} ({} changes)",
                         commit.statesum(), commit.num_changes());
                 try!(self.push_commit(commit));
             } else {
-                return Err(MergeError::NotSolved);
+                return Err(box MergeError::NotSolved);
             }
         }
         Ok(())
@@ -704,11 +686,27 @@ impl<E: ElementT> Partition<E> {
     /// Alternatively, use `self.merge(solver)`.
     /// 
     /// If `auto_load` is true, additional history will be loaded as necessary
-    /// to find a common ancestor, *when this feature is implemented*. *This is
-    /// a placeholder to (hopefully) avoid having to change the API in the
-    /// future.*
-    pub fn merge_two(&self, tip1: &Sum, tip2: &Sum) -> Result<TwoWayMerge<E>, MergeError> {
-        let common = try!(self.latest_common_ancestor(tip1, tip2));
+    /// to find a common ancestor.
+    pub fn merge_two(&mut self, tip1: &Sum, tip2: &Sum, auto_load: bool) ->
+            Result<TwoWayMerge<E>>
+    {
+        let common;
+        loop {
+            match self.latest_common_ancestor(tip1, tip2) {
+                Ok(sum) => {
+                    common = sum;
+                    break;
+                },
+                Err(MergeError::NoCommonAncestor) if auto_load && self.ss0 > 0 => {
+                    let ss0 = self.ss0;
+                    try!(self.load_range(ss0 - 1, ss0));
+                    continue;
+                },
+                Err(e) => {
+                    return Err(box e);
+                }
+            }
+        }
         let s1 = try!(self.states.get(tip1).ok_or(MergeError::NoState));
         let s2 = try!(self.states.get(tip2).ok_or(MergeError::NoState));
         let s3 = try!(self.states.get(&common).ok_or(MergeError::NoState));
