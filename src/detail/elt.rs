@@ -112,6 +112,11 @@ impl Into<u64> for EltId {
         self.id
     }
 }
+impl fmt::Display for EltId {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.id)
+    }
+}
 
 /// Whatever element type the user wishes to store must implement this trait.
 /// 

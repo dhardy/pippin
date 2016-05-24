@@ -36,7 +36,8 @@ use error::{Result, PathError, OtherError};
 /// confirmation; when files from multiple partitions are found, they are
 /// filtered. Either way this fails if no files are found for the right
 /// partition.
-pub fn part_from_path(path: &Path, opt_part_num: Option<PartId>) -> Result<PartFileIO> {
+pub fn part_from_path<P: AsRef<Path>>(path: P, opt_part_num: Option<PartId>) -> Result<PartFileIO> {
+    let path = path.as_ref();
     let ss_pat = Regex::new("^((?:.*)-)?ss(0|[1-9][0-9]*)\\.pip$").expect("valid regex");
     let cl_pat = Regex::new("^((?:.*)-)?ss(0|[1-9][0-9]*)-cl(0|[1-9][0-9]*)\\.piplog$").expect("valid regex");
     
@@ -164,7 +165,8 @@ pub fn part_from_path(path: &Path, opt_part_num: Option<PartId>) -> Result<PartF
 /// #0040: it would be nice to specify whether this should be recursive
 /// (max_depth) and whether it should follow links, but without adding extra
 /// required arguments (builder pattern like WalkDir?).
-pub fn repo_from_path(path: &Path) -> Result<RepoFileIO> {
+pub fn repo_from_path<P: AsRef<Path>>(path: P) -> Result<RepoFileIO> {
+    let path = path.as_ref();
     let ss_pat = Regex::new("^((?:.*)-)?ss(0|[1-9][0-9]*)\\.pip$").expect("valid regex");
     let cl_pat = Regex::new("^((?:.*)-)?ss(0|[1-9][0-9]*)-cl(0|[1-9][0-9]*)\\.piplog$").expect("valid regex");
     enum Type { Snapshot(usize), Log(usize, usize) };
@@ -269,7 +271,7 @@ pub fn part_num_from_name(name: &str) -> Option<PartId> {
 /// 
 /// `name`: full filename or basename, optionally prefixed by the path
 /// `path`: full path to file
-pub fn find_part_num(name: &str, path: &Path) -> Result<PartId> {
+pub fn find_part_num<P: AsRef<Path>>(name: &str, path: P) -> Result<PartId> {
     if let Some(num) = part_num_from_name(name) {
         return Ok(num);
     }
