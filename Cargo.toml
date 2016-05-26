@@ -4,8 +4,18 @@
 
 [package]
 name = "pippin"
-version = "0.0.0"
+version = "0.1.0"
 authors = ["Diggory Hardy <github1@dhardy.name>"]
+
+# crates.io meta info
+description = "A database for small objects sorted only via classification"
+# URLs
+#documentation = "..."
+#homepage = "..."
+repository = "https://github.com/dhardy/pippin/"
+readme = "README.md"
+keywords = ["database", "distributed", "VCS"]
+license = "MPL-2.0"
 
 [dependencies]
 
