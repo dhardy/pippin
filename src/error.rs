@@ -214,11 +214,11 @@ pub struct PathError {
 impl PathError {
     /// Create a "path" error. Will be displayed as
     /// `println!("Error: {}: {}", msg, path.display());`.
-    pub fn new(msg: &'static str, path: PathBuf) -> PathError {
-        PathError { msg: msg, path: path }
+    pub fn new<P: Into<PathBuf>>(msg: &'static str, path: P) -> PathError {
+        PathError { msg: msg, path: path.into() }
     }
     /// New instance, wrapped with `Err`
-    pub fn err<T>(msg: &'static str, path: PathBuf) -> Result<T> {
+    pub fn err<T, P: Into<PathBuf>>(msg: &'static str, path: P) -> Result<T> {
         Err(box PathError::new(msg, path))
     }
 }

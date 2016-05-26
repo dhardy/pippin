@@ -109,7 +109,7 @@ impl PartFileIO {
     /// *   `part_id` is the partition identifier
     /// *   `prefix` is a dir + partial-file-name; it is appended with
     ///     something like `-ss1.pip` or `-ss2-lf3.piplog` to get a file name
-    pub fn new_empty(part_id: PartId, prefix: PathBuf) -> PartFileIO {
+    pub fn new_empty<P: Into<PathBuf>>(part_id: PartId, prefix: P) -> PartFileIO {
         Self::new(part_id, prefix, PartPaths::new())
     }
     
@@ -119,11 +119,11 @@ impl PartFileIO {
     /// *   `prefix` is a dir + partial-file-name; it is appended with
     ///     something like `-ss1.pip` or `-ss2-lf3.piplog` to get a file name
     /// *   `paths` is a list of paths of all known partition files
-    pub fn new(part_id: PartId, prefix: PathBuf, paths: PartPaths) -> PartFileIO
+    pub fn new<P: Into<PathBuf>>(part_id: PartId, prefix: P, paths: PartPaths) -> PartFileIO
     {
         PartFileIO {
             part_id: part_id,
-            prefix: prefix,
+            prefix: prefix.into(),
             paths: paths,
         }
     }
@@ -247,8 +247,11 @@ pub struct RepoFileIO {
 impl RepoFileIO {
     /// Create a new instance. This could be for a new repository or existing
     /// partitions can be added afterwards with `insert_part(prefix, part)`.
-    pub fn new(dir: PathBuf) -> RepoFileIO {
-        RepoFileIO { dir: dir, parts: hi::HashIndexed::new() }
+    /// 
+    /// *   `dir` is the top directory, in which all data files are (as a
+    ///     `String`, `Path` or anything which converts to a `PathBuf`)
+    pub fn new<P: Into<PathBuf>>(dir: P) -> RepoFileIO {
+        RepoFileIO { dir: dir.into(), parts: hi::HashIndexed::new() }
     }
     /// Add a (probably existing) partition to the repository. This differs
     /// from `RepoIO::add_partition` in that the prefix is specified in full

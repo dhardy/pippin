@@ -13,9 +13,11 @@ fn inner() -> Result<()> {
             // Read the found files:
             let mut part = try!(Partition::<String>::open(Box::new(io)));
             try!(part.load(false));
+            
             // Get access to the latest state:
             let tip = try!(part.tip());
             println!("Found {} element(s)", tip.num_avail());
+            
             // Read the elements (API may change here):
             for (id, elt) in tip.elt_map().iter() {
                 println!("Element {}: {}", id, *elt);
@@ -26,15 +28,16 @@ fn inner() -> Result<()> {
             println!("Creating a new partition instead");
             
             // Create a new partition:
-            // PartFileIO is a dumb file accessor; hence needing to specify PartId.
-            // This may change. Prefix is where we want the data (may include /).
-            let prefix = "hello".into();
-            let io = Box::new(fileio::PartFileIO::new_empty(PartId::from_num(1), prefix));
+            // PartFileIO is a dumb file accessor; hence needing to specify PartId. This may change.
+            let io = Box::new(fileio::PartFileIO::new_empty(PartId::from_num(1), "hello"));
+            
             let mut part = try!(Partition::create(io, "hello world", vec![].into()));
+            
             // Create a new state derived from the tip:
             let mut state = try!(part.tip()).clone_mut();
             try!(state.insert("Hello, world!".to_string()));
             try!(part.push_state(state, None));
+            
             // Write our changes:
             try!(part.write(false, vec![].into()));
         }

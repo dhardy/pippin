@@ -4,7 +4,7 @@
 
 //! Pippin: file discovery
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::fs::{read_dir, File};
 use std::collections::hash_map::{HashMap, Entry};
 
@@ -48,20 +48,18 @@ pub fn part_from_path<P: AsRef<Path>>(path: P, opt_part_num: Option<PartId>) -> 
         info!("Scanning for partition files in: {}", path.display());
         path
     } else if let Some(fname) = path.file_name() {
-        let fname = try!(fname.to_str().ok_or(PathError::new("not valid UTF-8", path.to_path_buf())));
+        let fname = try!(fname.to_str().ok_or(PathError::new("not valid UTF-8", path)));
         if let Some(bname) = discover_basename(fname) {
-            let dir = try!(path.parent().ok_or(PathError::new("path has no parent", path.to_path_buf())));
+            let dir = try!(path.parent().ok_or(PathError::new("path has no parent", path)));
             info!("Scanning for partition files matching: {}/{}*", dir.display(), bname);
             part_id = Some(try!(find_part_num(&bname, path)));
             basename = Some(bname);
             dir
         } else {
-            return PathError::err("discover::part_from_path: not a Pippin file",
-                    path.to_path_buf());
+            return PathError::err("discover::part_from_path: not a Pippin file", path);
         }
     } else {
-        return PathError::err("discover::part_from_path: neither a file nor a directory",
-                path.to_path_buf())
+        return PathError::err("discover::part_from_path: neither a file nor a directory", path)
     };
     
     let mut part_paths = PartPaths::new();
@@ -145,11 +143,11 @@ pub fn part_from_path<P: AsRef<Path>>(path: P, opt_part_num: Option<PartId>) -> 
         Ok(PartFileIO::new(part_id, dir.join(bname), part_paths))
     } else {
         Err(Box::new(if opt_part_num.is_some() {
-            PathError::new("discover::part_from_path: no files found matching part num in", path.to_path_buf())
+            PathError::new("discover::part_from_path: no files found matching part num in", path)
         } else {
             // Input path is either a dir or a file; when a file part_id is
             // found (or fn aborts earlier), hence path is a dir
-            PathError::new("discover::part_from_path: no Pippin files found in dir", path.to_path_buf())
+            PathError::new("discover::part_from_path: no Pippin files found in dir", path)
         }))
     }
 }
@@ -174,9 +172,9 @@ pub fn repo_from_path<P: AsRef<Path>>(path: P) -> Result<RepoFileIO> {
     let dir = if path.is_dir() {
         path
     } else if path.is_file() {
-        try!(path.parent().ok_or(PathError::new("unable to get parent dir", path.to_path_buf())))
+        try!(path.parent().ok_or(PathError::new("unable to get parent dir", path)))
     } else {
-        return PathError::err("neither a directory nor a file", path.to_path_buf());
+        return PathError::err("neither a directory nor a file", path);
     };
     info!("Scanning for repository files in: {}", dir.display());
     
@@ -236,10 +234,9 @@ pub fn repo_from_path<P: AsRef<Path>>(path: P) -> Result<RepoFileIO> {
         };
     }
     
-    let mut repo = RepoFileIO::new(dir.to_path_buf());
+    let mut repo = RepoFileIO::new(dir);
     for (prefix, pn) in prefixes {
         if let Some(part_files) = partitions.remove(&pn) {
-            let prefix = PathBuf::from(prefix);
              repo.insert_part(PartFileIO::new(pn, prefix, part_files));
         } else {
             // It is possible that multiple prefixes exist for the same
