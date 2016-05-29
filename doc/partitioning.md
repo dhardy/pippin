@@ -55,6 +55,108 @@ received from loading other partitions, e.g. using a version number attached to
 the partition info). When creating new partitions, we write all we know.
 
 
+Discovering partitioning
+------------------
+
+Each partition must record at least what classification rules and partitioning
+apply to its own elements. It cannot be enforced that all partitions know all
+partitioning since this would make any repartitioning expensive.
+
+Option 1) all snapshots include all partitioning rules as of when their
+snapshots are created. Problem: extra work might be necessary when creating
+snapshots and new partitions, and might not even be doable (if not all
+partitions are available).
+
+Option 2) all snapshots specify only their own partitioning. This has two
+issues: (a) locating a required partition requires checking all partitions
+until the required one is found, and (b) this provides no way of checking for
+partitioning issues (gaps, overlaps) without reading all partitions.
+
+Option 3) all snapshots include partitioning rules known (without doing extra
+work) at the time they are created. This does not solve the second issue with
+the previous option (checking for partitioning issues).
+
+Option 4) all snapshots specify their partitioning encoded in their filename.
+This is difficult to do properly when classifications are not fixed from when
+the repository is created. It also requires either meaningless code names or
+risks very long file names.
+
+### Discovering partition meta-info
+
+Assuming a set of files are identified as beloning to the same partition (from
+their directory, name prefix or whatever): *how are their stati discovered?*
+
+Option 1: sequential numbering of snapshots. This is fine except that it does
+not allow changes from a cloned repository to be merged simply by dumping the
+files in (unless "clone identifiers" are used).
+
+Option 2: read all snapshots (at least their headers). Slow.
+
+Option 3: remember snapshot correspondances. Feasible but using a "central"
+file to remember this stuff is not desirable.
+
+Option 4: each snapshot lists in its header all those snapshots which are its
+ancestors. If the system can guess which snapshot is probably the latest (e.g.
+from a sequential number), it can discover all relationships without reading
+many files (in most cases). Seems okay, though it could require opening some
+files multiple times.
+
+#### Naming snapshot files
+
+In light of this, it might be best if snapshot files have the form
+`BASE-NUM-SUM.pip` where `BASE` is the basename (common within the partition),
+`NUM` is a sequential number, and `SUM` is part of the snapshot state-sum. This
+should make sure states in a "branched" repository have different names.
+
+#### Commit logs
+
+These should have the same `BASE-NUM-SUM` part as the corresponding snapshot
+file. They should then have some unique identifier.
+
+Option 1: a number.
+
+Option 2: the state-sum of the latest state. This requires writing from scratch
+or renaming on every new commit, which isn't ideal.
+
+### Discovering partition files
+
+When some kind of `RepoIO` is created, *some* checking of available partitions
+and possibly files is required. Of the options below, 1 and 2 appear most
+sensible.
+
+#### Option 1: discover all paths on creation and remember all
+
++ everything available early
+
+#### Option 2: Discover partitions available on creation, parition files when a `PartIO` is created
+
++ partitions known early
++ partition files known early enough for most purposes
+- can't easily get stats of all partition files
+
+#### Option 3 Discover partitions available on creation, partition files when first loaded
+
++ partitions known early
+- can't easily get stats of all partition files
+
+What is the point over option 2 though? Maybe that the `PartIO` can be created
+earlier without scanning all files.
+
+#### Option 4: Discover partitions available on creation, partition files dynamically (on demand)
+
++ partitions known early
++ "live" view of files on disk without rescanning
+- getting file stats more difficult
+- loading the tip is more difficult
+- no easy way of spotting changes on the disk
+
+#### Option 5: Discover at one partition, do the rest on demand
+
+- partitioning information will not be available at first
+- finding the correct partition will be slow the first time it is used
+- partition discovery cannot sanely be "live" (always done from the disk)
+
+
 When to partition
 -------------------
 
@@ -67,7 +169,7 @@ repartitioned nearly instantaneously.
 The exact time of partitioning will likely still be determined by the library.
 
 
-Classification of elements
+How to assign elements to partitions
 ------------------
 
 User-defined classifiers are used to determine how to partition data.
@@ -113,8 +215,110 @@ required details of its decision logic for each partition, so that this can be
 stored in partition meta-data and be updated, should more up-to-date
 information on some partition be found.
 
+### Changing classifiers
 
-Partition identification
+If a user wishes to add, remove or change the priority of classifiers, this may
+affect where existing elements are partitioned.
+
+Issue 1: this might necessitate moving many elements, thus being expensive.
+This is acceptable so long as the user is warned before committing to the
+operation.
+
+Issue 2: doing this when there are multiple partitions will result in not all
+partitions advertising the same classification during the move. If interrupted,
+move rules should ensure that elements are neither lost nor duplicated, but it
+not be obvious how to recover. It may not even be obvious at first, however if
+partitioning is not disjoint or not covering it will be noticed. Ideally
+however the issue should be noticed the next time any partition is loaded and
+offer to fix this immediately but be able to continue should the user decide
+not to fix it immediately.
+
+
+How to change partitions
+-----------------------
+
+
+### Repartioning
+
+Problem: a repository is partitioned. Each partition is independent and may
+not have knowledge of other partitions.
+
+Partitioning is not fixed, but must always be disjoint (no overlaps) and
+covering (no gaps).
+
+The user wishes to be able to determine where some element should be placed
+or can be found without analysing all partitions.
+
+### Repartitioning strategy
+
+1.  The new partition(s) are created empty (if not already existing)
+2.  For each (source, target) partition pair, a commit is created on the target
+    with the moved elements marked as a move with the source mentioned
+3.  For each (source, target) pair, a commit is made to the source removing
+    the elements moved, and marked as a move mentioning the target
+4.  (Optional) a new snapshot is created on affected partitions after the move.
+    In particular, for the source partition(s) where emptied or significantly
+    smaller, this will speed up reads, and since the sources will likely see
+    less on-going activity, new snapshots might not otherwise happen soon.
+
+When reading the partition data, the elements are only considered moved if
+*both* the source and target confirm the move, or the source is confirmed not
+to include the elements.
+
+Partial repartitioning is possible with the following restrictions:
+
+*   If an element is searched for which could be in multiple partitions, all of
+    those partitions should be checked.
+*   If an element is saved where it could be placed in multiple partitions, it
+    may be saved to any, but only to one.
+*   Repartitioning *should* be completed when convenient, according to the
+    classifier rules specified by the user and either the most recent
+    partitioning strategy which corresponds to current classifier priority or
+    a new partitioning strategy compliant with classifier priorities.
+
+### More on repartitioning
+
+Where elements move to a sub-partition, the original may stay with the same
+name, only marking certain elements as moved. Alternately, all elements may be
+moved to sub-partitions.
+
+Where a partition is rendered obsolete, it could (a) remain (but with a new
+empty snapshot) or (b) be closed with some special file. Maybe (a) is a form
+of (b).
+
+Where a partition is renamed, it could (a) not be renamed on the disk (breaking
+path to partition name correlations), (b) be handled by moving files on the
+disk (breaking historical name correlations, possibly dangerous), (c) be
+handled by closing the old partition and moving all elements (expensive), or
+(d) via some "link" and "rename marker" until the next snapshot is created.
+
+#### Simplest solution
+
+Partitions are given new names on the disk not correlating to partition path or
+any other user-friendly naming method. Renaming paths thus does not move
+partitions. All partitions are stored in the same directory. Partitions are
+never removed, but left empty if no longer needed.
+
+#### Allowing partition removal
+
+(Obviously without deleting historical data.)
+
+Option 1) use a repository-wide snapshot number. Whenever any new snapshot is
+needed, update *all* partitions with a new snapshot file (in theory this could
+just be a link to the old one), except for partitions which are deleted. Only
+load from files with the latest snapshot number. This is not very robust.
+
+Option 2) use an index file to track partitioning. This breaks the independance
+of snapshots requirement.
+
+Option 3) close the partition with a special file. The only advantage this has
+over leaving the partition empty is that the file-name alone would indicate
+that the partition is empty. OTOH a special file name could be used for any
+empty snapshot file in any case.
+
+
+
+Assigning partition identifiers
 --------------------
 
 A unique number is needed for each partition, as well as some *base-name* for
@@ -129,8 +333,7 @@ This number should probably be assigned by the user-specified classifier as
 the enumeration for the partition. This considers possible stragies which the
 classifier might wish to use.
 
-Bifurcation
-------------
+#### Bifurcation
 
 Start at some number, e.g. 2^31 if we have a 32-bit unsigned int.
 
@@ -143,8 +346,7 @@ Disadvantage: only 31 levels of splitting possible with 32 bits; less if
 splitting into more than two new partitions at a time. Old numbers cannot be
 reused.
 
-Linear splitting
-------------
+#### Linear splitting
 
 Adaptation of above, where each partition *remembers* the range it has
 available, and divides this up among child partitions when partitioning. This
@@ -156,8 +358,7 @@ uniqueness of new elements with the same partition number is not easy, so
 probably additionally partitions must *remember* which numbers within their
 range they are not able to use.
 
-Redistribution
--------------
+#### Redistribution
 
 This could be added to either of the above, presumably when new partitions are
 needed.
@@ -208,303 +409,3 @@ following regular expressions:
 
     ([0-9a-zA-Z\-_]+)-ss(0|[1-9][0-9]*).pip
     ([0-9a-zA-Z\-_]+)-ss(0|[1-9][0-9]*)-cl(0|[1-9][0-9]*).piplog
-
-
-Problems
-=======
-
-Repartioning
----------------
-
-Problem: a repository is partitioned. Each partition is independent and may
-not have knowledge of other partitions.
-
-Partitioning is not fixed, but must always be disjoint (no overlaps) and
-covering (no gaps).
-
-The user wishes to be able to determine where some element should be placed
-or can be found without analysing all partitions.
-
-
-Repartitioning (also moving elements)
-----------
-
-1.  The new partition(s) are created empty (if not already existing)
-2.  For each (source, target) partition pair, a commit is created on the target
-    with the moved elements marked as a move with the source mentioned
-3.  For each (source, target) pair, a commit is made to the source removing
-    the elements moved, and marked as a move mentioning the target
-4.  (Optional) a new snapshot is created on affected partitions after the move.
-    In particular, for the source partition(s) where emptied or significantly
-    smaller, this will speed up reads, and since the sources will likely see
-    less on-going activity, new snapshots might not otherwise happen soon.
-
-When reading the partition data, the elements are only considered moved if
-*both* the source and target confirm the move, or the source is confirmed not
-to include the elements.
-
-Partial repartitioning is possible with the following restrictions:
-
-*   If an element is searched for which could be in multiple partitions, all of
-    those partitions should be checked.
-*   If an element is saved where it could be placed in multiple partitions, it
-    may be saved to any, but only to one.
-*   Repartitioning *should* be completed when convenient, according to the
-    classifier rules specified by the user and either the most recent
-    partitioning strategy which corresponds to current classifier priority or
-    a new partitioning strategy compliant with classifier priorities.
-
-
-Changing classifiers
-------------
-
-If a user wishes to add, remove or change the priority of classifiers, this may
-affect where existing elements are partitioned.
-
-Issue 1: this might necessitate moving many elements, thus being expensive.
-This is acceptable so long as the user is warned before committing to the
-operation.
-
-Issue 2: doing this when there are multiple partitions will result in not all
-partitions advertising the same classification during the move. If interrupted,
-move rules should ensure that elements are neither lost nor duplicated, but it
-not be obvious how to recover. It may not even be obvious at first, however if
-partitioning is not disjoint or not covering it will be noticed. Ideally
-however the issue should be noticed the next time any partition is loaded and
-offer to fix this immediately but be able to continue should the user decide
-not to fix it immediately.
-
-
-Discovering partitioning
-------------------
-
-Each partition must record at least what classification rules and partitioning
-apply to its own elements. It cannot be enforced that all partitions know all
-partitioning since this would make any repartitioning expensive.
-
-Option 1) all snapshots include all partitioning rules as of when their
-snapshots are created. Problem: extra work might be necessary when creating
-snapshots and new partitions, and might not even be doable (if not all
-partitions are available).
-
-Option 2) all snapshots specify only their own partitioning. This has two
-issues: (a) locating a required partition requires checking all partitions
-until the required one is found, and (b) this provides no way of checking for
-partitioning issues (gaps, overlaps) without reading all partitions.
-
-Option 3) all snapshots include partitioning rules known (without doing extra
-work) at the time they are created. This does not solve the second issue with
-the previous option (checking for partitioning issues).
-
-Option 4) all snapshots specify their partitioning encoded in their filename.
-This is difficult to do properly when classifications are not fixed from when
-the repository is created. It also requires either meaningless code names or
-risks very long file names.
-
-
-Discovering partition meta-info
----------------------
-
-Assuming a set of files are identified as beloning to the same partition (from
-their directory, name prefix or whatever): *how are their stati discovered?*
-
-Option 1: sequential numbering of snapshots. This is fine except that it does
-not allow changes from a cloned repository to be merged simply by dumping the
-files in (unless "clone identifiers" are used).
-
-Option 2: read all snapshots (at least their headers). Slow.
-
-Option 3: remember snapshot correspondances. Feasible but using a "central"
-file to remember this stuff is not desirable.
-
-Option 4: each snapshot lists in its header all those snapshots which are its
-ancestors. If the system can guess which snapshot is probably the latest (e.g.
-from a sequential number), it can discover all relationships without reading
-many files (in most cases). Seems okay, though it could require opening some
-files multiple times.
-
-### Naming snapshot files
-
-In light of this, it might be best if snapshot files have the form
-`BASE-NUM-SUM.pip` where `BASE` is the basename (common within the partition),
-`NUM` is a sequential number, and `SUM` is part of the snapshot state-sum. This
-should make sure states in a "branched" repository have different names.
-
-### Commit logs
-
-These should have the same `BASE-NUM-SUM` part as the corresponding snapshot
-file. They should then have some unique identifier.
-
-Option 1: a number.
-
-Option 2: the state-sum of the latest state. This requires writing from scratch
-or renaming on every new commit, which isn't ideal.
-
-
-Discovering partition files
----------------------
-
-When some kind of `RepoIO` is created, *some* checking of available partitions
-and possibly files is required. Of the options below, 1 and 2 appear most
-sensible.
-
-### Option 1: discover all paths on creation and remember all
-
-+ everything available early
-
-### Option 2: Discover partitions available on creation, parition files when a `PartIO` is created
-
-+ partitions known early
-+ partition files known early enough for most purposes
-- can't easily get stats of all partition files
-
-### Option 3 Discover partitions available on creation, partition files when first loaded
-
-+ partitions known early
-- can't easily get stats of all partition files
-
-What is the point over option 2 though? Maybe that the `PartIO` can be created
-earlier without scanning all files.
-
-### Option 4: Discover partitions available on creation, partition files dynamically (on demand)
-
-+ partitions known early
-+ "live" view of files on disk without rescanning
-- getting file stats more difficult
-- loading the tip is more difficult
-- no easy way of spotting changes on the disk
-
-### Option 5: Discover at one partition, do the rest on demand
-
-- partitioning information will not be available at first
-- finding the correct partition will be slow the first time it is used
-- partition discovery cannot sanely be "live" (always done from the disk)
-
-
-Writing new commits
-------------------
-
-When new commits are written:
-
-*   existing data must not be corrupted, which means a log file must not be
-    modified unless a replicate exists
-*   log files should not be written from scratch unnecessarily
-
-Possible methods:
-
-1.  Remember all commits since the last snapshot. On write-to-disk, make a new
-    commit log containing all these. Delete redundant logs another time.
-2.  Variant of 1: when loading, write a new commit log. When writing new
-    commits to disk write to this log (so there is a chance of corrupting
-    commits from the same session).
-3.  Variant of 1: on first write-to-disk, make a new commit log. On the second
-    write, create another log file. Following this, alternate between the two
-    logs (also writing commits not yet in that log file).
-
-These options *only* write to log files created in the current session. Why?
-Because this way (providing other clients do the same) there is no chance of
-changes conflicting with changes from another client. But maybe this isn't
-necessary.
-
-**Atomic writes:** format a commit in memory, then append atomically. I think
-on some systems such writes are guaranteed not to conflict with writes from
-other processes (but may interleave). If divergent states are created by
-commits in a single log, this doesn't matter (merge will happen on reading).
-This may or may not be reliable; [according to this report there are length
-restrictions which make this unsuitable](http://stackoverflow.com/questions/1154446/is-file-append-atomic-in-unix),
-however [these limits may be attributable to other language's buffering
-features](https://github.com/rust-lang/rfcs/pull/1252#issuecomment-153290345).
-
-**Verifying writes:** don't assume that simultaneous writes can't clash, but
-verify the commits just written by re-reading the relevant part of the file.
-
-**Partial logs:** as above, use new files for each session, but don't re-write
-old content (at least, not always). Advantage: less writing. Disadvantage: a
-major prolification of log files.
-
-Using the above, we have some more possibilities:
-
-4.  Select the lowest-numbered existing log which does not contain any commits
-    not also written elsewhere; if there is none then create a new log. Open in
-    apend mode for atomic writes. Write all existing commits not already in the
-    log, then any new commits. Write each commit as a single write so that it
-    is appended atomically.
-5.  Variant of (4), but every so often (number of commits? timeout?) close the
-    file, re-read it to verify its contents, and select a new log file
-    according to the same algorithm.
-
-
-Commit size
------------
-
-The above write algorithms do not place any hard limits on commit size. Still,
-reducing the number of commits would be good for performance and avoiding
-*large* commits (for some definition of *large*) *may* be a good idea.
-
-
-Commit log clean-up
-----------------------
-
-*If* many log files get created (see above write policies), a deletion policy
-is "needed". Assume each log file has a number.
-
-1.  On load, read *all* logs and delete any which are entirely redundant with
-    some higher-numbered log-file. Issue: there is no guarantee that a process
-    is not still writing to one of these files.
-2.  As above, but set some "stale" age. Only delete "stale" files. Don't ever
-    write new commits to a "stale" file. Issue: there is no upper-bound on how
-    long a commit may take to write. Issue: time stamps may not be reliable
-    (maybe "creation time" metadata is okay?).
-3.  As (1) but write the owning process PID to the log. Not okay across
-    network file systems; not portable?
-4.  Some time after a new snapshot is created, go back and write a unified log
-    and delete old log files. Same issues as (2), plus cannot limit log files
-    except by creating new snapshots (which also have their drawbacks).
-
-No option is perfect. Perhaps (2) with a generous bound on write time assumed
-(e.g. only delete files 24 hours after they become stale) is acceptable.
-
--------
-
-Repartitioning
---------------
-
-Where elements move to a sub-partition, the original may stay with the same
-name, only marking certain elements as moved. Alternately, all elements may be
-moved to sub-partitions.
-
-Where a partition is rendered obsolete, it could (a) remain (but with a new
-empty snapshot) or (b) be closed with some special file. Maybe (a) is a form
-of (b).
-
-Where a partition is renamed, it could (a) not be renamed on the disk (breaking
-path to partition name correlations), (b) be handled by moving files on the
-disk (breaking historical name correlations, possibly dangerous), (c) be
-handled by closing the old partition and moving all elements (expensive), or
-(d) via some "link" and "rename marker" until the next snapshot is created.
-
-Simplest solution
-----------------------
-
-Partitions are given new names on the disk not correlating to partition path or
-any other user-friendly naming method. Renaming paths thus does not move
-partitions. All partitions are stored in the same directory. Partitions are
-never removed, but left empty if no longer needed.
-
-Allowing partition removal
-------------------------------
-
-(Obviously without deleting historical data.)
-
-Option 1) use a repository-wide snapshot number. Whenever any new snapshot is
-needed, update *all* partitions with a new snapshot file (in theory this could
-just be a link to the old one), except for partitions which are deleted. Only
-load from files with the latest snapshot number. This is not very robust.
-
-Option 2) use an index file to track partitioning. This breaks the independance
-of snapshots requirement.
-
-Option 3) close the partition with a special file. The only advantage this has
-over leaving the partition empty is that the file-name alone would indicate
-that the partition is empty. OTOH a special file name could be used for any
-empty snapshot file in any case.
