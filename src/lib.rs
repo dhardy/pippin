@@ -88,7 +88,7 @@ extern crate log;
 
 // Redundantly re-export some of the main types here:
 pub use repo::{Repository, RepoIO, RepoT, ClassifierT, RepoState};
-pub use part::{Partition, PartIO, PartState, MutPartState, State, MutState};
+pub use part::{Partition, PartIO, UserFields, PartState, MutPartState, State, MutState};
 pub use error::{Result};
 // Export some main/miscellaneous types here:
 pub use detail::{ElementT, PartId, EltId, Sum, Commit, CommitMeta};

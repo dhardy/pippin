@@ -8,7 +8,7 @@ use std::marker::PhantomData;
 use std::any::Any;
 use std::io::Write;
 
-use PartIO;
+use {PartIO, UserFields};
 use {ElementT, PartId, PartState};
 use error::{Error, Result, OtherError};
 
@@ -104,7 +104,7 @@ pub enum ClassifyFallback {
 
 /// Encapsulates a RepoIO and a ClassifierT, handling repartitioning and
 /// serialisation.
-pub trait RepoT<C: ClassifierT+Sized> {
+pub trait RepoT<C: ClassifierT+Sized>: UserFields {
     /// Get access to the I/O provider. This could be an instance of
     /// `DiscoverRepoFiles` or could be self (among other possibilities).
     fn repo_io<'a>(&'a mut self) -> &'a mut RepoIO;

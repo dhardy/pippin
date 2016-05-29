@@ -68,12 +68,10 @@ impl<C: ClassifierT, R: RepoT<C>> Repository<C, R> {
     /// This creates an initial 'partition' ready for use (all contents must
     /// be kept within a `Partition`).
     pub fn create<S: Into<String>>(mut classifier: R, name: S) -> Result<Repository<C, R>> {
-        let name = name.into();
+        let name: String = name.into();
         info!("Creating repository: {}", name);
         let part_io = try!(classifier.init_first());
-        //TODO: insert classifier data:
-        let user_fields = Rc::new(Vec::new());
-        let part = try!(Partition::create(part_io, &name, user_fields));
+        let part = try!(Partition::create(part_io, &name, Some(&mut classifier)));
         let mut partitions = HashMap::new();
         partitions.insert(part.part_id(), part);
         Ok(Repository{
@@ -128,30 +126,29 @@ impl<C: ClassifierT, R: RepoT<C>> Repository<C, R> {
     
     // TODO: some way to iterate or access partitions?
     
-    /// Call `Partition::load(all_history)` on all partitions.
-    pub fn load_all(&mut self, all_history: bool) -> Result<()> {
+    /// Load the latest state of all partitions
+    pub fn load_latest(&mut self) -> Result<()> {
         for (_, part) in &mut self.partitions {
-            try!(part.load(all_history));
+            try!(part.load_latest(Some(&mut self.classifier)));
         }
         Ok(())
     }
     
-    /// Call `Partition::write(fast)` on all loaded partitions.
+    /// Write commits to the disk for all partitions.
+    /// 
+    /// If `fast` is true, "maintenance" operations (writing snapshot files)
+    /// are suppressed.
     pub fn write_all(&mut self, fast: bool) -> Result<()> {
-        //TODO: insert classifier data:
-        let user_fields = Rc::new(Vec::new());
         for (_, part) in &mut self.partitions {
-            try!(part.write(fast, user_fields.clone()));
+            try!(part.write(fast, Some(&mut self.classifier)));
         }
         Ok(())
     }
     
-    /// Call `Partition::write_snapshot()` on all loaded partitions.
+    /// Force all loaded partitions to write a snapshot.
     pub fn write_snapshot_all(&mut self) -> Result<()> {
-        //TODO: insert classifier data:
-        let user_fields = Rc::new(Vec::new());
         for (_, part) in &mut self.partitions {
-            try!(part.write_snapshot(user_fields.clone()));
+            try!(part.write_snapshot(Some(&mut self.classifier)));
         }
         Ok(())
     }
@@ -190,7 +187,7 @@ impl<C: ClassifierT, R: RepoT<C>> Repository<C, R> {
     /// this should be roughly as efficient as calling `merge_required()`.
     /// 
     /// If `auto_load` is true, additional history will be loaded as necessary
-    /// to find a common ancestor (*TODO: not implemented yet*).
+    /// to find a common ancestor.
     /// 
     /// TODO: clearer names, maybe move some of the work around.
     pub fn merge<S: TwoWaySolver<C::Element>>(&mut self, solver: &S, auto_load: bool) -> Result<()> {
@@ -228,9 +225,6 @@ impl<C: ClassifierT, R: RepoT<C>> Repository<C, R> {
     /// 
     /// Returns true when any further merge work is required. In this case
     /// `merge()` should be called.
-    /// 
-    /// TODO: this operation should not fail, since failure might result in
-    /// data loss.
     pub fn merge_in(&mut self, state: RepoState<C>) -> Result<bool> {
         let mut merge_required = false;
         for (num, pstate) in state.states {
@@ -255,9 +249,6 @@ impl<C: ClassifierT, R: RepoT<C>> Repository<C, R> {
     /// Returns true if further merge work is required. In this case, `merge()`
     /// should be called on the `Repository`, then `sync()` again (until then, the
     /// `RepoState` will have no access to any partitions with conflicts).
-    /// 
-    /// TODO: this operation should not fail, since failure might result in
-    /// data loss.
     pub fn sync(&mut self, state: &mut RepoState<C>) -> Result<bool> {
         let mut states = HashMap::new();
         swap(&mut states, &mut state.states);

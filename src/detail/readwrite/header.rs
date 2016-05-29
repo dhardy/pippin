@@ -7,7 +7,6 @@
 use std::io::{Read, Write, ErrorKind};
 use std::cmp::min;
 use std::result::Result as stdResult;
-use std::rc::Rc;
 
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
@@ -88,7 +87,7 @@ pub struct FileHeader {
     /// Partition identifier.
     pub part_id: Option<PartId>,
     /// User data fields, remarks, etc.
-    pub user: Rc<Vec<UserData>>,
+    pub user: Vec<UserData>,
 }
 
 // Decodes from a string to the format used in HEAD_VERSIONS. Returns zero on
@@ -225,7 +224,7 @@ pub fn read_head(r: &mut Read) -> Result<FileHeader> {
         ftype: ftype,
         name: repo_name,
         part_id: part_id,
-        user: Rc::new(user_fields),
+        user: user_fields,
     })
 }
 
@@ -252,7 +251,7 @@ pub fn write_head(header: &FileHeader, writer: &mut Write) -> Result<()> {
         try!(w.write_u64::<BigEndian>(part_id.into()));
     }
     
-    for u in &*header.user {
+    for u in &header.user {
         // We allow padding in text mode:
         let (t, uf, is_text) = match u {
             &UserData::Data(ref b) => (b'U', &b[..], false),
@@ -327,11 +326,11 @@ fn read_header() {
         Err(e) => { panic!("{}", e); }
     };
     assert_eq!(header.name, "test AbC αβγ");
-    assert_eq!((*header.user).len(), 4);
-    assert_eq!((*header.user)[0], UserData::Text("emark 12345678".to_string()));
-    assert_eq!((*header.user)[1], UserData::Data(b"user rule".to_vec()));
-    assert_eq!((*header.user)[2], UserData::Data(b"user rule\x00\x00\x00\x00\x00".to_vec()));
-    assert_eq!((*header.user)[3], UserData::Text("EM  completely pointless text".to_string()));
+    assert_eq!(header.user.len(), 4);
+    assert_eq!(header.user[0], UserData::Text("emark 12345678".to_string()));
+    assert_eq!(header.user[1], UserData::Data(b"user rule".to_vec()));
+    assert_eq!(header.user[2], UserData::Data(b"user rule\x00\x00\x00\x00\x00".to_vec()));
+    assert_eq!(header.user[3], UserData::Text("EM  completely pointless text".to_string()));
 }
 
 #[test]
@@ -345,7 +344,7 @@ fn write_header() {
             UserData::Text(" Quatsch Quatsch Quatsch".to_string()),
             UserData::Data(b"0123456789abcdefghijklmnopqrs".to_vec()),
             UserData::Data(b" rsei noasr auyv 10()% xovn".to_vec()),
-        ].into(),
+        ],
     };
     let mut buf = Vec::new();
     write_head(&header, &mut buf).unwrap();

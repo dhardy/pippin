@@ -9,7 +9,6 @@ use std::collections::{HashSet, VecDeque};
 use std::result;
 use std::any::Any;
 use std::ops::Deref;
-use std::rc::Rc;
 use std::usize;
 use std::cmp::min;
 use hashindexed::{HashIndexed, Iter};
@@ -117,6 +116,28 @@ pub trait PartIO {
     /// This can fail due to IO operations failing.
     // #0012: verify atomicity of writes
     fn new_ss_cl<'a>(&'a mut self, ss_num: usize, cl_num: usize) -> Result<Option<Box<Write+'a>>>;
+}
+
+/// Provide access to user fields of header
+pub trait UserFields {
+    /// Generate user fields to be included in a header. If you don't wish to
+    /// add extra fields, just return `vec![]` or `Vec::new()`.
+    /// 
+    /// `part_id`: the partition identifier. Given so that the same interface
+    ///     can be used within repositories.
+    /// 
+    /// `is_log`: false if this is to be written to a snapshot file, true if
+    /// this is to be written to a log file. Users may choose not to write to
+    /// both.
+    fn write_user_fields(&mut self, part_id: PartId, is_log: bool) -> Vec<UserData>;
+    /// Take user fields found in a header and read or discard them.
+    /// 
+    /// `part_id`: the partition identifier. Given so that the same interface
+    ///     can be used within repositories.
+    /// 
+    /// `is_log`: false if this is read from a snapshot file, true if this is
+    /// read from a log file. Users may choose not to write to both.
+    fn read_user_fields(&mut self, user: Vec<UserData>, part_id: PartId, is_log: bool);
 }
 
 /// Doesn't provide any IO.
@@ -242,10 +263,10 @@ impl<E: ElementT> Partition<E> {
     /// use pippin::part::DummyPartIO;
     /// 
     /// let io = Box::new(DummyPartIO::new(PartId::from_num(1)));
-    /// let partition = Partition::<String>::create(io, "example repo", vec![].into());
+    /// let partition = Partition::<String>::create(io, "example repo", None);
     /// ```
     pub fn create<'a>(mut io: Box<PartIO>, name: &str,
-            user_fields: Rc<Vec<UserData>>) -> Result<Partition<E>>
+            user: Option<&mut UserFields>) -> Result<Partition<E>>
     {
         try!(validate_repo_name(name));
         let ss = 0;
@@ -257,7 +278,7 @@ impl<E: ElementT> Partition<E> {
             ftype: FileType::Snapshot(0),
             name: name.to_string(),
             part_id: Some(part_id),
-            user: user_fields,
+            user: user.map_or(vec![], |u| u.write_user_fields(part_id, false)),
         };
         if let Some(mut writer) = try!(io.new_ss(ss)) {
             try!(write_head(&header, &mut writer));
@@ -358,46 +379,31 @@ impl<E: ElementT> Partition<E> {
         return OtherError::err("no snapshot found for first partition");
     }
     
-    /// Load either all history available or only that required to find the
-    /// latest state of the partition. (This is just a wrapper around
-    /// `load_range`.)
-    /// 
-    /// If `all_history == true`, all snapshots and commits found are loaded.
-    /// In this case it is possible that the history graph is not connected
-    /// (i.e. it has multiple unconnected sub-graphs). If this is the case,
-    /// the usual merge strategy will fail.
-    /// 
-    /// If the partition contains data before the load, any changes will be
-    /// committed (in-memory only) and newly loaded data will be seamlessly
-    /// merged with that already loaded. A merge may be required; it is also
-    /// possible that tips may be part of disconnected graphs and thus
-    /// unmergable as with `load_everything()`.
-    /// 
-    /// After the operation, the repository may be in one of three states: no
-    /// known states, one directed graph of one or more states with a single
-    /// tip (latest state), or a graph with multiple tips (requiring a merge
-    /// operation).
-    /// 
-    /// Returns the header from the most recent file read.
-    /// #0040: ways of getting other headers / loading files individually.
-    pub fn load(&mut self, all_history: bool) -> Result<()> {
-        self.load_range(if all_history { 0 } else { usize::MAX }, usize::MAX)
+    /// Load all history. Shortcut for `load_range(0, usize::MAX, user)`.
+    pub fn load_all(&mut self, user: Option<&mut UserFields>) -> Result<()> {
+        self.load_range(0, usize::MAX, user)
+    }
+    /// Load latest state from history (usually including some historical
+    /// data). Shortcut for `load_range(usize::MAX, usize::MAX, user)`.
+    pub fn load_latest(&mut self, user: Option<&mut UserFields>) -> Result<()> {
+        self.load_range(usize::MAX, usize::MAX, user)
     }
     
     /// Load snapshots `ss` where `ss0 <= ss < ss1`, and all log files for each
-    /// snapshot loaded. Special behaviour 1: if some snapshots are already
-    /// loaded and the range does not overlap with this range, all snapshots in
-    /// between will be loaded. Special behaviour 2: if no snapshot file is
-    /// found for `ss0`, it will be decremented by one until a snapshot file is
-    /// found (if none is found for snapshot 0, an empty state is assumed).
-    /// 
-    /// It is legal for the range to include numbers beyond the last known
-    /// snapshot; e.g. `(0, usize::MAX)` means load everything available and
+    /// snapshot loaded. If `ss0` is beyond the latest snapshot found, it will
+    /// be reduced to the number of the last snapshot. `ss1` may be large. For
+    /// example, `(0, usize::MAX)` means load everything available and
     /// `(usize::MAX, usize::MAX)` means load only the latest state.
     /// 
-    /// Returns the header from the most recent file read.
-    /// #0040: ways of getting other headers / loading files individually.
-    pub fn load_range(&mut self, ss0: usize, ss1: usize) -> Result<()> {
+    /// Special behaviour: if some snapshots are already loaded and the range
+    /// does not overlap with this range, all snapshots in between will be
+    /// loaded.
+    /// 
+    /// The `user` parameter allows any headers read to be examined. If `None`
+    /// is passed, these fields are simply ignored.
+    pub fn load_range(&mut self, ss0: usize, ss1: usize,
+            mut user: Option<&mut UserFields>) -> Result<()>
+    {
         // We have to consider several cases: nothing previously loaded, that
         // we're loading data older than what was previously loaded, or newer,
         // or even overlapping. The algorithm we use is:
@@ -440,6 +446,9 @@ impl<E: ElementT> Partition<E> {
                 let head = try!(read_head(&mut r));
                 try!(Self::verify_head(&head, &mut self.repo_name, self.part_id));
                 let file_ver = head.ftype.ver();
+                if let Some(ref mut u) = user {
+                    u.read_user_fields(head.user, self.part_id, false);
+                }
                 
                 let state = try!(read_snapshot(&mut r, self.part_id, file_ver));
                 
@@ -464,6 +473,9 @@ impl<E: ElementT> Partition<E> {
                 if let Some(mut r) = try!(self.io.read_ss_cl(ss, cl)) {
                     let head = try!(read_head(&mut r));
                     try!(Self::verify_head(&head, &mut self.repo_name, self.part_id));
+                    if let Some(ref mut u) = user {
+                        u.read_user_fields(head.user, self.part_id, true);
+                    }
                     try!(read_log(&mut r, &mut queue));
                 }
             }
@@ -699,7 +711,7 @@ impl<E: ElementT> Partition<E> {
                 },
                 Err(MergeError::NoCommonAncestor) if auto_load && self.ss0 > 0 => {
                     let ss0 = self.ss0;
-                    try!(self.load_range(ss0 - 1, ss0));
+                    try!(self.load_range(ss0 - 1, ss0, None));
                     continue;
                 },
                 Err(e) => {
@@ -778,28 +790,27 @@ impl<E: ElementT> Partition<E> {
         }
     }
     
-    /// This will write all unsaved commits to a log on the disk.
+    /// This will write all unsaved commits to a log on the disk. Does nothing
+    /// if there are no queued changes.
     /// 
     /// If `fast` is true, no further actions will happen, otherwise required
     /// maintenance operations will be carried out (e.g. creating a new
     /// snapshot when the current commit-log is long).
     /// 
-    /// Either way, this does nothing if no changes have been made and nothing
-    /// is loaded. If data has been loaded but no changes made it is still
-    /// possible that a snapshot will be written (when `fast == false`).
+    /// `user` allows extra data to be written to file headers.
     /// 
     /// Returns true if any commits were written (i.e. unsaved commits
     /// were found). Returns false if nothing needed doing.
     /// 
     /// Note that writing to disk can fail. In this case it may be worth trying
     /// again.
-    // #0040: better to specify user_fields via a closure maybe?
-    pub fn write(&mut self, fast: bool, user_fields: Rc<Vec<UserData>>) -> Result<bool> {
+    pub fn write(&mut self, fast: bool, mut user: Option<&mut UserFields>) -> Result<bool> {
         // First step: write commits
         let has_changes = !self.unsaved.is_empty();
         if has_changes {
+            let part_id = self.part_id;
             trace!("Partition {}: writing {} commits to log",
-                self.part_id, self.unsaved.len());
+                part_id, self.unsaved.len());
             
             // #0012: extend existing logs instead of always writing a new log file.
             let mut cl_num = self.io.ss_cl_len(self.ss1 - 1);
@@ -809,8 +820,8 @@ impl<E: ElementT> Partition<E> {
                     let header = FileHeader {
                         ftype: FileType::CommitLog(0),
                         name: self.repo_name.clone(),
-                        part_id: Some(self.part_id),
-                        user: user_fields.clone(),
+                        part_id: Some(part_id),
+                        user: user.as_mut().map_or(vec![], |u| u.write_user_fields(part_id, true)),
                     };
                     try!(write_head(&header, &mut writer));
                     try!(start_log(&mut writer));
@@ -837,7 +848,7 @@ impl<E: ElementT> Partition<E> {
         // Second step: maintenance operations
         if !fast {
             if self.is_ready() && self.ss_policy.snapshot() {
-                try!(self.write_snapshot(user_fields));
+                try!(self.write_snapshot(user));
             }
         }
         
@@ -850,24 +861,26 @@ impl<E: ElementT> Partition<E> {
     /// when to write a new snapshot, though you can also call this directly.
     /// 
     /// Does nothing when `tip()` fails (returning `Ok(())`).
-    pub fn write_snapshot(&mut self, user_fields: Rc<Vec<UserData>>) -> Result<()> {
+    /// 
+    /// `user` allows extra data to be written to file headers.
+    pub fn write_snapshot(&mut self, user: Option<&mut UserFields>) -> Result<()> {
         // fail early if not ready:
         let tip_key = try!(self.tip_key()).clone();
+        let part_id = self.part_id;
         
         let mut ss_num = self.ss1;
         loop {
             // Try to get a writer for this snapshot number:
             if let Some(mut writer) = try!(self.io.new_ss(ss_num)) {
                 info!("Partition {}: writing snapshot {}: {}",
-                    self.part_id, ss_num, tip_key);
+                    part_id, ss_num, tip_key);
                 
                 let header = FileHeader {
                     ftype: FileType::Snapshot(0),
                     name: self.repo_name.clone(),
-                    part_id: Some(self.part_id),
-                    user: user_fields,
+                    part_id: Some(part_id),
+                    user: user.map_or(vec![], |u| u.write_user_fields(part_id, false)),
                 };
-                //TODO: also write classifier stuff
                 try!(write_head(&header, &mut writer));
                 try!(write_snapshot(self.states.get(&tip_key).unwrap(), &mut writer));
                 self.ss1 = ss_num + 1;
@@ -1108,7 +1121,7 @@ mod tests {
         queue.receive(commit);
         
         let io = box DummyPartIO::new(PartId::from_num(1));
-        let mut part = Partition::create(io, "replay part", vec![].into()).unwrap();
+        let mut part = Partition::create(io, "replay part", None).unwrap();
         part.add_state(state_a, 0);
         for commit in queue.unwrap() {
             part.push_commit(commit).unwrap();
@@ -1122,7 +1135,7 @@ mod tests {
     #[test]
     fn on_new_partition() {
         let io = box DummyPartIO::new(PartId::from_num(7));
-        let mut part = Partition::<String>::create(io, "on_new_partition", vec![].into())
+        let mut part = Partition::<String>::create(io, "on_new_partition", None)
                 .expect("partition creation");
         assert_eq!(part.tips.len(), 1);
         

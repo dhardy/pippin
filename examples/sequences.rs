@@ -23,7 +23,8 @@ use docopt::Docopt;
 use rand::Rng;
 use rand::distributions::{IndependentSample, Range, Normal, LogNormal};
 
-use pippin::{ElementT, PartId, Partition, State, MutState, PartIO, PartState};
+use pippin::{ElementT, PartId, Partition, State, MutState, PartState};
+use pippin::{PartIO, UserFields, UserData};
 use pippin::{discover, fileio};
 use pippin::repo::*;
 use pippin::merge::*;
@@ -64,6 +65,27 @@ struct SeqClassifier {
     // sequences in the class. Ordered by min length, increasing.
     classes: Vec<(usize, PartId)>,
 }
+impl ClassifierT for SeqClassifier {
+    type Element = Sequence;
+    fn classify(&self, elt: &Sequence) -> Option<PartId> {
+        let len = elt.v.len();
+        match self.classes.binary_search_by(|x| x.0.cmp(&len)) {
+            Ok(i) => Some(self.classes[i].1), // len equals lower bound
+            Err(i) => {
+                if i == 0 {
+                    None    // shouldn't happen, since we should have a class with lower bound 0
+                } else {
+                    // i is index such that self.classes[i-1].0 < len < self.classes[i].0
+                    Some(self.classes[i-1].1)
+                }
+            }
+        }
+    }
+    fn fallback(&self) -> ClassifyFallback {
+        // classify() only returns None if something is broken; stop
+        ClassifyFallback::Fail
+    }
+}
 
 // Each classification has a PartId, a max PartId, a min length, a max length
 // and a version number. The PartId is stored as the key.
@@ -102,25 +124,13 @@ impl<IO: RepoIO> SeqRepo<IO> {
         self.csf.classes = classes;
     }
 }
-impl ClassifierT for SeqClassifier {
-    type Element = Sequence;
-    fn classify(&self, elt: &Sequence) -> Option<PartId> {
-        let len = elt.v.len();
-        match self.classes.binary_search_by(|x| x.0.cmp(&len)) {
-            Ok(i) => Some(self.classes[i].1), // len equals lower bound
-            Err(i) => {
-                if i == 0 {
-                    None    // shouldn't happen, since we should have a class with lower bound 0
-                } else {
-                    // i is index such that self.classes[i-1].0 < len < self.classes[i].0
-                    Some(self.classes[i-1].1)
-                }
-            }
-        }
+impl<IO: RepoIO> UserFields for SeqRepo<IO> {
+    fn write_user_fields(&mut self, part_id: PartId, is_log: bool) -> Vec<UserData> {
+        //TODO
+        vec![]
     }
-    fn fallback(&self) -> ClassifyFallback {
-        // classify() only returns None if something is broken; stop
-        ClassifyFallback::Fail
+    fn read_user_fields(&mut self, user: Vec<UserData>, part_id: PartId, is_log: bool) {
+        //TODO
     }
 }
 impl<IO: RepoIO> RepoT<SeqClassifier> for SeqRepo<IO> {
@@ -443,12 +453,12 @@ fn run(path: &Path, part_num: Option<u64>, mode: Mode, create: bool,
             // On creation we need a number; 0 here means "default":
             let part_id = PartId::from_num(if pn == 0 { 1 } else { pn });
             let io = Box::new(fileio::PartFileIO::new_empty(part_id, path.join("seqdb")));
-            try!(Partition::<Sequence>::create(io, "sequences db", vec![].into()))
+            try!(Partition::<Sequence>::create(io, "sequences db", None))
         } else {
             let part_id = if pn != 0 { Some(PartId::from_num(pn)) } else { None };
             let io = Box::new(try!(discover::part_from_path(path, part_id)));
             let mut part = try!(Partition::<Sequence>::open(io));
-            try!(part.load(false));
+            try!(part.load_latest(None));
             part
         };
         
@@ -465,11 +475,11 @@ fn run(path: &Path, part_num: Option<u64>, mode: Mode, create: bool,
             generate(&mut state);
             println!("Done modifying state");
             try!(part.push_state(state, None));
-            try!(part.write(false, vec![].into()));
+            try!(part.write(false, None));
         }
         
         if snapshot {
-            try!(part.write_snapshot(vec![].into()));
+            try!(part.write_snapshot(None));
         }
     } else {
         let discover = try!(discover::repo_from_path(path));
@@ -479,7 +489,7 @@ fn run(path: &Path, part_num: Option<u64>, mode: Mode, create: bool,
             try!(Repository::create(rt, "sequences db"))
         } else {
             let mut repo = try!(Repository::open(rt));
-            try!(repo.load_all(false));
+            try!(repo.load_latest());
             repo
         };
         

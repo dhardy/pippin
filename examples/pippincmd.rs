@@ -17,7 +17,6 @@ use std::path::PathBuf;
 use std::io::{Read, Write};
 use std::ffi::OsStr;
 use std::os::unix::ffi::OsStrExt;
-use std::rc::Rc;
 use docopt::Docopt;
 use pippin::{Partition, PartIO, ElementT, State, MutState, UserData, PartId};
 use pippin::{discover, fileio};
@@ -198,8 +197,7 @@ fn inner(path: PathBuf, op: Operation, args: Rest) -> Result<()>
             
             let prefix = path.join(name);
             let io = fileio::PartFileIO::new_empty(part_id, prefix);
-            try!(Partition::<DataElt>::create(Box::new(io), &repo_name,
-                    vec![UserData::Text("by pippincmd".to_string())].into()));
+            try!(Partition::<DataElt>::create(Box::new(io), &repo_name, None));
             Ok(())
         },
         Operation::Header => {
@@ -252,7 +250,7 @@ fn inner(path: PathBuf, op: Operation, args: Rest) -> Result<()>
                 }
                 if list_commits {
                     let mut part = try!(Partition::<DataElt>::open(Box::new(part.clone())));
-                    try!(part.load(true));
+                    try!(part.load_all(None));
                     let mut states: Vec<_> = part.states().collect();
                     states.sort_by_key(|s| s.meta().number);
                     for state in states {
@@ -274,11 +272,11 @@ fn inner(path: PathBuf, op: Operation, args: Rest) -> Result<()>
             let mut part = try!(Partition::<DataElt>::open(Box::new(part_files)));
             {
                 let (is_tip, mut state) = if let Some(ss) = args.commit {
-                    try!(part.load(true));
+                    try!(part.load_all(None));
                     let state = try!(part.state_from_string(ss));
                     (part.tip_key().map(|k| k == state.statesum()).unwrap_or(false), state.clone_mut())
                 } else {
-                    try!(part.load(false));
+                    try!(part.load_latest(None));
                     (true, try!(part.tip()).clone_mut())
                 };
                 match part_op {
@@ -350,10 +348,9 @@ fn inner(path: PathBuf, op: Operation, args: Rest) -> Result<()>
                 }
             }       // destroy reference `state`
             
-            let user_fields: Rc<Vec<UserData>> = vec![UserData::Text("by pippincmd".to_string())].into();
-            let has_changes = try!(part.write(true, user_fields.clone()));
+            let has_changes = try!(part.write(true, None));
             if has_changes && args.snapshot {
-                try!(part.write_snapshot(user_fields));
+                try!(part.write_snapshot(None));
             }
             Ok(())
         },

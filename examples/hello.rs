@@ -12,7 +12,7 @@ fn inner() -> Result<()> {
         Ok(io) => {
             // Read the found files:
             let mut part = try!(Partition::<String>::open(Box::new(io)));
-            try!(part.load(false));
+            try!(part.load_latest(None));
             
             // Get access to the latest state:
             let tip = try!(part.tip());
@@ -31,7 +31,7 @@ fn inner() -> Result<()> {
             // PartFileIO is a dumb file accessor; hence needing to specify PartId. This may change.
             let io = Box::new(fileio::PartFileIO::new_empty(PartId::from_num(1), "hello"));
             
-            let mut part = try!(Partition::create(io, "hello world", vec![].into()));
+            let mut part = try!(Partition::create(io, "hello world", None));
             
             // Create a new state derived from the tip:
             let mut state = try!(part.tip()).clone_mut();
@@ -39,7 +39,7 @@ fn inner() -> Result<()> {
             try!(part.push_state(state, None));
             
             // Write our changes:
-            try!(part.write(false, vec![].into()));
+            try!(part.write(false, None));
         }
     }
     Ok(())
