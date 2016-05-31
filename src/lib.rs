@@ -75,6 +75,9 @@
 // This should probably be enabled by default for libraries.
 #![warn(missing_docs)]
 
+// Stupid warning.
+#![allow(unused_parens)]
+
 extern crate crypto;
 extern crate chrono;
 extern crate byteorder;

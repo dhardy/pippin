@@ -28,7 +28,7 @@ use pippin::{PartIO, UserFields, UserData};
 use pippin::{discover, fileio};
 use pippin::repo::*;
 use pippin::merge::*;
-use pippin::error::{Result, OtherError};
+use pippin::error::{Result, ReadError, OtherError};
 
 
 // —————  Sequence type  —————
@@ -123,14 +123,78 @@ impl<IO: RepoIO> SeqRepo<IO> {
         classes.sort_by(|a, b| a.0.cmp(&b.0));
         self.csf.classes = classes;
     }
+    fn read_ud(v: &Vec<u8>) -> Result<(PartId, PartInfo)> {
+        if v.len() != 32 {
+            return ReadError::err("incorrect length", 0, (0, v.len()));
+        }
+        if v[0..4] != *b"SCPI" {
+            return ReadError::err("unknown data (expected SCPI)", 0, (0, 4));
+        }
+        let mut r = &mut &v[4..];
+        let ver = try!(r.read_u32::<LittleEndian>());
+        let min_len = try!(r.read_u32::<LittleEndian>());
+        let max_len = try!(r.read_u32::<LittleEndian>());
+        let id = try!(PartId::try_from(try!(r.read_u64::<LittleEndian>())));
+        let max_id = try!(PartId::try_from(try!(r.read_u64::<LittleEndian>())));
+        let pi = PartInfo {
+            max_part_id: max_id,
+            ver: ver,
+            min_len: min_len,
+            max_len: max_len,
+        };
+        Ok((id, pi))
+    }
 }
 impl<IO: RepoIO> UserFields for SeqRepo<IO> {
-    fn write_user_fields(&mut self, part_id: PartId, is_log: bool) -> Vec<UserData> {
-        //TODO
-        vec![]
+    fn write_user_fields(&mut self, _part_id: PartId, _is_log: bool) -> Vec<UserData> {
+        let mut ud = Vec::with_capacity(self.parts.len());
+        for (id,pi) in &self.parts {
+            let mut buf = Vec::from(&b"SCPI...8..12..16..20..24..28..32"[..]);
+            {
+                let mut w = &mut buf[4..];
+                // We use `unwrap()` to handle errors. Failures should be coding errors.
+                w.write_u32::<LittleEndian>(pi.ver).unwrap();
+                w.write_u32::<LittleEndian>(pi.min_len).unwrap();
+                w.write_u32::<LittleEndian>(pi.max_len).unwrap();
+                w.write_u64::<LittleEndian>((*id).into()).unwrap();
+                w.write_u64::<LittleEndian>(pi.max_part_id.into()).unwrap();
+            }
+            ud.push(UserData::Data(buf));
+        }
+        ud
     }
-    fn read_user_fields(&mut self, user: Vec<UserData>, part_id: PartId, is_log: bool) {
-        //TODO
+    fn read_user_fields(&mut self, user: Vec<UserData>, _part_id: PartId, _is_log: bool) {
+        for ud in user {
+            let (id, pi) = match ud {
+                UserData::Data(v) => {
+                    match Self::read_ud(&v) {
+                        Ok(result) => result,
+                        Err(e) => {
+                            warn!("Error parsing user data: {}", e.description());
+                            continue;
+                        },
+                    }
+                },
+                UserData::Text(t) => {
+                    warn!("Encounted user text: {}", t);
+                    continue;
+                },
+            };
+            match self.parts.entry(id) {
+                Entry::Vacant(entry) => {
+                    entry.insert(pi);
+                },
+                Entry::Occupied(entry) => {
+                    if pi.ver > entry.get().ver {
+                        let e = entry.into_mut();
+                        e.max_part_id = pi.max_part_id;
+                        e.ver = pi.ver;
+                        e.min_len = pi.min_len;
+                        e.max_len = pi.max_len;
+                    }
+                },
+            }
+        }
     }
 }
 impl<IO: RepoIO> RepoT<SeqClassifier> for SeqRepo<IO> {
@@ -247,10 +311,8 @@ impl<IO: RepoIO> RepoT<SeqClassifier> for SeqRepo<IO> {
         }
         let mut r = &mut &buf[12..];
         for _ in 0..n_parts {
-            let part_id = try!(PartId::try_from(try!(r.read_u64::<LittleEndian>()))
-                    .ok_or(OtherError::new("Invalid PartId for classifier's read_buf()")));
-            let max_part_id = try!(PartId::try_from(try!(r.read_u64::<LittleEndian>()))
-                    .ok_or(OtherError::new("Invalid PartId for classifier's read_buf()")));
+            let part_id = try!(PartId::try_from(try!(r.read_u64::<LittleEndian>())));
+            let max_part_id = try!(PartId::try_from(try!(r.read_u64::<LittleEndian>())));
             let ver = try!(r.read_u32::<LittleEndian>());
             let min_len = try!(r.read_u32::<LittleEndian>());
             let max_len = try!(r.read_u32::<LittleEndian>());

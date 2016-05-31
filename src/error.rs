@@ -28,11 +28,16 @@ pub struct ReadError {
 }
 impl ReadError {
     /// Create a "read" error with read position
+    /// 
+    /// `pos`: the start of the text to display (length is determined
+    /// automatically from `offset`, rounded up to eight-byte blocks).
+    /// 
+    /// `offset`: the region of the displayed text to highlight.
     pub fn new(msg: &'static str, pos: usize, offset: (usize, usize)) -> ReadError {
         let (o0, o1) = offset;
         ReadError { msg: msg, pos: pos, off_start: o0, off_end: o1 }
     }
-    /// New instance, wrapped with `Err`
+    /// New instance, wrapped with `Err` (see `new()`).
     pub fn err<T>(msg: &'static str, pos: usize, offset: (usize, usize)) -> Result<T> {
         Err(box ReadError::new(msg, pos, offset))
     }

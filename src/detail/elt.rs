@@ -11,7 +11,7 @@ use std::str::from_utf8;
 // use vec_map::VecMap;
 
 use Sum;
-use error::{Result};
+use error::{Result, OtherError};
 
 
 /// A classification / partition number
@@ -41,9 +41,9 @@ impl PartId {
         self.id >> 24
     }
     /// Reconstructs from a value returned by `into()` (see `Into<u64>` impl).
-    pub fn try_from(id: u64) -> Option<PartId> {
-        if id == 0 || (id & 0xFF_FFFF) != 0 { return None; }
-        Some(PartId { id: id })
+    pub fn try_from(id: u64) -> Result<PartId, OtherError> {
+        if id == 0 || (id & 0xFF_FFFF) != 0 { return Err(OtherError::new("invalid part id")); }
+        Ok(PartId { id: id })
     }
     /// Create from a partition identifier plus a number. The number `n` must
     /// be no more than `EltId::max()`.

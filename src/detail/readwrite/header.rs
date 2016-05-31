@@ -189,11 +189,7 @@ pub fn read_head(r: &mut Read) -> Result<FileHeader> {
                 return ReadError::err("repeat of PARTID", pos, (off, off+7));
             }
             let id = try!((&block[7..15]).read_u64::<BigEndian>());
-            if let Some(p_id) = PartId::try_from(id) {
-                part_id = Some(p_id);
-            } else {
-                return ReadError::err("invalid partition number", pos, (off+7, off+15));
-            };
+            part_id = Some(try!(PartId::try_from(id)));
         } else if block[0] == b'R' {
             user_fields.push(UserData::Text(try!(String::from_utf8(rtrim(&block[1..], 0).to_vec()))));
         } else if block[0] == b'U' {
