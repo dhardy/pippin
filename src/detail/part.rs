@@ -36,6 +36,24 @@ pub trait PartIO {
     /// Return the partition identifier.
     fn part_id(&self) -> PartId;
     
+    /// Defines our snapshot policy: this should return true when a new
+    /// snapshot is required. Parameters: `commits` is the number of commits
+    /// since the last snapshot and `edits` is the number of element changes
+    /// counted since the last snapshot (the true number of edits may be
+    /// slightly higher).
+    /// 
+    /// In unusual cases, the partition is marked as "definitely needing a
+    /// snapshot". This is done by setting commits to a large number
+    /// (between 0x10_0000 and 0x100_0000).
+    /// 
+    /// The default implementation is
+    /// ```rust
+    /// commits * 5 + edits > 150
+    /// ```
+    fn want_snapshot(&self, commits: usize, edits: usize) -> bool {
+        commits * 5 + edits > 150
+    }
+    
     /// Return one greater than the snapshot number of the latest snapshot file
     /// or log file found.
     /// 
@@ -183,33 +201,6 @@ impl PartIO for DummyPartIO {
     }
 }
 
-/// Determines when to write a new snapshot automatically.
-struct SnapshotPolicy {
-    commits: usize,
-    edits: usize,
-}
-impl SnapshotPolicy {
-    /// Create a new instance. Assume we have a fresh snapshot.
-    fn new() -> SnapshotPolicy { SnapshotPolicy {
-            commits: 0,
-            edits: 0
-        }
-    }
-    /// Report that we definitely need a new snapshot
-    fn require(&mut self) { self.commits = 1000; }
-    /// Report `n_commits` commits since last event.
-    fn add_commits(&mut self, n_commits: usize) { self.commits += n_commits; }
-    /// Report `n_edits` edits since last event.
-    fn add_edits(&mut self, n_edits: usize) { self.edits += n_edits; }
-    /// Report that we have a fresh snapshot
-    fn reset(&mut self) {
-        self.commits = 0;
-        self.edits = 0;
-    }
-    /// Return true when we should write a snapshot
-    fn snapshot(&self) -> bool { self.commits * 5 + self.edits > 150 }
-}
-
 /// A *partition* is a sub-set of the entire set such that (a) each element is
 /// in exactly one partition, (b) a partition is small enough to be loaded into
 /// memory in its entirety, (c) there is some user control over the number of
@@ -238,7 +229,8 @@ pub struct Partition<E: ElementT> {
     // Number of latest snapshot file loaded + 1; 0 if nothing loaded and never less than ss0
     ss1: usize,
     // Determines when to write new snapshots
-    ss_policy: SnapshotPolicy,
+    ss_commits: usize,
+    ss_edits: usize,
     // Known committed states indexed by statesum 
     states: HashIndexed<PartState<E>, Sum, PartStateSumComparator>,
     // All states not in `states` which are known to be superceded
@@ -293,7 +285,8 @@ impl<E: ElementT> Partition<E> {
             part_id: part_id,
             ss0: ss,
             ss1: ss + 1,
-            ss_policy: SnapshotPolicy::new(),
+            ss_commits: 0,
+            ss_edits: 0,
             states: HashIndexed::new(),
             parents: HashSet::new(),
             tips: HashSet::new(),
@@ -335,7 +328,8 @@ impl<E: ElementT> Partition<E> {
             part_id: part_id,
             ss0: 0,
             ss1: 0,
-            ss_policy: SnapshotPolicy::new(),
+            ss_commits: 0,
+            ss_edits: 0,
             states: HashIndexed::new(),
             parents: HashSet::new(),
             tips: HashSet::new(),
@@ -462,7 +456,11 @@ impl<E: ElementT> Partition<E> {
                 }
                 self.states.insert(state);
                 require_ss = false;
-                if at_tip { self.ss_policy.reset(); }
+                if at_tip {
+                    // reset snapshot policy
+                    self.ss_commits = 0;
+                    self.ss_edits = 0;
+                }
             } else {
                 // Missing snapshot; if at head require a new one
                 require_ss = at_tip;
@@ -496,7 +494,8 @@ impl<E: ElementT> Partition<E> {
         assert!(self.ss0 <= ss1 && ss1 <= self.ss1);
         
         if require_ss {
-            self.ss_policy.require();
+            // require a snapshot
+            self.ss_commits = 0x10_0000;
         }
         Ok(())
     }
@@ -847,7 +846,7 @@ impl<E: ElementT> Partition<E> {
         
         // Second step: maintenance operations
         if !fast {
-            if self.is_ready() && self.ss_policy.snapshot() {
+            if self.is_ready() && self.io.want_snapshot(self.ss_commits, self.ss_edits) {
                 try!(self.write_snapshot(user));
             }
         }
@@ -884,7 +883,9 @@ impl<E: ElementT> Partition<E> {
                 try!(write_head(&header, &mut writer));
                 try!(write_snapshot(self.states.get(&tip_key).unwrap(), &mut writer));
                 self.ss1 = ss_num + 1;
-                self.ss_policy.reset();
+                // reset snapshot policy:
+                self.ss_commits = 0;
+                self.ss_edits = 0;
                 return Ok(())
             } else {
                 // Snapshot file already exists! So try another number.
@@ -977,8 +978,8 @@ impl<E: ElementT> Partition<E> {
         // We know from above 'state' is not in 'self.states'; if it's not in
         // 'self.parents' either then it must be a tip:
         if !self.parents.contains(state.statesum()) {
-            self.ss_policy.add_commits(1);
-            self.ss_policy.add_edits(n_edits);
+            self.ss_commits += 1;
+            self.ss_edits += n_edits;
             self.tips.insert(state.statesum().clone());
         }
         self.states.insert(state);
