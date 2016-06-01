@@ -18,10 +18,28 @@ pub use std::error::Error as ErrorTrait;
 
 
 // —————  ReadError  —————
+
+/// This is a variant of the core `try!(...)` macro which adds position data
+/// in a stream to the error, on failure. Return type is Result<_, ReadError>.
+#[macro_export]
+macro_rules! try_read {
+    ($expr:expr, $pos:expr, $offset:expr) => (match $expr {
+        Ok(val) => val,
+        Err(err) => {{
+            return Err(ReadError::new_wrap(err.into(), $pos, $offset));
+        }}
+    })
+}
+
+#[derive(Debug)]
+enum Wrapped {
+    Msg(&'static str),
+    ErrT(Error),
+}
 /// For read errors; adds a read position
-#[derive(PartialEq, Debug)]
+#[derive(Debug)]
 pub struct ReadError {
-    msg: &'static str,
+    detail: Wrapped,
     pos: usize,
     off_start: usize,
     off_end: usize,
@@ -35,11 +53,16 @@ impl ReadError {
     /// `offset`: the region of the displayed text to highlight.
     pub fn new(msg: &'static str, pos: usize, offset: (usize, usize)) -> ReadError {
         let (o0, o1) = offset;
-        ReadError { msg: msg, pos: pos, off_start: o0, off_end: o1 }
+        ReadError { detail: Wrapped::Msg(msg), pos: pos, off_start: o0, off_end: o1 }
     }
     /// New instance, wrapped with `Err` (see `new()`).
     pub fn err<T>(msg: &'static str, pos: usize, offset: (usize, usize)) -> Result<T> {
         Err(box ReadError::new(msg, pos, offset))
+    }
+    /// Create a "read" error wrapping another error
+    pub fn new_wrap(e: Error, pos: usize, offset: (usize, usize)) -> ReadError {
+        let (o0, o1) = offset;
+        ReadError { detail: Wrapped::ErrT(e), pos: pos, off_start: o0, off_end: o1 }
     }
     /// Return an object which can be used in format expressions.
     /// 
@@ -49,12 +72,21 @@ impl ReadError {
     }
 }
 impl ErrorTrait for ReadError {
-    fn description(&self) -> &str { self.msg }
+    fn description(&self) -> &str {
+        match self.detail {
+            Wrapped::Msg(msg) => msg,
+            Wrapped::ErrT(ref e) => e.description(),
+        }
+    }
 }
 impl fmt::Display for ReadError {
     fn fmt(&self, f: &mut fmt::Formatter) -> result::Result<(), fmt::Error> {
-        write!(f, "read error at position {}, offset ({}, {}): {}", 
-                self.pos, self.off_start, self.off_end, self.msg)
+        try!(write!(f, "read error at position {}, offset ({}, {}): ", 
+                self.pos, self.off_start, self.off_end));
+        match &self.detail {
+            &Wrapped::Msg(ref msg) => write!(f, "{}", msg),
+            &Wrapped::ErrT(ref e) => e.fmt(f),
+        }
     }
 }
 /// Type used to format an error message
@@ -67,8 +99,12 @@ impl<'a> fmt::Display for ReadErrorFormatter<'a> {
         const SPACE: &'static str = "                        ";
         const MARK: &'static str = "^^^^^^^^^^^^^^^^^^^^^^^^";
         
-        try!(writeln!(f, "read error (pos {}, offset ({}, {})): {}", self.err.pos,
-            self.err.off_start, self.err.off_end, self.err.msg));
+        try!(write!(f, "read error (pos {}, offset ({}, {})): ", self.err.pos,
+            self.err.off_start, self.err.off_end));
+        try!(match &self.err.detail {
+            &Wrapped::Msg(ref msg) => write!(f, "{}", msg),
+            &Wrapped::ErrT(ref e) => e.fmt(f),
+        });
         let start = self.err.pos + 8 * (self.err.off_start / 8);
         let end = self.err.pos + 8 * ((self.err.off_end + 7) / 8);
         for line_start in (start..end).step_by(8) {

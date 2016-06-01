@@ -5,6 +5,7 @@
 extern crate byteorder;
 extern crate rustc_serialize;
 extern crate docopt;
+#[macro_use(try_read)]
 extern crate pippin;
 extern crate rand;
 #[macro_use]
@@ -123,19 +124,19 @@ impl<IO: RepoIO> SeqRepo<IO> {
         classes.sort_by(|a, b| a.0.cmp(&b.0));
         self.csf.classes = classes;
     }
-    fn read_ud(v: &Vec<u8>) -> Result<(PartId, PartInfo)> {
+    fn read_ud(v: &Vec<u8>) -> Result<(PartId, PartInfo), ReadError> {
         if v.len() != 32 {
-            return ReadError::err("incorrect length", 0, (0, v.len()));
+            return Err(ReadError::new("incorrect length", 0, (0, v.len())));
         }
         if v[0..4] != *b"SCPI" {
-            return ReadError::err("unknown data (expected SCPI)", 0, (0, 4));
+            return Err(ReadError::new("unknown data (expected SCPI)", 0, (0, 4)));
         }
         let mut r = &mut &v[4..];
-        let ver = try!(r.read_u32::<LittleEndian>());
-        let min_len = try!(r.read_u32::<LittleEndian>());
-        let max_len = try!(r.read_u32::<LittleEndian>());
-        let id = try!(PartId::try_from(try!(r.read_u64::<LittleEndian>())));
-        let max_id = try!(PartId::try_from(try!(r.read_u64::<LittleEndian>())));
+        let ver = try_read!(r.read_u32::<LittleEndian>(), 4, (0, 4));
+        let min_len = try_read!(r.read_u32::<LittleEndian>(), 8, (0, 4));
+        let max_len = try_read!(r.read_u32::<LittleEndian>(), 12, (0, 4));
+        let id = try_read!(PartId::try_from(try_read!(r.read_u64::<LittleEndian>(), 16, (0, 8))), 16, (0, 8));
+        let max_id = try_read!(PartId::try_from(try_read!(r.read_u64::<LittleEndian>(), 24, (0, 8))), 24, (0, 8));
         let pi = PartInfo {
             max_part_id: max_id,
             ver: ver,
@@ -170,7 +171,7 @@ impl<IO: RepoIO> UserFields for SeqRepo<IO> {
                     match Self::read_ud(&v) {
                         Ok(result) => result,
                         Err(e) => {
-                            warn!("Error parsing user data: {}", e.description());
+                            warn!("Error parsing user data: {}", e.display(&v));
                             continue;
                         },
                     }
