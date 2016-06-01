@@ -5,8 +5,7 @@
 //! Pippin utility functions
 
 use std::cmp;
-use std::fmt;
-use std::fmt::Write;
+use std::fmt::{self, Write};
 
 /// "trim" applied to generic arrays: while the last byte is pat, remove it.
 ///  
@@ -52,6 +51,36 @@ impl<'a> fmt::Display for ByteFormatter<'a> {
                 try!(write!(f, "\\x{:02x}", b));
             }
         }
+        Ok(())
+    }
+}
+
+/// Utility struct to write a byte array in hex.
+pub struct HexFormatter<'a> {
+    bytes: &'a [u8],
+}
+impl<'a> HexFormatter<'a> {
+    /// Construct, passing bytes to display as a line. Line length is
+    /// determined by the length of this slice.
+    pub fn line(bytes: &'a [u8]) -> HexFormatter<'a> {
+        HexFormatter { bytes: bytes }
+    }
+}
+impl <'a> fmt::Display for HexFormatter<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        const HEX: &'static str = "0123456789ABCDEF";
+        let line = self.bytes;
+        for i in 0..line.len() {
+            let (high,low) = (line[i] as usize / 16, line[i] as usize & 0xF);
+            try!(write!(f, "{}{} ", &HEX[high..(high+1)], &HEX[low..(low+1)]));
+        }
+        let mut v: Vec<u8> = Vec::from(line);
+        for i in 0..v.len() {
+            let c = v[i];
+            // replace spaces, tabs and undisplayable characters:
+            if c <= 0x32 || c == 0x7F { v[i] = b'.'; }
+        }
+        try!(writeln!(f, "{}", String::from_utf8_lossy(&v)));
         Ok(())
     }
 }

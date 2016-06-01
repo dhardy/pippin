@@ -8,6 +8,8 @@ use std::{io, fmt, result};
 use std::path::PathBuf;
 use std::cmp::{min, max};
 
+use util::HexFormatter;
+
 /// Our custom result type
 pub type Result<T, E = Error> = result::Result<T, E>;
 
@@ -112,7 +114,7 @@ impl<'a> fmt::Display for ReadErrorFormatter<'a> {
                 try!(writeln!(f, "insufficient data to display!"));
                 break;
             }
-            try!(write_hex_line(&self.data[line_start..line_start+8], f));
+            try!(HexFormatter::line(&self.data[line_start..line_start+8]).fmt(f));
             let p0 = max(self.err.pos + self.err.off_start, line_start) - line_start;
             let p1 = min(self.err.pos + self.err.off_end, line_start + 8) - line_start;
             assert!(p0 <= p1 && p1 <= 8);
@@ -121,25 +123,6 @@ impl<'a> fmt::Display for ReadErrorFormatter<'a> {
         }
         Ok(())
     }
-}
-// Utility function: dump a line as hex
-// 
-// Line length is determined by the slice passed.
-fn write_hex_line(line: &[u8], f: &mut fmt::Formatter) -> result::Result<(), fmt::Error> {
-    const HEX: &'static str = "0123456789ABCDEF";
-    
-    for i in 0..line.len() {
-        let (high,low) = (line[i] as usize / 16, line[i] as usize & 0xF);
-        try!(write!(f, "{}{} ", &HEX[high..(high+1)], &HEX[low..(low+1)]));
-    }
-    let mut v: Vec<u8> = Vec::from(line);
-    for i in 0..v.len() {
-        let c = v[i];
-        // replace spaces, tabs and undisplayable characters:
-        if c <= 0x32 || c == 0x7F { v[i] = b'.'; }
-    }
-    try!(writeln!(f, "{}", String::from_utf8_lossy(&v)));
-    Ok(())
 }
 
 

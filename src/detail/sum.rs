@@ -58,7 +58,7 @@ impl Sum {
 //         let mut buf = [0u8; 32];
 //         s1.store(&mut buf, 0);
 //         s2.store(&mut buf, 16);
-        try!(w.write(&self.s));
+        try!(w.write_all(&self.s));
         Ok(())
     }
     

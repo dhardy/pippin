@@ -9,7 +9,7 @@ use std::io::{Read, Write, Result};
 use crypto::digest::Digest;
 // use crypto::sha2::Sha256;
 use crypto::blake2b::Blake2b;
-use byteorder::{BigEndian, WriteBytesExt};
+use byteorder::{ByteOrder, BigEndian};
 
 use {EltId, PartId, CommitMeta};
 use detail::Sum;
@@ -29,8 +29,7 @@ impl Sum {
     pub fn elt_sum(elt_id: EltId, data: &[u8]) -> Sum {
         let mut hasher = mk_hasher();
         let mut buf = [0u8; 8];
-        ((&mut &mut buf[..]) as &mut Write)
-                .write_u64::<BigEndian>(elt_id.into()).expect("writing to buf");
+        BigEndian::write_u64(&mut buf, elt_id.into());
         hasher.input(&buf);
         hasher.input(&data);
         Sum::load_hasher(hasher)
@@ -38,17 +37,16 @@ impl Sum {
     /// Calculate a partition's meta-data sum
     pub fn state_meta_sum(part_id: PartId, parents: &[Sum], meta: &CommitMeta) -> Sum {
         let mut hasher = mk_hasher();
-        // #0018: want to use max(BYTES, 24) here
-        assert!(BYTES >= 24);   // double use of buf below
-        let mut buf = [0u8; BYTES];
-        // #0018: want a try block here
-        {
-            let mut w = (&mut &mut buf[..]) as &mut Write;
-            w.write_u64::<BigEndian>(part_id.into()).expect("writing to buf");
-            w.write(b"CNUM").expect("writing to buf");
-            w.write_u32::<BigEndian>(meta.number).expect("writing to buf");
-            w.write_i64::<BigEndian>(meta.timestamp).expect("writing to buf");
+        let mut buf = Vec::from("PpppPpppCNUMNnnnTtttTttt");
+        if BYTES > buf.len() {
+            // for second use of buf below
+            buf.resize(BYTES, 0);
         }
+        BigEndian::write_u64(&mut buf[0..8], part_id.into());
+        assert!(buf[8..12] == *b"CNUM");
+        BigEndian::write_u32(&mut buf[12..16], meta.number);
+        BigEndian::write_i64(&mut buf[16..24], meta.timestamp);
+        
         hasher.input(&buf[0..24]);
         for parent in parents {
             parent.write((&mut &mut buf[..])).expect("writing to buf");
@@ -140,9 +138,9 @@ impl<W: Write> HashWriter<W> {
         Sum::load(&buf)
     }
     
-    /// Get the inner reader
+    /// Get the inner writer
     pub fn inner(&mut self) -> &mut W { &mut self.inner }
-    /// Consume self and return the inner reader
+    /// Consume self and return the inner writer
     pub fn into_inner(self) -> W { self.inner }
 }
 
