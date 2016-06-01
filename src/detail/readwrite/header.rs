@@ -8,7 +8,7 @@ use std::io::{Read, Write, ErrorKind};
 use std::cmp::min;
 use std::result::Result as stdResult;
 
-use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
+use byteorder::{ByteOrder, BigEndian, WriteBytesExt};
 
 use PartId;
 use detail::readwrite::{sum};
@@ -188,7 +188,7 @@ pub fn read_head(r: &mut Read) -> Result<FileHeader> {
             if part_id != None {
                 return ReadError::err("repeat of PARTID", pos, (off, off+7));
             }
-            let id = try!((&block[7..15]).read_u64::<BigEndian>());
+            let id = BigEndian::read_u64(&block[7..15]);
             part_id = Some(try!(PartId::try_from(id)));
         } else if block[0] == b'R' {
             user_fields.push(UserData::Text(try!(String::from_utf8(rtrim(&block[1..], 0).to_vec()))));

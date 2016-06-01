@@ -9,7 +9,7 @@ use std::rc::Rc;
 use std::{u8, u32};
 use std::collections::hash_map::{HashMap, Entry};
 
-use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
+use byteorder::{ByteOrder, BigEndian, WriteBytesExt};
 
 use detail::readwrite::{sum};
 use {PartState, State};
@@ -42,20 +42,20 @@ pub fn read_snapshot<T: ElementT>(reader: &mut Read, part_id: PartId,
         return ReadError::err("unexpected contents (expected SNAPSH_U where _ is any)", pos, (0, 8));
     }
     let num_parents = buf[6] as usize;
-    let secs = try!((&buf[8..16]).read_i64::<BigEndian>());
+    let secs = BigEndian::read_i64(&buf[8..16]);
     pos += 16;
     
     try!(r.read_exact(&mut buf[0..16]));
     if buf[0..4] != *b"CNUM" {
         return ReadError::err("unexpected contents (expected CNUM)", pos, (0, 4));
     }
-    let cnum = try!((&buf[4..8]).read_u32::<BigEndian>());
+    let cnum = BigEndian::read_u32(&buf[4..8]);
     
     if buf[8..10] != *b"XM" {
         return ReadError::err("unexpected contents (expected XM)", pos, (8, 10));
     }
     let xm_type_txt = buf[10..12] == *b"TT";
-    let xm_len = try!((&buf[12..16]).read_u32::<BigEndian>()) as usize;
+    let xm_len = BigEndian::read_u32(&buf[12..16]) as usize;
     pos += 16;
     
     let mut xm_data = vec![0; xm_len];
@@ -91,7 +91,7 @@ pub fn read_snapshot<T: ElementT>(reader: &mut Read, part_id: PartId,
     if buf[0..8] != *b"ELEMENTS" {
         return ReadError::err("unexpected contents (expected ELEMENTS)", pos, (0, 8));
     }
-    let num_elts = try!((&buf[8..16]).read_u64::<BigEndian>()) as usize;    // #0015
+    let num_elts = BigEndian::read_u64(&buf[8..16]) as usize;    // #0015
     pos += 16;
     
     let mut elts = HashMap::new();
@@ -102,13 +102,13 @@ pub fn read_snapshot<T: ElementT>(reader: &mut Read, part_id: PartId,
             println!("buf: \"{}\", {:?}", String::from_utf8_lossy(&buf[0..8]), &buf[0..8]);
             return ReadError::err("unexpected contents (expected ELEMENT\\x00)", pos, (0, 8));
         }
-        let ident = try!((&buf[8..16]).read_u64::<BigEndian>()).into();
+        let ident = BigEndian::read_u64(&buf[8..16]).into();
         pos += 16;
         
         if buf[16..24] != *b"BYTES\x00\x00\x00" {
             return ReadError::err("unexpected contents (expected BYTES\\x00\\x00\\x00)", pos, (16, 24));
         }
-        let data_len = try!((&buf[24..32]).read_u64::<BigEndian>()) as usize;   // #0015
+        let data_len = BigEndian::read_u64(&buf[24..32]) as usize;   // #0015
         pos += 16;
         
         let mut data = vec![0; data_len];
@@ -141,11 +141,11 @@ pub fn read_snapshot<T: ElementT>(reader: &mut Read, part_id: PartId,
     let mut moves = HashMap::new();
     try!(r.read_exact(&mut buf[0..16]));
     if buf[0..8] == *b"ELTMOVES" /*versions from 20160201, optional*/ {
-        let n_moves = try!((&buf[8..16]).read_u64::<BigEndian>()) as usize;    // #0015
+        let n_moves = BigEndian::read_u64(&buf[8..16]) as usize;    // #0015
         for _ in 0..n_moves {
             try!(r.read_exact(&mut buf[0..16]));
-            let id0 = try!((&buf[0..8]).read_u64::<BigEndian>()).into();
-            let id1 = try!((&buf[8..16]).read_u64::<BigEndian>()).into();
+            let id0 = BigEndian::read_u64(&buf[0..8]).into();
+            let id1 = BigEndian::read_u64(&buf[8..16]).into();
             moves.insert(id0, id1);
         }
         // re-fill buffer for next section:
@@ -159,7 +159,7 @@ pub fn read_snapshot<T: ElementT>(reader: &mut Read, part_id: PartId,
         return ReadError::err("unexpected contents (expected STATESUM or ELTMOVES)", pos, (0, 8));
     }
     pos += 8;
-    if (try!((&buf[8..16]).read_u64::<BigEndian>()) as usize) != num_elts {
+    if (BigEndian::read_u64(&buf[8..16]) as usize) != num_elts {
         return ReadError::err("unexpected contents (number of elements \
             differs from that previously stated)", pos, (8, 16));
     }

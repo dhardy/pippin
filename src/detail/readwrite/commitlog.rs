@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 use std::u32;
 
-use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
+use byteorder::{ByteOrder, BigEndian, WriteBytesExt};
 
 use detail::readwrite::{sum};
 use detail::{Commit, EltChange, CommitMeta};
@@ -62,20 +62,20 @@ pub fn read_log<E: ElementT>(reader_: &mut Read, receiver: &mut CommitReceiver<E
         if buf[6..8] != *b"\x00U" {
             return ReadError::err("unexpected contents (expected \\x00U)", pos, (6, 8));
         }
-        let secs = try!((&buf[8..16]).read_i64::<BigEndian>());
+        let secs = BigEndian::read_i64(&buf[8..16]);
         pos += 16;
         
         try!(r.read_exact(&mut buf[0..16]));
         if buf[0..4] != *b"CNUM" {
             return ReadError::err("unexpected contents (expected CNUM)", pos, (0, 4));
         }
-        let cnum = try!((&buf[4..8]).read_u32::<BigEndian>());
+        let cnum = BigEndian::read_u32(&buf[4..8]);
         
         if buf[8..10] != *b"XM" {
             return ReadError::err("unexpected contents (expected XM)", pos, (8, 10));
         }
         let xm_type_txt = buf[10..12] == *b"TT";
-        let xm_len = try!((&buf[12..16]).read_u32::<BigEndian>()) as usize;
+        let xm_len = BigEndian::read_u32(&buf[12..16]) as usize;
         pos += 16;
         
         let mut xm_data = vec![0; xm_len];
@@ -112,7 +112,7 @@ pub fn read_log<E: ElementT>(reader_: &mut Read, receiver: &mut CommitReceiver<E
         if buf[0..8] != *b"ELEMENTS" {
             return ReadError::err("unexpected contents (expected ELEMENTS)", pos, (0, 8));
         }
-        let num_elts = try!((&buf[8..16]).read_u64::<BigEndian>()) as usize;   // #0015
+        let num_elts = BigEndian::read_u64(&buf[8..16]) as usize;   // #0015
         pos += 16;
         
         let mut changes = HashMap::new();
@@ -122,7 +122,7 @@ pub fn read_log<E: ElementT>(reader_: &mut Read, receiver: &mut CommitReceiver<E
             if buf[0..4] != *b"ELT " {
                 return ReadError::err("unexpected contents (expected ELT\\x20)", pos, (0, 4));
             }
-            let elt_id = try!((&buf[8..16]).read_u64::<BigEndian>()).into();
+            let elt_id = BigEndian::read_u64(&buf[8..16]).into();
             let change_t = match &buf[4..8] {
                 b"DEL\x00" => { Change::Delete },
                 b"INS\x00" => { Change::Insert },
@@ -143,7 +143,7 @@ pub fn read_log<E: ElementT>(reader_: &mut Read, receiver: &mut CommitReceiver<E
                     if buf[0..8] != *b"ELT DATA" {
                         return ReadError::err("unexpected contents (expected ELT DATA)", pos, (0, 8));
                     }
-                    let data_len = try!((&buf[8..16]).read_u64::<BigEndian>()) as usize;   // #0015
+                    let data_len = BigEndian::read_u64(&buf[8..16]) as usize;   // #0015
                     pos += 16;
                     
                     let mut data = vec![0; data_len];
@@ -175,7 +175,7 @@ pub fn read_log<E: ElementT>(reader_: &mut Read, receiver: &mut CommitReceiver<E
                     if buf[0..8] != *b"NEW ELT\x00" {
                         return ReadError::err("unexpected contents (expected NEW ELT)", pos, (0, 8));
                     }
-                    let new_id = try!((&buf[8..16]).read_u64::<BigEndian>()).into();
+                    let new_id = BigEndian::read_u64(&buf[8..16]).into();
                     EltChange::moved(new_id, change_t == Change::MovedOut)
                 }
             };

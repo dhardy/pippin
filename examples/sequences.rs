@@ -19,7 +19,7 @@ use std::cmp::min;
 use std::u32;
 use std::collections::hash_map::{HashMap, Entry};
 
-use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
+use byteorder::{ByteOrder, LittleEndian, ReadBytesExt, WriteBytesExt};
 use docopt::Docopt;
 use rand::Rng;
 use rand::distributions::{IndependentSample, Range, Normal, LogNormal};
@@ -131,12 +131,11 @@ impl<IO: RepoIO> SeqRepo<IO> {
         if v[0..4] != *b"SCPI" {
             return Err(ReadError::new("unknown data (expected SCPI)", 0, (0, 4)));
         }
-        let mut r = &mut &v[4..];
-        let ver = try_read!(r.read_u32::<LittleEndian>(), 4, (0, 4));
-        let min_len = try_read!(r.read_u32::<LittleEndian>(), 8, (0, 4));
-        let max_len = try_read!(r.read_u32::<LittleEndian>(), 12, (0, 4));
-        let id = try_read!(PartId::try_from(try_read!(r.read_u64::<LittleEndian>(), 16, (0, 8))), 16, (0, 8));
-        let max_id = try_read!(PartId::try_from(try_read!(r.read_u64::<LittleEndian>(), 24, (0, 8))), 24, (0, 8));
+        let ver = LittleEndian::read_u32(&v[4..8]);
+        let min_len = LittleEndian::read_u32(&v[8..12]);
+        let max_len = LittleEndian::read_u32(&v[12..16]);
+        let id = try_read!(PartId::try_from(LittleEndian::read_u64(&v[16..24])), 16, (0, 8));
+        let max_id = try_read!(PartId::try_from(LittleEndian::read_u64(&v[24..32])), 24, (0, 8));
         let pi = PartInfo {
             max_part_id: max_id,
             ver: ver,
@@ -306,7 +305,7 @@ impl<IO: RepoIO> RepoT<SeqClassifier> for SeqRepo<IO> {
         if buf[0..8] != *b"SeqCSF01" {
             return OtherError::err("Invalid format identifier for classifier's read_buf()");
         }
-        let n_parts = try!((&mut &buf[8..12]).read_u32::<LittleEndian>()) as usize;
+        let n_parts = LittleEndian::read_u32(&buf[8..12]) as usize;
         if buf.len() != 12 + (8*2 + 4*3) * n_parts {
             return OtherError::err("Wrong data length for classifier's read_buf()");
         }
