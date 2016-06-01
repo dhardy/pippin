@@ -150,15 +150,11 @@ impl<IO: RepoIO> UserFields for SeqRepo<IO> {
         let mut ud = Vec::with_capacity(self.parts.len());
         for (id,pi) in &self.parts {
             let mut buf = Vec::from(&b"SCPI...8..12..16..20..24..28..32"[..]);
-            {
-                let mut w = &mut buf[4..];
-                // We use `unwrap()` to handle errors. Failures should be coding errors.
-                w.write_u32::<LittleEndian>(pi.ver).unwrap();
-                w.write_u32::<LittleEndian>(pi.min_len).unwrap();
-                w.write_u32::<LittleEndian>(pi.max_len).unwrap();
-                w.write_u64::<LittleEndian>((*id).into()).unwrap();
-                w.write_u64::<LittleEndian>(pi.max_part_id.into()).unwrap();
-            }
+            LittleEndian::write_u32(&mut buf[4..], pi.ver);
+            LittleEndian::write_u32(&mut buf[8..], pi.min_len);
+            LittleEndian::write_u32(&mut buf[12..], pi.max_len);
+            LittleEndian::write_u64(&mut buf[16..], (*id).into());
+            LittleEndian::write_u64(&mut buf[24..], pi.max_part_id.into());
             ud.push(UserData::Data(buf));
         }
         ud
