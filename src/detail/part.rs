@@ -411,7 +411,7 @@ impl<E: ElementT> Partition<E> {
         
         // Input arguments may be greater than the available snapshot numbers. Clamp:
         let ss_len = self.io.ss_len();
-        let mut ss0 = min(ss0, ss_len - 1);
+        let mut ss0 = min(ss0, if ss_len > 0 { ss_len - 1 } else { ss_len });
         let mut ss1 = min(ss1, ss_len);
         // If data is already loaded, we must load snapshots between it and the new range too:
         if self.ss1 > self.ss0 {
