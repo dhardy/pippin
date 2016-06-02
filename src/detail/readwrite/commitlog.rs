@@ -27,8 +27,9 @@ pub trait CommitReceiver<E: ElementT> {
 }
 
 /// Read a commit log from a stream
-pub fn read_log<E: ElementT>(reader_: &mut Read, receiver: &mut CommitReceiver<E>) -> Result<()> {
-    let mut reader = reader_;
+pub fn read_log<E: ElementT>(mut reader: &mut Read,
+        receiver: &mut CommitReceiver<E>) -> Result<()>
+{
     let mut pos: usize = 0;
     let mut buf = vec![0; 32];
     

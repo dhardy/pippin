@@ -114,14 +114,14 @@ pub fn validate_repo_name(name: &str) -> stdResult<(), ArgError> {
 }
 
 /// Read a file header.
-pub fn read_head(r: &mut Read) -> Result<FileHeader> {
+pub fn read_head(reader: &mut Read) -> Result<FileHeader> {
     // A reader which also calculates a checksum:
-    let mut sum_reader = sum::HashReader::new(r);
+    let mut r = sum::HashReader::new(reader);
     
     let mut pos: usize = 0;
     let mut buf = vec![0; 32];
     
-    try!(sum_reader.read_exact(&mut buf[0..16]));
+    try!(r.read_exact(&mut buf[0..16]));
     let head_version = read_head_version(&buf[8..16]);
     if !HEAD_VERSIONS.contains(&head_version) {
         return ReadError::err("Pippin file of incompatible version", pos, (0, 16));
@@ -135,7 +135,7 @@ pub fn read_head(r: &mut Read) -> Result<FileHeader> {
     };
     pos += 16;
     
-    try!(sum_reader.read_exact(&mut buf[0..16]));
+    try!(r.read_exact(&mut buf[0..16]));
     let repo_name = match String::from_utf8(rtrim(&buf, 0).to_vec()) {
         Ok(name) => name,
         Err(_) => return ReadError::err("repo name not valid UTF-8", pos, (0, 16))
@@ -145,7 +145,7 @@ pub fn read_head(r: &mut Read) -> Result<FileHeader> {
     let mut part_id = None;
     let mut user_fields = Vec::new();
     loop {
-        try!(sum_reader.read_exact(&mut buf[0..16]));
+        try!(r.read_exact(&mut buf[0..16]));
         let (block, off): (&[u8], usize) = if buf[0] == b'H' {
             pos += 1;
             (&buf[1..16], 1)
@@ -157,7 +157,7 @@ pub fn read_head(r: &mut Read) -> Result<FileHeader> {
             } as usize;
             let len = x * 16;
             if buf.len() < len { buf.resize(len, 0); }
-            try!(sum_reader.read_exact(&mut buf[16..len]));
+            try!(r.read_exact(&mut buf[16..len]));
             pos += 2;
             (&buf[2..len], 2)
         } else if buf[0] == b'B' {
@@ -166,7 +166,7 @@ pub fn read_head(r: &mut Read) -> Result<FileHeader> {
                            +  (buf[3] as usize);
             let padded = ((len + 15) / 16) * 16; // round up
             if buf.len() < padded { buf.resize(padded, 0); }
-            try!(sum_reader.read_exact(&mut buf[16..padded]));
+            try!(r.read_exact(&mut buf[16..padded]));
             pos += 4;
             (&buf[4..len], 4)
         } else {
@@ -209,8 +209,8 @@ pub fn read_head(r: &mut Read) -> Result<FileHeader> {
     }
     
     // Read checksum:
-    let sum = sum_reader.sum();
-    let mut r = sum_reader.into_inner();
+    let sum = r.sum();
+    let mut r = r.into_inner();
     try!(r.read_exact(&mut buf[0..SUM_BYTES]));
     if !sum.eq(&buf[0..SUM_BYTES]) {
         return ReadError::err("header checksum invalid", pos, (0, SUM_BYTES));
