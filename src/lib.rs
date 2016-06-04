@@ -94,7 +94,7 @@ pub use repo::{Repository, RepoIO, RepoT, ClassifierT, RepoState};
 pub use part::{Partition, PartIO, UserFields, PartState, MutPartState, State, MutState};
 pub use error::{Result};
 // Export some main/miscellaneous types here:
-pub use detail::{ElementT, PartId, EltId, Sum, Commit, CommitMeta};
+pub use detail::{ElementT, PartId, EltId, Sum, Commit, CommitMeta, MakeMeta};
 pub use detail::readwrite::UserData;
 
 // Export some modules here:

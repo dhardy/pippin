@@ -19,7 +19,7 @@ use detail::readwrite::{FileHeader, UserData, FileType, read_head, write_head, v
 use detail::readwrite::{read_snapshot, write_snapshot};
 use detail::readwrite::{read_log, start_log, write_commit};
 use detail::states::{PartStateSumComparator};
-use detail::{Commit, ExtraMeta, CommitQueue};
+use detail::{Commit, MakeMeta, CommitQueue};
 use merge::{TwoWayMerge, TwoWaySolver};
 use {ElementT, Sum, PartId};
 use error::{Result, TipError, PatchOp, MatchError, MergeError, OtherError, make_io_err};
@@ -658,7 +658,9 @@ impl<E: ElementT> Partition<E> {
     /// 
     /// If `auto_load` is true, additional history will be loaded as necessary
     /// to find a common ancestor.
-    pub fn merge<S: TwoWaySolver<E>>(&mut self, solver: &S, auto_load: bool) -> Result<()> {
+    pub fn merge<S: TwoWaySolver<E>>(&mut self, solver: &S, auto_load: bool,
+        make_meta: Option<&MakeMeta>) -> Result<()>
+    {
         while self.tips.len() > 1 {
             let (tip1, tip2): (Sum, Sum) = {
                 let mut iter = self.tips.iter();
@@ -668,7 +670,7 @@ impl<E: ElementT> Partition<E> {
             };
             trace!("Partition {}: attempting merge of tips {} and {}", self.part_id, &tip1, &tip2);
             let c = try!(self.merge_two(&tip1, &tip2, auto_load))
-                    .solve_inline(solver).make_commit(None);
+                    .solve_inline(solver).make_commit(make_meta);
             if let Some(commit) = c {
                 trace!("Pushing merge commit: {} ({} changes)",
                         commit.statesum(), commit.num_changes());
@@ -765,7 +767,7 @@ impl<E: ElementT> Partition<E> {
     /// Returns `Ok(true)` on success, or `Ok(false)` if the state matches its
     /// parent (i.e. hasn't been changed) or another already known state.
     pub fn push_state(&mut self, state: MutPartState<E>,
-            extra_meta: ExtraMeta) -> Result<bool, PatchOp>
+            make_meta: Option<&MakeMeta>) -> Result<bool, PatchOp>
     {
         let c = {
             let parent = try!(self.states.get(&state.parent()).ok_or(PatchOp::NoParent));
@@ -776,7 +778,7 @@ impl<E: ElementT> Partition<E> {
             } else {
                 // #0019: Commit::from_diff compares old and new states and code be slow.
                 // #0019: Instead, we could record each alteration as it happens.
-                Commit::from_diff(parent, &state, extra_meta)
+                Commit::from_diff(parent, &state, make_meta)
             }
         };
         

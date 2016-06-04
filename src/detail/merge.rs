@@ -33,9 +33,8 @@
 use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::rc::Rc;
-use std::cmp::max;
 
-use detail::{EltId, Commit, CommitMeta, ExtraMeta, EltChange};
+use detail::{EltId, Commit, CommitMeta, MakeMeta, EltChange};
 use {PartState, State};
 use {ElementT, Sum};
 
@@ -150,7 +149,10 @@ impl<'a, E: ElementT> TwoWayMerge<'a, E> {
     /// This succeeds if and only if `is_solved()` returns true.
     /// 
     /// Operation is `O(X)`.
-    pub fn make_commit(self, extra_meta: ExtraMeta) -> Option<Commit<E>> {
+    pub fn make_commit(self,
+            make_meta: Option<&MakeMeta>) ->
+            Option<Commit<E>>
+    {
         // We build change-lists from the perspective of state1 and state2, then
         // pick whichever is smaller.
         let mut c1 = HashMap::new();
@@ -268,12 +270,12 @@ impl<'a, E: ElementT> TwoWayMerge<'a, E> {
             trace!("Created merge from second parent: {}", self.b.statesum());
             (sum2, vec![self.b.statesum().clone(), self.a.statesum().clone()], c2)
         };
-        let meta = CommitMeta {
-                number: max(self.a.meta().next_number(), self.b.meta().next_number()),
-                timestamp: CommitMeta::timestamp_now(),
-                extra: extra_meta
-        };
         let part_id = self.a.part_id(); // all states have same part_id
+        let meta = if let Some(mm) = make_meta {
+            mm(part_id, vec![&self.a.meta(), &self.b.meta()])
+        } else {
+            CommitMeta::make_default(vec![&self.a.meta(), &self.b.meta()], None)
+        };
         let statesum = &sum ^ &Sum::state_meta_sum(part_id, &parents, &meta);
         Some(Commit::new_explicit(statesum, parents, changes, meta))
     }

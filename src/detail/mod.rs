@@ -6,7 +6,7 @@
 
 pub use self::elt::{PartId, EltId, ElementT};
 pub use self::commits::{Commit, CommitQueue, EltChange,
-        CommitMeta, ExtraMeta};
+        CommitMeta, ExtraMeta, MakeMeta};
 pub use self::sum::Sum;
 pub use self::sum::BYTES as SUM_BYTES;
 pub use self::repo::{Repository, RepoState};

@@ -8,17 +8,24 @@ use std::collections::{HashMap, hash_map};
 use std::clone::Clone;
 use std::rc::Rc;
 use std::u32;
+use std::cmp::max;
 
 use chrono::{DateTime, NaiveDateTime, UTC};
 
 use detail::readwrite::CommitReceiver;
 use {PartState, MutPartState, MutState};
-use {ElementT, EltId, Sum};
+use {ElementT, EltId, PartId, Sum};
 use error::{Result, PatchOp, ElementOp};
 
 
 /// Type of extra metadata (this may change)
 pub type ExtraMeta = Option<String>;
+
+/// Closure type to make metadata.
+/// 
+/// PartId is the identifier of the partition receiving the change. The vector
+/// of commit-metas references each parent commit's metadata.
+pub type MakeMeta = Fn(PartId, Vec<&CommitMeta>) -> CommitMeta;
 
 /// Extra data about a commit
 #[derive(Eq, PartialEq, Clone, Debug)]
@@ -58,6 +65,13 @@ impl CommitMeta {
             timestamp: Self::timestamp_now(),
             extra: extra,
         }
+    }
+    /// Create a default CommitMeta for a commit, given a list of the metadata
+    /// of parent commits (one parent for a normal commit, more for a merge,
+    /// none for the initial state).
+    pub fn make_default(parents: Vec<&CommitMeta>, extra: ExtraMeta) -> CommitMeta {
+        let number = parents.iter().fold(0, |prev, &m| max(prev, m.next_number()));
+        Self::now_with(number, extra)
     }
     /// Convert the internal timestamp to a `DateTime`.
     pub fn date_time(&self) -> DateTime<UTC> {
@@ -202,9 +216,8 @@ impl<E: ElementT> Commit<E> {
     /// This is one of two ways to create a commit; the other would be to track
     /// changes to a state (possibly the latter is the more sensible approach
     /// for most applications).
-    pub fn from_diff(old_state: &PartState<E>,
-            new_state: &MutPartState<E>,
-            extra_meta: ExtraMeta) -> Option<Commit<E>>
+    pub fn from_diff(old_state: &PartState<E>, new_state: &MutPartState<E>,
+            make_meta: Option<&MakeMeta>) -> Option<Commit<E>>
     {
         let mut elt_map = new_state.elt_map().clone();
         let mut changes = HashMap::new();
@@ -246,10 +259,10 @@ impl<E: ElementT> Commit<E> {
             None
         } else {
             let parents = vec![old_state.statesum().clone()];
-            let metadata = CommitMeta {
-                number: old_state.meta().next_number(),
-                timestamp: CommitMeta::timestamp_now(),
-                extra: extra_meta,
+            let metadata = if let Some(mm) = make_meta {
+                mm(new_state.part_id(), vec![&old_state.meta()])
+            } else {
+                CommitMeta::make_default(vec![&old_state.meta()], None)
             };
             let metasum = Sum::state_meta_sum(new_state.part_id(),
                     &parents, &metadata);

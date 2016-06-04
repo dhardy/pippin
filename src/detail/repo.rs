@@ -26,7 +26,7 @@ use std::mem::swap;
 pub use detail::repo_traits::{RepoIO, ClassifierT, ClassifyFallback, RepoT,
     RepoDivideError, DummyClassifier};
 use {Partition, State, MutState, MutPartState};
-use detail::{EltId};
+use detail::{EltId, MakeMeta};
 use merge::{TwoWaySolver};
 use PartId;
 use error::{Result, OtherError, TipError, ElementOp};
@@ -190,9 +190,11 @@ impl<C: ClassifierT, R: RepoT<C>> Repository<C, R> {
     /// to find a common ancestor.
     /// 
     /// TODO: clearer names, maybe move some of the work around.
-    pub fn merge<S: TwoWaySolver<C::Element>>(&mut self, solver: &S, auto_load: bool) -> Result<()> {
+    pub fn merge<S: TwoWaySolver<C::Element>>(&mut self, solver: &S,
+            auto_load: bool, make_meta: Option<&MakeMeta>) -> Result<()>
+    {
         for (_, part) in &mut self.partitions {
-            try!(part.merge(solver, auto_load));
+            try!(part.merge(solver, auto_load, make_meta));
         }
         Ok(())
     }
@@ -225,7 +227,9 @@ impl<C: ClassifierT, R: RepoT<C>> Repository<C, R> {
     /// 
     /// Returns true when any further merge work is required. In this case
     /// `merge()` should be called.
-    pub fn merge_in(&mut self, state: RepoState<C>) -> Result<bool> {
+    pub fn merge_in(&mut self, state: RepoState<C>,
+            make_meta: Option<&MakeMeta>) -> Result<bool>
+    {
         let mut merge_required = false;
         for (num, pstate) in state.states {
             let mut part = if let Some(p) = self.partitions.get_mut(&num) {
@@ -234,9 +238,7 @@ impl<C: ClassifierT, R: RepoT<C>> Repository<C, R> {
                 panic!("RepoState has a partition not found in the Repository");
                 //TODO: support for merging after a division/union/change of partitioning
             };
-            //TODO: let user specify extra metadata somehow?
-            let extra = None;
-            if try!(part.push_state(pstate, extra)) {
+            if try!(part.push_state(pstate, make_meta)) {
                 if part.merge_required() { merge_required = true; }
             }
         }
@@ -249,7 +251,9 @@ impl<C: ClassifierT, R: RepoT<C>> Repository<C, R> {
     /// Returns true if further merge work is required. In this case, `merge()`
     /// should be called on the `Repository`, then `sync()` again (until then, the
     /// `RepoState` will have no access to any partitions with conflicts).
-    pub fn sync(&mut self, state: &mut RepoState<C>) -> Result<bool> {
+    pub fn sync(&mut self, state: &mut RepoState<C>,
+            make_meta: Option<&MakeMeta>) -> Result<bool>
+    {
         let mut states = HashMap::new();
         swap(&mut states, &mut state.states);
         
@@ -271,9 +275,7 @@ impl<C: ClassifierT, R: RepoT<C>> Repository<C, R> {
                     continue;
                 }
             }*/
-            //TODO: let user specify extra metadata somehow?
-            let extra = None;
-            if try!(part.push_state(pstate, extra)) {
+            if try!(part.push_state(pstate, make_meta)) {
                 if part.merge_required() {
                     merge_required = true;
                 } else {
