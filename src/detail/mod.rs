@@ -4,7 +4,6 @@
 
 //! In-memory representations of Pippin data
 
-pub use self::elt::{PartId, EltId, ElementT};
 pub use self::repo::{Repository, RepoState};
 
 pub mod readwrite;
@@ -12,5 +11,4 @@ pub mod part;
 pub mod repo;
 
 mod states;
-mod elt;
 mod repo_traits;

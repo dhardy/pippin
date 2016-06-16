@@ -1072,7 +1072,7 @@ impl<'a, E: ElementT+'a> Iterator for StateIter<'a, E> {
 mod tests {
     use super::*;
     use commit::{Commit};
-    use detail::{PartId};
+    use PartId;
     
     #[test]
     fn commit_creation_and_replay(){

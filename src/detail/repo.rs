@@ -26,9 +26,8 @@ use std::mem::swap;
 pub use detail::repo_traits::{RepoIO, ClassifierT, ClassifyFallback, RepoT,
     RepoDivideError, DummyClassifier};
 use {Partition, State, MutState, MutPartState};
-use detail::{EltId};
-use merge::{TwoWaySolver};
-use PartId;
+use merge::TwoWaySolver;
+use {EltId, PartId};
 use commit::MakeMeta; 
 use error::{Result, OtherError, TipError, ElementOp};
 
