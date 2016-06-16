@@ -13,8 +13,7 @@ use byteorder::{ByteOrder, BigEndian};
 
 use {EltId, PartId};
 use commit::{CommitMeta, ExtraMeta};
-use detail::Sum;
-use detail::SUM_BYTES as BYTES;
+use sum::{Sum, BYTES};
 
 
 // Internal type / constructor for easy configuration.

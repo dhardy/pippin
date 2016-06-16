@@ -90,18 +90,17 @@ extern crate walkdir;
 extern crate log;
 
 // Redundantly re-export some of the main types here:
-pub use repo::{Repository, RepoIO, RepoT, ClassifierT, RepoState};
-pub use part::{Partition, PartIO, UserFields, PartState, MutPartState, State, MutState};
 pub use error::{Result};
+pub use part::{Partition, PartIO, UserFields, PartState, MutPartState, State, MutState};
+pub use repo::{Repository, RepoIO, RepoT, ClassifierT, RepoState};
+pub use sum::Sum;
 // Export some main/miscellaneous types here:
-pub use detail::{ElementT, PartId, EltId, Sum};
+pub use detail::{ElementT, PartId, EltId};
 pub use detail::readwrite::UserData;
 
 // Export some modules here:
-pub use detail::commit;
 pub use detail::part;
 pub use detail::repo;
-pub use detail::merge;
 /// `readwrite` may not remain public'
 pub use detail::readwrite;
 
@@ -109,9 +108,12 @@ pub use detail::readwrite;
 // dependencies without making the details public. In the future there may
 // be other ways to do this (i.e. better privacy control).
 mod detail;
-pub mod fileio;
+pub mod commit;
 pub mod discover;
 pub mod error;
+pub mod fileio;
+pub mod merge;
+pub mod sum;
 pub mod util;
 
 /// Version. The low 16 bits are patch number, next 16 are the minor version

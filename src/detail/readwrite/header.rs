@@ -12,8 +12,8 @@ use byteorder::{ByteOrder, BigEndian, WriteBytesExt};
 
 use PartId;
 use detail::readwrite::{sum};
-use detail::SUM_BYTES;
 use error::{Result, ArgError, ReadError, make_io_err};
+use sum::BYTES as SUM_BYTES;
 use util::rtrim;
 
 // Snapshot header. This is the latest version.

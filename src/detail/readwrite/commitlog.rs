@@ -16,7 +16,7 @@ use byteorder::{ByteOrder, BigEndian, WriteBytesExt};
 use detail::readwrite::{sum};
 use commit::{Commit, EltChange, CommitMeta, ExtraMeta};
 use {ElementT, Sum};
-use detail::SUM_BYTES;
+use sum::BYTES as SUM_BYTES;
 use error::{Result, ReadError};
 
 /// Implement this to use read_log().

@@ -14,7 +14,7 @@ use byteorder::{ByteOrder, BigEndian, WriteBytesExt};
 use detail::readwrite::{sum};
 use {PartState, State};
 use {ElementT, PartId, Sum};
-use detail::SUM_BYTES;
+use sum::BYTES as SUM_BYTES;
 use commit::{ExtraMeta, CommitMeta};
 use error::{Result, ReadError, ElementOp};
 
