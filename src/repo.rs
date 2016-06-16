@@ -23,7 +23,7 @@ use std::rc::Rc;
 use std::mem::swap;
 
 // Re-export these. We pretend these are part of the same module while keeping files smaller.
-pub use detail::repo_traits::{RepoIO, ClassifierT, ClassifyFallback, RepoT,
+pub use repo_traits::{RepoIO, ClassifierT, ClassifyFallback, RepoT,
     RepoDivideError, DummyClassifier};
 use {Partition, State, MutState, MutPartState};
 use merge::TwoWaySolver;

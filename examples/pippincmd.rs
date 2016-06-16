@@ -22,7 +22,7 @@ use pippin::{Partition, PartIO, ElementT, State, MutState, UserData, PartId};
 use pippin::{discover, fileio};
 use pippin::error::{Result, PathError, ErrorTrait};
 use pippin::util::rtrim;
-use pippin::readwrite::{read_head, FileType};
+use pippin::{read_head, FileType};
 
 const USAGE: &'static str = "
 Pippin command-line UI. This program is designed to demonstrate Pippin's

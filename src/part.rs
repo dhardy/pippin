@@ -13,12 +13,13 @@ use std::usize;
 use std::cmp::min;
 use hashindexed::{HashIndexed, Iter};
 
-pub use detail::states::{State, MutState, PartState, MutPartState};
+// Some of states' items get re-exported here:
+pub use states::{State, MutState, PartState, MutPartState};
 
-use detail::readwrite::{FileHeader, UserData, FileType, read_head, write_head, validate_repo_name};
-use detail::readwrite::{read_snapshot, write_snapshot};
-use detail::readwrite::{read_log, start_log, write_commit};
-use detail::states::{PartStateSumComparator};
+use readwrite::{FileHeader, UserData, FileType, read_head, write_head, validate_repo_name};
+use readwrite::{read_snapshot, write_snapshot};
+use readwrite::{read_log, start_log, write_commit};
+use states::{PartStateSumComparator};
 use commit::{Commit, MakeMeta};
 use merge::{TwoWayMerge, TwoWaySolver};
 use {ElementT, Sum, PartId};

@@ -13,7 +13,7 @@ use walkdir::WalkDir;
 
 use {RepoIO, PartId};
 use fileio::{PartFileIO, RepoFileIO, PartPaths};
-use detail::readwrite::read_head;
+use readwrite::read_head;
 use error::{Result, PathError, OtherError};
 
 

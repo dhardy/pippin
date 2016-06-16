@@ -11,7 +11,7 @@ use std::result::Result as stdResult;
 use byteorder::{ByteOrder, BigEndian, WriteBytesExt};
 
 use PartId;
-use detail::readwrite::{sum};
+use readwrite::sum;
 use error::{Result, ArgError, ReadError, make_io_err};
 use sum::BYTES as SUM_BYTES;
 use util::rtrim;

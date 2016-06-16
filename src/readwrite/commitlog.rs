@@ -13,7 +13,7 @@ use std::u32;
 
 use byteorder::{ByteOrder, BigEndian, WriteBytesExt};
 
-use detail::readwrite::{sum};
+use readwrite::sum;
 use commit::{Commit, EltChange, CommitMeta, ExtraMeta};
 use {ElementT, Sum};
 use sum::BYTES as SUM_BYTES;

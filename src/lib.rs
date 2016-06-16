@@ -92,28 +92,24 @@ extern crate log;
 // Redundantly re-export some of the main types here:
 pub use error::{Result};
 pub use elt::{EltId, PartId, ElementT};
-pub use part::{Partition, PartIO, UserFields, PartState, MutPartState, State, MutState};
+pub use part::{Partition, PartIO, UserFields};
 pub use repo::{Repository, RepoIO, RepoT, ClassifierT, RepoState};
 pub use sum::Sum;
-// Export some main/miscellaneous types here:
-pub use detail::readwrite::UserData;
+// Export some items not otherwise available here:
+pub use readwrite::{FileType, read_head, UserData};
+pub use states::{PartState, MutPartState, State, MutState};
 
-// Export some modules here:
-pub use detail::part;
-pub use detail::repo;
-/// `readwrite` may not remain public'
-pub use detail::readwrite;
-
-// Most Pippin code is put in this private module to allow inter-module
-// dependencies without making the details public. In the future there may
-// be other ways to do this (i.e. better privacy control).
-mod detail;
 pub mod commit;
 pub mod discover;
 pub mod elt;
 pub mod error;
 pub mod fileio;
 pub mod merge;
+pub mod part;
+mod readwrite;
+pub mod repo;
+mod repo_traits;
+mod states;
 pub mod sum;
 pub mod util;
 

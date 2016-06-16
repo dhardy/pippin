@@ -11,7 +11,7 @@ use std::collections::hash_map::{HashMap, Entry};
 
 use byteorder::{ByteOrder, BigEndian, WriteBytesExt};
 
-use detail::readwrite::{sum};
+use readwrite::sum;
 use {PartState, State};
 use {ElementT, PartId, Sum};
 use sum::BYTES as SUM_BYTES;
