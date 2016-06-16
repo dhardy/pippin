@@ -252,10 +252,10 @@ fn inner(path: PathBuf, op: Operation, args: Rest) -> Result<()>
                     let mut part = try!(Partition::<DataElt>::open(Box::new(part.clone())));
                     try!(part.load_all(None));
                     let mut states: Vec<_> = part.states().collect();
-                    states.sort_by_key(|s| s.meta().number);
+                    states.sort_by_key(|s| s.meta().number());
                     for state in states {
                         println!("Commit {:4}: {}; parents: {:?}",
-                                state.meta().number, state.statesum(), 
+                                state.meta().number(), state.statesum(), 
                                 state.parents());
                     }
                 }

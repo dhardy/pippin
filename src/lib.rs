@@ -94,7 +94,7 @@ pub use repo::{Repository, RepoIO, RepoT, ClassifierT, RepoState};
 pub use part::{Partition, PartIO, UserFields, PartState, MutPartState, State, MutState};
 pub use error::{Result};
 // Export some main/miscellaneous types here:
-pub use detail::{ElementT, PartId, EltId, Sum, Commit, CommitMeta, MakeMeta};
+pub use detail::{ElementT, PartId, EltId, Sum};
 pub use detail::readwrite::UserData;
 
 // Export some modules here:
@@ -112,6 +112,11 @@ pub mod fileio;
 pub mod discover;
 pub mod error;
 pub mod util;
+
+/// Exposes several types to do with commits
+pub mod commit {
+    pub use detail::{Commit, CommitQueue, EltChange, CommitMeta, CommitMeta1, MakeMeta};
+}
 
 /// Version. The low 16 bits are patch number, next 16 are the minor version
 /// number, the next are the major version number. The top 16 are zero.

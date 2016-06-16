@@ -13,7 +13,8 @@ use byteorder::{ByteOrder, BigEndian, WriteBytesExt};
 
 use detail::readwrite::{sum};
 use {PartState, State};
-use {ElementT, PartId, Sum, CommitMeta};
+use {ElementT, PartId, Sum};
+use commit::CommitMeta1;
 use detail::SUM_BYTES;
 use error::{Result, ReadError, ElementOp};
 
@@ -75,11 +76,11 @@ pub fn read_snapshot<T: ElementT>(reader: &mut Read, part_id: PartId,
         pos += pad_len;
     }
     
-    let meta = CommitMeta {
+    let meta = CommitMeta1 {
         number: cnum,
         timestamp: secs,
         extra: xm,
-    };
+    }.into();
     
     let mut parents = Vec::with_capacity(num_parents);
     for _ in 0..num_parents {
@@ -200,12 +201,13 @@ pub fn write_snapshot<T: ElementT>(state: &PartState<T>,
     assert!(state.parents().len() <= (u8::MAX as usize));
     snapsh_u[6] = state.parents().len() as u8;
     try!(w.write(&snapsh_u));
-    try!(w.write_i64::<BigEndian>(state.meta().timestamp));
+    try!(w.write_i64::<BigEndian>(state.meta().timestamp()));
     
     try!(w.write(b"CNUM"));
-    try!(w.write_u32::<BigEndian>(state.meta().number));
+    try!(w.write_u32::<BigEndian>(state.meta().number()));
     
-    if let Some(ref txt) = state.meta().extra {
+    assert_eq!(state.meta().ver(), 1);  // serialisation may need to change for future versions
+    if let Some(ref txt) = state.meta().extra() {
         try!(w.write(b"XMTT"));
         assert!(txt.len() <= u32::MAX as usize);
         try!(w.write_u32::<BigEndian>(txt.len() as u32));
@@ -275,6 +277,7 @@ pub fn write_snapshot<T: ElementT>(state: &PartState<T>,
 #[test]
 fn snapshot_writing() {
     use ::MutState;
+    use ::commit::CommitMeta;
     
     let part_id = PartId::from_num(1);
     let mut state = PartState::<String>::new(part_id).clone_mut();
@@ -300,8 +303,7 @@ fn snapshot_writing() {
     state.insert(data.to_string()).unwrap();
     
     let meta = CommitMeta::now_with(5617, Some("text".to_string()));
-    let parents = vec![state.parent().clone()];
-    let state = PartState::from_mut(state, parents, meta);
+    let state = PartState::from_mut(state, meta);
     
     let mut result = Vec::new();
     assert!(write_snapshot(&state, &mut result).is_ok());

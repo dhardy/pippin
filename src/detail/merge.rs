@@ -274,7 +274,7 @@ impl<'a, E: ElementT> TwoWayMerge<'a, E> {
         let meta = if let Some(mm) = make_meta {
             mm(part_id, vec![&self.a.meta(), &self.b.meta()])
         } else {
-            CommitMeta::make_default(vec![&self.a.meta(), &self.b.meta()], None)
+            CommitMeta::make_default(vec![&self.a.meta(), &self.b.meta()])
         };
         let statesum = &sum ^ &Sum::state_meta_sum(part_id, &parents, &meta);
         Some(Commit::new_explicit(statesum, parents, changes, meta))

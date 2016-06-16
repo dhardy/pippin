@@ -783,8 +783,7 @@ impl<E: ElementT> Partition<E> {
         };
         
         if let Some(commit) = c {
-            let new_state = PartState::from_mut(state,
-                    commit.parents().clone(), commit.meta().clone());
+            let new_state = PartState::from_mut(state, commit.meta().clone());
             Ok(self.add_pair(commit, new_state))
         } else {
             Ok(false)
@@ -1096,8 +1095,7 @@ mod tests {
         insert(&mut state, 1, "one").unwrap();
         insert(&mut state, 2, "two").unwrap();
         let meta = CommitMeta::now_empty();
-        let parents = vec![state.parent().clone()];
-        let state_a = PartState::from_mut(state, parents, meta);
+        let state_a = PartState::from_mut(state, meta);
         
         let mut state = state_a.clone_mut();
         insert(&mut state, 3, "three").unwrap();

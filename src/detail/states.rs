@@ -11,7 +11,8 @@ use std::rc::Rc;
 use hashindexed::KeyComparator;
 use rand::random;
 
-use {ElementT, Sum, PartId, EltId, CommitMeta};
+use {ElementT, Sum, PartId, EltId};
+use commit::CommitMeta;
 use error::ElementOp;
 
 /// Trait abstracting over read operations on the state of a partition or
@@ -178,6 +179,7 @@ impl<E: ElementT> PartState<E> {
         }
     }
     
+    //TODO: how should metadata be provided/created?
     /// Create a `PartState` from a `MutPartState` and metadata.
     /// 
     /// The metadata can be constructed using the number in `mut_state` and
@@ -185,7 +187,23 @@ impl<E: ElementT> PartState<E> {
     /// 
     /// Commit metadata is constructed from the number in the passed
     /// `MutPartState`, the time now and the passed optional extra data.
-    pub fn from_mut(mut_state: MutPartState<E>, parents: Vec<Sum>,
+    pub fn from_mut(mut_state: MutPartState<E>,
+            metadata: CommitMeta) -> PartState<E>
+    {
+        let parents = vec![mut_state.parent.clone()];
+        Self::from_mut_with_parents(mut_state, parents, metadata)
+    }
+    //TODO: how should metadata be provided/created?
+    /// Create a `PartState` from a `MutPartState`, a list of parents and
+    /// metadata.
+    /// 
+    /// The metadata can be constructed using the number in `mut_state` and
+    /// `CommitMeta::timestamp_now()` if not already available.
+    /// 
+    /// Commit metadata is constructed from the number in the passed
+    /// `MutPartState`, the time now and the passed optional extra data.
+    pub fn from_mut_with_parents(mut_state: MutPartState<E>,
+            parents: Vec<Sum>,
             metadata: CommitMeta) -> PartState<E>
     {
         let metasum = Sum::state_meta_sum(mut_state.part_id, &parents, &metadata);
@@ -205,10 +223,11 @@ impl<E: ElementT> PartState<E> {
     /// Output may be passed to `Commit::mutate_meta()`.
     pub fn mutate_meta(&mut self) -> (u32, Sum) {
         let old_metasum = Sum::state_meta_sum(self.part_id, &self.parents, &self.meta);
-        self.meta.number = self.meta.next_number();
+        assert_eq!(self.meta.ver(), 1); // code may need updating in future
+        self.meta.incr_number();
         let new_metasum = Sum::state_meta_sum(self.part_id, &self.parents, &self.meta);
         self.statesum = &(&self.statesum ^ &old_metasum) ^ &new_metasum;
-        (self.meta.number, self.statesum.clone())
+        (self.meta.number(), self.statesum.clone())
     }
     
     /// Get the state sum (depends on data and metadata)

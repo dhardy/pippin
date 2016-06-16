@@ -11,7 +11,8 @@ use crypto::digest::Digest;
 use crypto::blake2b::Blake2b;
 use byteorder::{ByteOrder, BigEndian};
 
-use {EltId, PartId, CommitMeta};
+use {EltId, PartId};
+use commit::CommitMeta;
 use detail::Sum;
 use detail::SUM_BYTES as BYTES;
 
@@ -44,15 +45,16 @@ impl Sum {
         }
         BigEndian::write_u64(&mut buf[0..8], part_id.into());
         assert!(buf[8..12] == *b"CNUM");
-        BigEndian::write_u32(&mut buf[12..16], meta.number);
-        BigEndian::write_i64(&mut buf[16..24], meta.timestamp);
+        BigEndian::write_u32(&mut buf[12..16], meta.number());
+        BigEndian::write_i64(&mut buf[16..24], meta.timestamp());
         
         hasher.input(&buf[0..24]);
         for parent in parents {
             parent.write((&mut &mut buf[..])).expect("writing to buf");
             hasher.input(&buf);
         }
-        if let Some(ref text) = meta.extra {
+        assert_eq!(meta.ver(), 1);  // future formats may need to be hashed differently
+        if let Some(ref text) = meta.extra() {
             hasher.input(text.as_bytes());
         }
         Sum::load_hasher(hasher)

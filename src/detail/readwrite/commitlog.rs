@@ -14,7 +14,7 @@ use std::u32;
 use byteorder::{ByteOrder, BigEndian, WriteBytesExt};
 
 use detail::readwrite::{sum};
-use detail::{Commit, EltChange, CommitMeta};
+use detail::{Commit, EltChange, CommitMeta1};
 use {ElementT, Sum};
 use detail::SUM_BYTES;
 use error::{Result, ReadError};
@@ -96,11 +96,11 @@ pub fn read_log<E: ElementT>(mut reader: &mut Read,
             pos += pad_len;
         }
         
-        let meta = CommitMeta {
+        let meta = CommitMeta1 {
             number: cnum,
             timestamp: secs,
             extra: xm,
-        };
+        }.into();
         
         let mut parents = Vec::with_capacity(n_parents);
         for _ in 0..n_parents {
@@ -232,12 +232,13 @@ pub fn write_commit<E: ElementT>(commit: &Commit<E>, writer: &mut Write) -> Resu
         try!(w.write(b"\x00U"));
     }
     
-    try!(w.write_i64::<BigEndian>(commit.meta().timestamp));
+    try!(w.write_i64::<BigEndian>(commit.meta().timestamp()));
     
     try!(w.write(b"CNUM"));
-    try!(w.write_u32::<BigEndian>(commit.meta().number));
+    try!(w.write_u32::<BigEndian>(commit.meta().number()));
     
-    if let Some(ref txt) = commit.meta().extra {
+    assert_eq!(commit.meta().ver(), 1); // serialisation may need to be different for future versions
+    if let Some(ref txt) = commit.meta().extra() {
         try!(w.write(b"XMTT"));
         assert!(txt.len() <= u32::MAX as usize);
         try!(w.write_u32::<BigEndian>(txt.len() as u32));
@@ -304,6 +305,7 @@ pub fn write_commit<E: ElementT>(commit: &Commit<E>, writer: &mut Write) -> Resu
 #[test]
 fn commit_write_read(){
     use PartId;
+    use commit::CommitMeta1;
     
     // Note that we can make up completely nonsense commits here. Element
     // checksums must still match but state sums don't need to since we won't
@@ -322,14 +324,14 @@ fn commit_write_read(){
     changes.insert(p.elt_id(3), EltChange::insertion(Rc::new("three".to_string())));
     changes.insert(p.elt_id(4), EltChange::insertion(Rc::new("four".to_string())));
     changes.insert(p.elt_id(5), EltChange::insertion(Rc::new("five".to_string())));
-    let meta1 = CommitMeta { number: 1, timestamp: 123456, extra: None };
+    let meta1 = CommitMeta1 { number: 1, timestamp: 123456, extra: None }.into();
     let commit_1 = Commit::new_explicit(seq, vec![squares], changes, meta1);
     
     changes = HashMap::new();
     changes.insert(p.elt_id(1), EltChange::deletion());
     changes.insert(p.elt_id(9), EltChange::replacement(Rc::new("NINE!".to_string())));
     changes.insert(p.elt_id(5), EltChange::insertion(Rc::new("five again?".to_string())));
-    let meta2 = CommitMeta { number: 1, timestamp: 321654, extra: Some("123".to_string()) };
+    let meta2 = CommitMeta1 { number: 1, timestamp: 321654, extra: Some("123".to_string()) }.into();
     let commit_2 = Commit::new_explicit(nonsense, vec![quadr], changes, meta2);
     
     let mut obj = Vec::new();

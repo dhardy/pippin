@@ -18,18 +18,16 @@ use {ElementT, EltId, PartId, Sum};
 use error::{Result, PatchOp, ElementOp};
 
 
-/// Type of extra metadata (this may change)
-pub type ExtraMeta = Option<String>;
-
 /// Closure type to make metadata.
 /// 
 /// PartId is the identifier of the partition receiving the change. The vector
 /// of commit-metas references each parent commit's metadata.
 pub type MakeMeta = Fn(PartId, Vec<&CommitMeta>) -> CommitMeta;
 
-/// Extra data about a commit
+/// Extra data about a commit, version 1. This type should remain fixed, unlike
+/// `CommitMeta`.
 #[derive(Eq, PartialEq, Clone, Debug)]
-pub struct CommitMeta {
+pub struct CommitMeta1 {
     /// Commit number. First (real) commit has number 1, each subsequent commit
     /// has max-parent-number + 1. Can be used to identify commits but is not
     /// necessarily unique.
@@ -43,12 +41,54 @@ pub struct CommitMeta {
     /// In rare cases this may be zero. 
     pub timestamp: i64,
     /// Extra metadata (e.g. author, comments).
-    /// 
-    /// Currently this is either unicode text or nothing but there is a
-    /// possibility of allowing other types (probably by replacing `Option`
-    /// with a custom enum).
-    pub extra: ExtraMeta,
+    pub extra: Option<String>,
 }
+
+// Private enum of all meta versions; used so that fields of CommitMeta are not
+// public.
+#[derive(Debug, Clone)]
+enum MetaInternal {
+    Meta1(CommitMeta1)
+}
+// This is implemented manually so that cross-version "equality" does get
+// thought about. I'm not sure where it's needed or what it should do yet.
+impl PartialEq for MetaInternal {
+    fn eq(&self, rhs: &Self) -> bool {
+        match rhs {
+            &MetaInternal::Meta1(ref r) => {
+                match self {
+                    &MetaInternal::Meta1(ref m) => m == r,
+                }
+            },
+        }
+    }
+}
+
+/// A abstraction over all metadata versions (this is what you normally use,
+/// except for creation, when you can use one of the versioned types).
+/// 
+/// The internal details may change over time, and new public methods may be
+/// added.
+/// 
+/// Creation should be via one of the named constructors (e.g.
+/// `CommitMeta::now_empty()`) or via a versioned struct, e.g.
+/// 
+/// ```rust
+/// use pippin::commit::{CommitMeta, CommitMeta1};
+/// 
+/// let meta: CommitMeta = CommitMeta1 {
+///         number: 7,
+///         timestamp: CommitMeta::timestamp_now(),
+///         extra: None
+///     }.into();
+/// ```
+/// 
+/// Fields may be retrieved via getters, e.g. `meta.number()`.
+#[derive(Debug, PartialEq, Clone)]
+pub struct CommitMeta {
+    meta: MetaInternal
+}
+
 impl CommitMeta {
     /// Create an instance applicable to a new empty partition.
     /// 
@@ -56,39 +96,86 @@ impl CommitMeta {
     pub fn now_empty() -> CommitMeta {
         Self::now_with(0, None)
     }
-    /// Create an instance with provided number and extra data.
+    /// Create an instance with provided number and optional extra data.
     /// 
     /// Assigns a timestamp as of *now* (via `Self::timestamp_now()`).
-    pub fn now_with(number: u32, extra: ExtraMeta) -> CommitMeta {
-        CommitMeta {
+    pub fn now_with(number: u32, extra: Option<String>) -> CommitMeta {
+        Self::from(CommitMeta1 {
             number: number,
             timestamp: Self::timestamp_now(),
             extra: extra,
-        }
+        })
     }
     /// Create a default CommitMeta for a commit, given a list of the metadata
     /// of parent commits (one parent for a normal commit, more for a merge,
     /// none for the initial state).
-    pub fn make_default(parents: Vec<&CommitMeta>, extra: ExtraMeta) -> CommitMeta {
+    pub fn make_default(parents: Vec<&CommitMeta>) -> CommitMeta {
         let number = parents.iter().fold(0, |prev, &m| max(prev, m.next_number()));
-        Self::now_with(number, extra)
+        Self::now_with(number, None)
     }
-    /// Convert the internal timestamp to a `DateTime`.
-    pub fn date_time(&self) -> DateTime<UTC> {
-        DateTime::<UTC>::from_utc(
-                NaiveDateTime::from_timestamp(self.timestamp, 0),
-                UTC)
-    }
-    /// Create a timestamp representing this moment.
+    
+    /// Utility method to create a timestamp representing this moment.
+    /// 
+    /// Code is `UTC::now().timestamp()`, using `chrono::UTC`.
     pub fn timestamp_now() -> i64 {
         UTC::now().timestamp()
     }
+    
+    /// Get the commit's timestamp
+    pub fn timestamp(&self) -> i64 {
+        match &self.meta {
+            &MetaInternal::Meta1(ref m) => m.timestamp,
+        }
+    }
+    /// Convert the internal timestamp to a `chrono::DateTime`.
+    pub fn date_time(&self) -> DateTime<UTC> {
+        DateTime::<UTC>::from_utc(
+                NaiveDateTime::from_timestamp(self.timestamp(), 0),
+                UTC)
+    }
+    
+    /// Get the commit's number
+    pub fn number(&self) -> u32 {
+        match &self.meta {
+            &MetaInternal::Meta1(ref m) => m.number,
+        }
+    }
     /// Get the next number (usually current + 1)
     pub fn next_number(&self) -> u32 {
-        if self.number < u32::MAX { self.number + 1 } else { u32::MAX }
+        let n = self.number();
+        if n < u32::MAX { n + 1 } else { u32::MAX }
+    }
+    /// Increment the commit number via `number = next_number()`.
+    /// This is for internal usage and not guaranteed to remain.
+    pub fn incr_number(&mut self) {
+        let n = self.next_number();
+        match &mut self.meta {
+            &mut MetaInternal::Meta1(ref mut m) => { m.number = n; },
+        }
+    }
+    
+    /// Get the version of the internal metadata format. I.e. for `CommitMeta1`
+    /// this is 1, and so on.
+    pub fn ver(&self) -> u32 {
+        match self.meta {
+            MetaInternal::Meta1(_) => 1,
+        }
+    }
+    
+    /// Get the commit's extra data. There are no guarantees to what this will
+    /// look like in future meta-data versions, or even if it will be present.
+    pub fn extra(&self) -> Option<&String> {
+        match &self.meta {
+            &MetaInternal::Meta1(ref m) => m.extra.as_ref(),
+        }
     }
 }
 
+impl From<CommitMeta1> for CommitMeta {
+    fn from(m: CommitMeta1) -> Self {
+        CommitMeta { meta: MetaInternal::Meta1(m) }
+    }
+}
 
 /// Holds a set of commits, ordered by insertion order.
 /// This is only really needed for readwrite::read_log().
@@ -262,7 +349,7 @@ impl<E: ElementT> Commit<E> {
             let metadata = if let Some(mm) = make_meta {
                 mm(new_state.part_id(), vec![&old_state.meta()])
             } else {
-                CommitMeta::make_default(vec![&old_state.meta()], None)
+                CommitMeta::make_default(vec![&old_state.meta()])
             };
             let metasum = Sum::state_meta_sum(new_state.part_id(),
                     &parents, &metadata);
@@ -286,7 +373,8 @@ impl<E: ElementT> Commit<E> {
         let mut mut_state = parent.clone_mut();
         try!(self.apply_mut(&mut mut_state));
         
-        let state = PartState::from_mut(mut_state, self.parents.clone(), self.meta.clone());
+        let state = PartState::from_mut_with_parents(mut_state,
+                self.parents.clone(), self.meta.clone());
         if state.statesum() != self.statesum() { return Err(PatchOp::PatchApply); }
         Ok(state)
     }
@@ -325,7 +413,11 @@ impl<E: ElementT> Commit<E> {
     /// Warning: the state used to do this must match this commit or this
     /// commit will be messed up!
     pub fn mutate_meta(&mut self, mutated: (u32, Sum)) {
-        self.meta.number = mutated.0;
+        match &mut self.meta.meta {
+            &mut MetaInternal::Meta1(ref mut m) => {
+                m.number = mutated.0;
+            },
+        }
         self.statesum = mutated.1;
     }
     
