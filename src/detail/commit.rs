@@ -12,7 +12,6 @@ use std::cmp::max;
 
 use chrono::{DateTime, NaiveDateTime, UTC};
 
-use detail::readwrite::CommitReceiver;
 use {PartState, MutPartState, MutState};
 use {ElementT, EltId, Sum};
 use error::{Result, ElementOp};
@@ -141,34 +140,6 @@ pub trait MakeMeta {
     /// returns `ExtraMeta::None`.
     fn make_extrameta(&self) -> ExtraMeta {
         ExtraMeta::None
-    }
-}
-
-
-/// Holds a set of commits, ordered by insertion order.
-/// This is only really needed for readwrite::read_log().
-pub struct CommitQueue<E: ElementT> {
-    // These must be ordered. We only ever access by iteration so a `Vec` is
-    // fine.
-    commits: Vec<Commit<E>>
-}
-
-impl<E: ElementT> CommitQueue<E> {
-    /// Create an empty CommitQueue.
-    pub fn new() -> CommitQueue<E> {
-        CommitQueue { commits: Vec::new() }
-    }
-    /// Destroy the CommitQueue, returning the internal list of commits
-    pub fn unwrap(self) -> Vec<Commit<E>> {
-        self.commits
-    }
-}
-
-impl<E: ElementT> CommitReceiver<E> for CommitQueue<E> {
-    /// Implement function required by readwrite::read_log().
-    fn receive(&mut self, commit: Commit<E>) -> bool {
-        self.commits.push(commit);
-        true    // continue reading to EOF
     }
 }
 

@@ -98,8 +98,9 @@ pub use detail::{ElementT, PartId, EltId, Sum};
 pub use detail::readwrite::UserData;
 
 // Export some modules here:
-pub use detail::repo;
+pub use detail::commit;
 pub use detail::part;
+pub use detail::repo;
 pub use detail::merge;
 /// `readwrite` may not remain public'
 pub use detail::readwrite;
@@ -112,11 +113,6 @@ pub mod fileio;
 pub mod discover;
 pub mod error;
 pub mod util;
-
-/// Exposes several types to do with commits
-pub mod commit {
-    pub use detail::{Commit, CommitQueue, EltChange, CommitMeta, ExtraMeta, MakeMeta};
-}
 
 /// Version. The low 16 bits are patch number, next 16 are the minor version
 /// number, the next are the major version number. The top 16 are zero.

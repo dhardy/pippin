@@ -19,7 +19,7 @@ use detail::readwrite::{FileHeader, UserData, FileType, read_head, write_head, v
 use detail::readwrite::{read_snapshot, write_snapshot};
 use detail::readwrite::{read_log, start_log, write_commit};
 use detail::states::{PartStateSumComparator};
-use detail::{Commit, CommitQueue, MakeMeta};
+use commit::{Commit, MakeMeta};
 use merge::{TwoWayMerge, TwoWaySolver};
 use {ElementT, Sum, PartId};
 use error::{Result, TipError, PatchOp, MatchError, MergeError, OtherError, make_io_err};
@@ -466,7 +466,7 @@ impl<E: ElementT> Partition<E> {
                 require_ss = at_tip;
             }
             
-            let mut queue = CommitQueue::new();
+            let mut queue = vec![];
             for cl in 0..self.io.ss_cl_len(ss) {
                 if let Some(mut r) = try!(self.io.read_ss_cl(ss, cl)) {
                     let head = try!(read_head(&mut r));
@@ -477,7 +477,7 @@ impl<E: ElementT> Partition<E> {
                     try!(read_log(&mut r, &mut queue));
                 }
             }
-            for commit in queue.unwrap() {
+            for commit in queue {
                 try!(self.add_commit(commit));
             }
             if at_tip {
@@ -1071,9 +1071,8 @@ impl<'a, E: ElementT+'a> Iterator for StateIter<'a, E> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use detail::{Commit, CommitQueue};
+    use commit::{Commit};
     use detail::{PartId};
-    use detail::readwrite::CommitReceiver;
     
     #[test]
     fn commit_creation_and_replay(){
@@ -1081,7 +1080,7 @@ mod tests {
         use std::rc::Rc;
         
         let p = PartId::from_num(1);
-        let mut queue = CommitQueue::<String>::new();
+        let mut queue = vec![];
         
         let insert = |state: &mut MutPartState<_>, num, string: &str| -> Result<_, _> {
             state.insert_with_id(p.elt_id(num), Rc::new(string.to_string()))
@@ -1098,7 +1097,7 @@ mod tests {
         insert(&mut state, 5, "five").unwrap();
         let state_b = PartState::from_mut(state, None);
         let commit = Commit::from_diff(&state_a, &state_b).unwrap();
-        queue.receive(commit);
+        queue.push(commit);
         
         let mut state = state_b.clone_mut();
         insert(&mut state, 6, "six").unwrap();
@@ -1107,19 +1106,19 @@ mod tests {
         state.replace(p.elt_id(3), "half six".to_string()).unwrap();
         let state_c = PartState::from_mut(state, None);
         let commit = Commit::from_diff(&state_b, &state_c).unwrap();
-        queue.receive(commit);
+        queue.push(commit);
         
         let mut state = state_c.clone_mut();
         insert(&mut state, 8, "eight").unwrap();
         insert(&mut state, 4, "half eight").unwrap();
         let state_d = PartState::from_mut(state, None);
         let commit = Commit::from_diff(&state_c, &state_d).unwrap();
-        queue.receive(commit);
+        queue.push(commit);
         
         let io = box DummyPartIO::new(PartId::from_num(1));
         let mut part = Partition::create(io, "replay part", None).unwrap();
         part.add_state(state_a, 0);
-        for commit in queue.unwrap() {
+        for commit in queue {
             part.push_commit(commit).unwrap();
         }
         

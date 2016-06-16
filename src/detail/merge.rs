@@ -34,9 +34,9 @@ use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::rc::Rc;
 
-use detail::{EltId, Commit, CommitMeta, MakeMeta, EltChange};
+use commit::{Commit, CommitMeta, MakeMeta, EltChange};
 use {PartState, State};
-use {ElementT, Sum};
+use {EltId, ElementT, Sum};
 
 /// This struct controls the merging of two states into one.
 /// 

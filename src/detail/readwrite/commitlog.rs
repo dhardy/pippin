@@ -14,17 +14,28 @@ use std::u32;
 use byteorder::{ByteOrder, BigEndian, WriteBytesExt};
 
 use detail::readwrite::{sum};
-use detail::{Commit, EltChange, CommitMeta, ExtraMeta};
+use commit::{Commit, EltChange, CommitMeta, ExtraMeta};
 use {ElementT, Sum};
 use detail::SUM_BYTES;
 use error::{Result, ReadError};
 
 /// Implement this to use read_log().
+/// 
+/// There is a simple implementation for `Vec<Commit<E>>` which just pushes
+/// each commit and returns `true` (to continue reading to the end).
 pub trait CommitReceiver<E: ElementT> {
     /// Implement to receive a commit once it has been read. Return true to
     /// continue reading or false to stop reading more commits.
     fn receive(&mut self, commit: Commit<E>) -> bool;
 }
+impl<E: ElementT> CommitReceiver<E> for Vec<Commit<E>> {
+    /// Implement function required by readwrite::read_log().
+    fn receive(&mut self, commit: Commit<E>) -> bool {
+        self.push(commit);
+        true    // continue reading to EOF
+    }
+}
+
 
 /// Read a commit log from a stream
 pub fn read_log<E: ElementT>(mut reader: &mut Read,
@@ -336,9 +347,6 @@ fn commit_write_read(){
     assert!(write_commit(&commit_1, &mut obj).is_ok());
     assert!(write_commit(&commit_2, &mut obj).is_ok());
     
-    impl CommitReceiver<String> for Vec<Commit<String>> {
-        fn receive(&mut self, commit: Commit<String>) -> bool { self.push(commit); true }
-    }
     let mut commits = Vec::new();
     match read_log(&mut &obj[..], &mut commits) {
         Ok(()) => {},
