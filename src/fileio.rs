@@ -103,6 +103,14 @@ pub struct PartFileIO {
 }
 
 impl PartFileIO {
+    /// Create an empty partition IO with partition identifier 1.
+    /// 
+    /// *   `prefix` is a dir + partial-file-name; it is appended with
+    ///     something like `-ss1.pip` or `-ss2-lf3.piplog` to get a file name
+    pub fn new_default<P: Into<PathBuf>>(prefix: P) -> PartFileIO {
+        Self::new(PartId::from_num(1), prefix, PartPaths::new())
+    }
+    
     /// Create an empty partition IO. This is equivalent to calling `new` with
     /// `VecMap::new()` as the third argument.
     /// 
