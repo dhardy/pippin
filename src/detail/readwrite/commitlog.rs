@@ -14,7 +14,7 @@ use std::u32;
 use byteorder::{ByteOrder, BigEndian, WriteBytesExt};
 
 use detail::readwrite::{sum};
-use detail::{Commit, EltChange, CommitMeta1};
+use detail::{Commit, EltChange, CommitMeta, ExtraMeta};
 use {ElementT, Sum};
 use detail::SUM_BYTES;
 use error::{Result, ReadError};
@@ -82,11 +82,11 @@ pub fn read_log<E: ElementT>(mut reader: &mut Read,
         let mut xm_data = vec![0; xm_len];
         try!(r.read_exact(&mut xm_data));
         let xm = if xm_type_txt {
-            Some(try!(String::from_utf8(xm_data)
+            ExtraMeta::Text(try!(String::from_utf8(xm_data)
                 .map_err(|_| ReadError::new("content not valid UTF-8", pos, (0, xm_len)))))
         } else {
             // even if xm_len > 0 we ignore it
-            None
+            ExtraMeta::None
         };
         
         pos += xm_len;
@@ -96,11 +96,7 @@ pub fn read_log<E: ElementT>(mut reader: &mut Read,
             pos += pad_len;
         }
         
-        let meta = CommitMeta1 {
-            number: cnum,
-            timestamp: secs,
-            extra: xm,
-        }.into();
+        let meta = CommitMeta::new_explicit(cnum, secs, xm);
         
         let mut parents = Vec::with_capacity(n_parents);
         for _ in 0..n_parents {
@@ -237,20 +233,22 @@ pub fn write_commit<E: ElementT>(commit: &Commit<E>, writer: &mut Write) -> Resu
     try!(w.write(b"CNUM"));
     try!(w.write_u32::<BigEndian>(commit.meta().number()));
     
-    assert_eq!(commit.meta().ver(), 1); // serialisation may need to be different for future versions
-    if let Some(ref txt) = commit.meta().extra() {
-        try!(w.write(b"XMTT"));
-        assert!(txt.len() <= u32::MAX as usize);
-        try!(w.write_u32::<BigEndian>(txt.len() as u32));
-        try!(w.write(txt.as_bytes()));
-        let pad_len = 16 * ((txt.len() + 15) / 16) - txt.len();
-        if pad_len > 0 {
-            let padding = [0u8; 15];
-            try!(w.write(&padding[0..pad_len]));
-        }
-    } else {
-        // last four zeros is 0u32 encoded in bytes
-        try!(w.write(b"XM\x00\x00\x00\x00\x00\x00"));
+    match commit.meta().extra() {
+        &ExtraMeta::None => {
+            // last four zeros is 0u32 encoded in bytes
+            try!(w.write(b"XM\x00\x00\x00\x00\x00\x00"));
+        },
+        &ExtraMeta::Text(ref txt) => {
+            try!(w.write(b"XMTT"));
+            assert!(txt.len() <= u32::MAX as usize);
+            try!(w.write_u32::<BigEndian>(txt.len() as u32));
+            try!(w.write(txt.as_bytes()));
+            let pad_len = 16 * ((txt.len() + 15) / 16) - txt.len();
+            if pad_len > 0 {
+                let padding = [0u8; 15];
+                try!(w.write(&padding[0..pad_len]));
+            }
+        },
     }
     
     // Parent statesums (we wrote the number above already):
@@ -305,7 +303,6 @@ pub fn write_commit<E: ElementT>(commit: &Commit<E>, writer: &mut Write) -> Resu
 #[test]
 fn commit_write_read(){
     use PartId;
-    use commit::CommitMeta1;
     
     // Note that we can make up completely nonsense commits here. Element
     // checksums must still match but state sums don't need to since we won't
@@ -324,14 +321,14 @@ fn commit_write_read(){
     changes.insert(p.elt_id(3), EltChange::insertion(Rc::new("three".to_string())));
     changes.insert(p.elt_id(4), EltChange::insertion(Rc::new("four".to_string())));
     changes.insert(p.elt_id(5), EltChange::insertion(Rc::new("five".to_string())));
-    let meta1 = CommitMeta1 { number: 1, timestamp: 123456, extra: None }.into();
+    let meta1 = CommitMeta::new_explicit(1, 123456, ExtraMeta::None);
     let commit_1 = Commit::new_explicit(seq, vec![squares], changes, meta1);
     
     changes = HashMap::new();
     changes.insert(p.elt_id(1), EltChange::deletion());
     changes.insert(p.elt_id(9), EltChange::replacement(Rc::new("NINE!".to_string())));
     changes.insert(p.elt_id(5), EltChange::insertion(Rc::new("five again?".to_string())));
-    let meta2 = CommitMeta1 { number: 1, timestamp: 321654, extra: Some("123".to_string()) }.into();
+    let meta2 = CommitMeta::new_explicit(1, 321654, ExtraMeta::Text("123".to_string()));
     let commit_2 = Commit::new_explicit(nonsense, vec![quadr], changes, meta2);
     
     let mut obj = Vec::new();

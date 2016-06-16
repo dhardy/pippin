@@ -12,7 +12,7 @@ use crypto::blake2b::Blake2b;
 use byteorder::{ByteOrder, BigEndian};
 
 use {EltId, PartId};
-use commit::CommitMeta;
+use commit::{CommitMeta, ExtraMeta};
 use detail::Sum;
 use detail::SUM_BYTES as BYTES;
 
@@ -53,9 +53,11 @@ impl Sum {
             parent.write((&mut &mut buf[..])).expect("writing to buf");
             hasher.input(&buf);
         }
-        assert_eq!(meta.ver(), 1);  // future formats may need to be hashed differently
-        if let Some(ref text) = meta.extra() {
-            hasher.input(text.as_bytes());
+        match meta.extra() {
+            &ExtraMeta::None => {},
+            &ExtraMeta::Text(ref text) => {
+                hasher.input(text.as_bytes());
+            },
         }
         Sum::load_hasher(hasher)
     }

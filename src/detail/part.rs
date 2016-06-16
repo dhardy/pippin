@@ -19,7 +19,7 @@ use detail::readwrite::{FileHeader, UserData, FileType, read_head, write_head, v
 use detail::readwrite::{read_snapshot, write_snapshot};
 use detail::readwrite::{read_log, start_log, write_commit};
 use detail::states::{PartStateSumComparator};
-use detail::{Commit, MakeMeta, CommitQueue};
+use detail::{Commit, CommitQueue, MakeMeta};
 use merge::{TwoWayMerge, TwoWaySolver};
 use {ElementT, Sum, PartId};
 use error::{Result, TipError, PatchOp, MatchError, MergeError, OtherError, make_io_err};
@@ -746,7 +746,7 @@ impl<E: ElementT> Partition<E> {
         let state = {
             let parent = try!(self.states.get(commit.first_parent())
                 .ok_or(PatchOp::NoParent));
-            try!(commit.apply(parent))
+            try!(PartState::from_state_commit(parent, &commit))
         };  // end borrow on self (from parent)
         Ok(self.add_pair(commit, state))
     }
@@ -769,25 +769,21 @@ impl<E: ElementT> Partition<E> {
     pub fn push_state(&mut self, state: MutPartState<E>,
             make_meta: Option<&MakeMeta>) -> Result<bool, PatchOp>
     {
-        let c = {
-            let parent = try!(self.states.get(&state.parent()).ok_or(PatchOp::NoParent));
-            if parent.statesum() ^ &parent.metasum() == *state.elt_sum() {
-                // Checksum equals that of parent: no changes
-                // #0022: compare states instead of sums to check for collisions?
-                None
-            } else {
-                // #0019: Commit::from_diff compares old and new states and code be slow.
-                // #0019: Instead, we could record each alteration as it happens.
-                Commit::from_diff(parent, &state, make_meta)
-            }
-        };
+        let parent_sum = state.parent().clone();
+        let new_state = PartState::from_mut(state, make_meta);
         
-        if let Some(commit) = c {
-            let new_state = PartState::from_mut(state, commit.meta().clone());
-            Ok(self.add_pair(commit, new_state))
-        } else {
-            Ok(false)
-        }
+        // #0019: Commit::from_diff compares old and new states and code be slow.
+        // #0019: Instead, we could record each alteration as it happens.
+        Ok(if let Some(commit) =
+                Commit::from_diff(
+                    try!(self.states.get(&parent_sum).ok_or(PatchOp::NoParent)),
+                    &new_state)
+            {
+                self.add_pair(commit, new_state)
+            } else {
+                false
+            }
+        )
     }
     
     /// This will write all unsaved commits to a log on the disk. Does nothing
@@ -994,7 +990,7 @@ impl<E: ElementT> Partition<E> {
         let state = {
             let parent = try!(self.states.get(commit.first_parent())
                 .ok_or(PatchOp::NoParent));
-            try!(commit.apply(parent))
+            try!(PartState::from_state_commit(parent, &commit))
         };  // end borrow on self (from parent)
         self.add_state(state, commit.num_changes());
         Ok(())
@@ -1075,7 +1071,7 @@ impl<'a, E: ElementT+'a> Iterator for StateIter<'a, E> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use detail::{Commit, CommitMeta, CommitQueue};
+    use detail::{Commit, CommitQueue};
     use detail::{PartId};
     use detail::readwrite::CommitReceiver;
     
@@ -1094,15 +1090,14 @@ mod tests {
         let mut state = PartState::new(p).clone_mut();
         insert(&mut state, 1, "one").unwrap();
         insert(&mut state, 2, "two").unwrap();
-        let meta = CommitMeta::now_empty();
-        let state_a = PartState::from_mut(state, meta);
+        let state_a = PartState::from_mut(state, None);
         
         let mut state = state_a.clone_mut();
         insert(&mut state, 3, "three").unwrap();
         insert(&mut state, 4, "four").unwrap();
         insert(&mut state, 5, "five").unwrap();
-        let commit = Commit::from_diff(&state_a, &state, None).unwrap();
-        let state_b = commit.apply(&state_a).expect("commit apply b");
+        let state_b = PartState::from_mut(state, None);
+        let commit = Commit::from_diff(&state_a, &state_b).unwrap();
         queue.receive(commit);
         
         let mut state = state_b.clone_mut();
@@ -1110,15 +1105,15 @@ mod tests {
         insert(&mut state, 7, "seven").unwrap();
         state.remove(p.elt_id(4)).unwrap();
         state.replace(p.elt_id(3), "half six".to_string()).unwrap();
-        let commit = Commit::from_diff(&state_b, &state, None).unwrap();
-        let state_c = commit.apply(&state_b).expect("commit apply c");
+        let state_c = PartState::from_mut(state, None);
+        let commit = Commit::from_diff(&state_b, &state_c).unwrap();
         queue.receive(commit);
         
         let mut state = state_c.clone_mut();
         insert(&mut state, 8, "eight").unwrap();
         insert(&mut state, 4, "half eight").unwrap();
-        let commit = Commit::from_diff(&state_c, &state, None).unwrap();
-        let state_d = commit.apply(&state_c).expect("commit apply d");
+        let state_d = PartState::from_mut(state, None);
+        let commit = Commit::from_diff(&state_c, &state_d).unwrap();
         queue.receive(commit);
         
         let io = box DummyPartIO::new(PartId::from_num(1));

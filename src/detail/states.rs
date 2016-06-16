@@ -12,8 +12,8 @@ use hashindexed::KeyComparator;
 use rand::random;
 
 use {ElementT, Sum, PartId, EltId};
-use commit::CommitMeta;
-use error::ElementOp;
+use commit::{Commit, CommitMeta, MakeMeta};
+use error::{ElementOp, PatchOp};
 
 /// Trait abstracting over read operations on the state of a partition or
 /// repository.
@@ -135,6 +135,7 @@ pub struct MutPartState<E: ElementT> {
     elt_sum: Sum,
     elts: HashMap<EltId, Rc<E>>,
     moved: HashMap<EltId, EltId>,
+    // Number to assign to next commit (i.e. parent's `meta.next_number()`)
     number: u32,
 }
 
@@ -144,12 +145,14 @@ impl<E: ElementT> PartState<E> {
     /// The partition's identifier must be given; this is used to assign new
     /// element identifiers. Panics if the partition identifier is invalid.
     pub fn new(part_id: PartId) -> PartState<E> {
-        Self::new_with(part_id, Vec::new(), CommitMeta::now_empty())
+        Self::new_meta(part_id, None)
     }
     /// As `new()`, but letting the user specify commit meta-data and parents.
-    pub fn new_with(part_id: PartId, parents: Vec<Sum>, meta: CommitMeta) ->
+    pub fn new_meta(part_id: PartId, make_meta: Option<&MakeMeta>) ->
             PartState<E>
     {
+        let parents = vec![];
+        let meta = CommitMeta::new_par_mm(vec![], make_meta);
         let metasum = Sum::state_meta_sum(part_id, &parents, &meta);
         PartState {
             part_id: part_id,
@@ -179,33 +182,13 @@ impl<E: ElementT> PartState<E> {
         }
     }
     
-    //TODO: how should metadata be provided/created?
-    /// Create a `PartState` from a `MutPartState` and metadata.
-    /// 
-    /// The metadata can be constructed using the number in `mut_state` and
-    /// `CommitMeta::timestamp_now()` if not already available.
-    /// 
-    /// Commit metadata is constructed from the number in the passed
-    /// `MutPartState`, the time now and the passed optional extra data.
+    /// Create a `PartState` from a `MutPartState` and an optional
+    /// `MakeMeta` trait.
     pub fn from_mut(mut_state: MutPartState<E>,
-            metadata: CommitMeta) -> PartState<E>
+            make_meta: Option<&MakeMeta>) -> PartState<E>
     {
         let parents = vec![mut_state.parent.clone()];
-        Self::from_mut_with_parents(mut_state, parents, metadata)
-    }
-    //TODO: how should metadata be provided/created?
-    /// Create a `PartState` from a `MutPartState`, a list of parents and
-    /// metadata.
-    /// 
-    /// The metadata can be constructed using the number in `mut_state` and
-    /// `CommitMeta::timestamp_now()` if not already available.
-    /// 
-    /// Commit metadata is constructed from the number in the passed
-    /// `MutPartState`, the time now and the passed optional extra data.
-    pub fn from_mut_with_parents(mut_state: MutPartState<E>,
-            parents: Vec<Sum>,
-            metadata: CommitMeta) -> PartState<E>
-    {
+        let metadata = CommitMeta::new_num_mm(mut_state.number, make_meta);
         let metasum = Sum::state_meta_sum(mut_state.part_id, &parents, &metadata);
         PartState {
             part_id: mut_state.part_id,
@@ -216,6 +199,27 @@ impl<E: ElementT> PartState<E> {
             meta: metadata
         }
     }
+    /// Create a `PartState` from a parent `PartState` and a `Commit`.
+    pub fn from_state_commit(parent: &PartState<E>, commit: &Commit<E>) ->
+            Result<PartState<E>, PatchOp>
+    {
+        if *parent.statesum() != commit.parents()[0] { return Err(PatchOp::WrongParent); }
+        let mut mut_state = parent.clone_mut();
+        try!(commit.apply_mut(&mut mut_state));
+        
+        let metasum = Sum::state_meta_sum(mut_state.part_id, &commit.parents(), &commit.meta());
+        let statesum = &mut_state.elt_sum ^ &metasum;
+        if statesum != *commit.statesum() { return Err(PatchOp::PatchApply); }
+        
+        Ok(PartState {
+            part_id: mut_state.part_id,
+            parents: commit.parents().clone(),
+            statesum: statesum,
+            elts: mut_state.elts,
+            moved: mut_state.moved,
+            meta: commit.meta().clone()
+        })
+    }
     
     /// Mutate the metadata in order to yield a new `statesum()` while
     /// otherwise not changing the state.
@@ -223,8 +227,11 @@ impl<E: ElementT> PartState<E> {
     /// Output may be passed to `Commit::mutate_meta()`.
     pub fn mutate_meta(&mut self) -> (u32, Sum) {
         let old_metasum = Sum::state_meta_sum(self.part_id, &self.parents, &self.meta);
-        assert_eq!(self.meta.ver(), 1); // code may need updating in future
+        let old_number = self.meta.number();
         self.meta.incr_number();
+        if self.meta.number() == old_number {
+            panic!("Unable to mutate meta!");   // out of numbers; what can we do?
+        }
         let new_metasum = Sum::state_meta_sum(self.part_id, &self.parents, &self.meta);
         self.statesum = &(&self.statesum ^ &old_metasum) ^ &new_metasum;
         (self.meta.number(), self.statesum.clone())

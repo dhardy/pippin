@@ -14,24 +14,37 @@ use chrono::{DateTime, NaiveDateTime, UTC};
 
 use detail::readwrite::CommitReceiver;
 use {PartState, MutPartState, MutState};
-use {ElementT, EltId, PartId, Sum};
-use error::{Result, PatchOp, ElementOp};
+use {ElementT, EltId, Sum};
+use error::{Result, ElementOp};
 
 
-/// Closure type to make metadata.
+/// The type of the user-specified *extra* metadata field. This allows users
+/// to store extra information about commits (e.g. author, place, comment).
 /// 
-/// PartId is the identifier of the partition receiving the change. The vector
-/// of commit-metas references each parent commit's metadata.
-pub type MakeMeta = Fn(PartId, Vec<&CommitMeta>) -> CommitMeta;
+/// Currently the only supported non-empty type is UTF-8 text (designated XMTT
+/// in files), but the file format and API allows for future extensions.
+#[derive(Clone, PartialEq, Debug)]
+pub enum ExtraMeta {
+    /// No extra metadata
+    None,
+    /// Extra metadata as a simple text field
+    Text(String),
+}
 
-/// Extra data about a commit, version 1. This type should remain fixed, unlike
-/// `CommitMeta`.
-#[derive(Eq, PartialEq, Clone, Debug)]
-pub struct CommitMeta1 {
+/// Metadata is attached to every commit. The following is included by the
+/// library:
+/// 
+/// *   The `number` of the commit (roughly, the length of the longest sequence
+///     of ancestors leading back to the initial commit)
+/// *   A time-stamp (usually the UTC time of creation)
+/// 
+/// Additionally, users may attach information via the `ExtraMeta` struct.
+#[derive(Debug, PartialEq, Clone)]
+pub struct CommitMeta {
     /// Commit number. First (real) commit has number 1, each subsequent commit
     /// has max-parent-number + 1. Can be used to identify commits but is not
     /// necessarily unique.
-    pub number: u32,
+    number: u32,
     /// Time of commit creation
     /// 
     /// This is a UNIX time-stamp: the number of non-leap seconds since January
@@ -39,79 +52,34 @@ pub struct CommitMeta1 {
     /// `chrono::NaiveDateTime::from_timestamp` directly.
     /// 
     /// In rare cases this may be zero. 
-    pub timestamp: i64,
-    /// Extra metadata (e.g. author, comments).
-    pub extra: Option<String>,
-}
-
-// Private enum of all meta versions; used so that fields of CommitMeta are not
-// public.
-#[derive(Debug, Clone)]
-enum MetaInternal {
-    Meta1(CommitMeta1)
-}
-// This is implemented manually so that cross-version "equality" does get
-// thought about. I'm not sure where it's needed or what it should do yet.
-impl PartialEq for MetaInternal {
-    fn eq(&self, rhs: &Self) -> bool {
-        match rhs {
-            &MetaInternal::Meta1(ref r) => {
-                match self {
-                    &MetaInternal::Meta1(ref m) => m == r,
-                }
-            },
-        }
-    }
-}
-
-/// A abstraction over all metadata versions (this is what you normally use,
-/// except for creation, when you can use one of the versioned types).
-/// 
-/// The internal details may change over time, and new public methods may be
-/// added.
-/// 
-/// Creation should be via one of the named constructors (e.g.
-/// `CommitMeta::now_empty()`) or via a versioned struct, e.g.
-/// 
-/// ```rust
-/// use pippin::commit::{CommitMeta, CommitMeta1};
-/// 
-/// let meta: CommitMeta = CommitMeta1 {
-///         number: 7,
-///         timestamp: CommitMeta::timestamp_now(),
-///         extra: None
-///     }.into();
-/// ```
-/// 
-/// Fields may be retrieved via getters, e.g. `meta.number()`.
-#[derive(Debug, PartialEq, Clone)]
-pub struct CommitMeta {
-    meta: MetaInternal
+    timestamp: i64,
+    /// User-provided extra metadata
+    extra: ExtraMeta,
 }
 
 impl CommitMeta {
-    /// Create an instance applicable to a new empty partition.
-    /// 
-    /// Assigns a timestamp as of *now* (via `Self::timestamp_now()`).
-    pub fn now_empty() -> CommitMeta {
-        Self::now_with(0, None)
-    }
-    /// Create an instance with provided number and optional extra data.
-    /// 
-    /// Assigns a timestamp as of *now* (via `Self::timestamp_now()`).
-    pub fn now_with(number: u32, extra: Option<String>) -> CommitMeta {
-        Self::from(CommitMeta1 {
+    /// Create, with a specified number and an optional `MakeMeta` trait.
+    pub fn new_num_mm(number: u32, mm: Option<&MakeMeta>) -> Self {
+        let timestamp = mm.map_or_else(|| Self::timestamp_now(), |mm| mm.make_timestamp());
+        CommitMeta {
             number: number,
-            timestamp: Self::timestamp_now(),
-            extra: extra,
-        })
+            timestamp: timestamp,
+            extra: mm.map_or(ExtraMeta::None, |mm| mm.make_extrameta()),
+        }
     }
-    /// Create a default CommitMeta for a commit, given a list of the metadata
-    /// of parent commits (one parent for a normal commit, more for a merge,
-    /// none for the initial state).
-    pub fn make_default(parents: Vec<&CommitMeta>) -> CommitMeta {
+    /// Create from parent(s)' metadata and an optional `MakeMeta` trait.
+    pub fn new_par_mm(parents: Vec<&CommitMeta>, mm: Option<&MakeMeta>) -> Self {
         let number = parents.iter().fold(0, |prev, &m| max(prev, m.next_number()));
-        Self::now_with(number, None)
+        let timestamp = mm.map_or_else(|| Self::timestamp_now(), |mm| mm.make_timestamp());
+        CommitMeta {
+            number: number,
+            timestamp: timestamp,
+            extra: mm.map_or(ExtraMeta::None, |mm| mm.make_extrameta()),
+        }
+    }
+    /// Create, explicitly providing all fields.
+    pub fn new_explicit(number: u32, timestamp: i64, extra: ExtraMeta) -> Self {
+        CommitMeta { number: number, timestamp: timestamp, extra: extra }
     }
     
     /// Utility method to create a timestamp representing this moment.
@@ -123,22 +91,18 @@ impl CommitMeta {
     
     /// Get the commit's timestamp
     pub fn timestamp(&self) -> i64 {
-        match &self.meta {
-            &MetaInternal::Meta1(ref m) => m.timestamp,
-        }
+        self.timestamp
     }
     /// Convert the internal timestamp to a `chrono::DateTime`.
     pub fn date_time(&self) -> DateTime<UTC> {
         DateTime::<UTC>::from_utc(
-                NaiveDateTime::from_timestamp(self.timestamp(), 0),
+                NaiveDateTime::from_timestamp(self.timestamp, 0),
                 UTC)
     }
     
     /// Get the commit's number
     pub fn number(&self) -> u32 {
-        match &self.meta {
-            &MetaInternal::Meta1(ref m) => m.number,
-        }
+        self.number
     }
     /// Get the next number (usually current + 1)
     pub fn next_number(&self) -> u32 {
@@ -149,33 +113,37 @@ impl CommitMeta {
     /// This is for internal usage and not guaranteed to remain.
     pub fn incr_number(&mut self) {
         let n = self.next_number();
-        match &mut self.meta {
-            &mut MetaInternal::Meta1(ref mut m) => { m.number = n; },
-        }
+        self.number = n;
     }
     
-    /// Get the version of the internal metadata format. I.e. for `CommitMeta1`
-    /// this is 1, and so on.
-    pub fn ver(&self) -> u32 {
-        match self.meta {
-            MetaInternal::Meta1(_) => 1,
-        }
-    }
-    
-    /// Get the commit's extra data. There are no guarantees to what this will
-    /// look like in future meta-data versions, or even if it will be present.
-    pub fn extra(&self) -> Option<&String> {
-        match &self.meta {
-            &MetaInternal::Meta1(ref m) => m.extra.as_ref(),
-        }
+    /// Get the commit's extra data.
+    pub fn extra(&self) -> &ExtraMeta {
+        &self.extra
     }
 }
 
-impl From<CommitMeta1> for CommitMeta {
-    fn from(m: CommitMeta1) -> Self {
-        CommitMeta { meta: MetaInternal::Meta1(m) }
+/// Interface used to assign user-specific metadata.
+/// 
+/// This mostly exists to allow users to specify the contents of the "extra
+/// metadata" field, which otherwise remains empty.
+/// 
+/// It is also possible to change the way timestamps are assigned with this
+/// trait, but it is up to the user to avoid causing confusion when this
+/// happens. Timestamps are not acutally used for anything by the library.
+pub trait MakeMeta {
+    /// Make a timestamp for a commit (usually the time now). The default
+    /// implementation simply wraps `CommitMeta::timestamp_now()`.
+    fn make_timestamp(&self) -> i64 {
+        CommitMeta::timestamp_now()
+    }
+    
+    /// Make an extra-metadata item. The default implementation simply
+    /// returns `ExtraMeta::None`.
+    fn make_extrameta(&self) -> ExtraMeta {
+        ExtraMeta::None
     }
 }
+
 
 /// Holds a set of commits, ordered by insertion order.
 /// This is only really needed for readwrite::read_log().
@@ -303,8 +271,8 @@ impl<E: ElementT> Commit<E> {
     /// This is one of two ways to create a commit; the other would be to track
     /// changes to a state (possibly the latter is the more sensible approach
     /// for most applications).
-    pub fn from_diff(old_state: &PartState<E>, new_state: &MutPartState<E>,
-            make_meta: Option<&MakeMeta>) -> Option<Commit<E>>
+    pub fn from_diff(old_state: &PartState<E>, new_state: &PartState<E>)
+            -> Option<Commit<E>>
     {
         let mut elt_map = new_state.elt_map().clone();
         let mut changes = HashMap::new();
@@ -345,43 +313,21 @@ impl<E: ElementT> Commit<E> {
         if changes.is_empty() {
             None
         } else {
-            let parents = vec![old_state.statesum().clone()];
-            let metadata = if let Some(mm) = make_meta {
-                mm(new_state.part_id(), vec![&old_state.meta()])
-            } else {
-                CommitMeta::make_default(vec![&old_state.meta()])
-            };
-            let metasum = Sum::state_meta_sum(new_state.part_id(),
-                    &parents, &metadata);
             Some(Commit {
-                statesum: new_state.elt_sum() ^ &metasum,
-                parents: parents,
+                statesum: new_state.statesum().clone(),
+                parents: vec![old_state.statesum().clone()],
                 changes: changes,
-                meta: metadata,
+                meta: new_state.meta().clone(),
             })
         }
     }
     
-    /// Apply this commit to a given state, yielding a new state.
+    /// Apply this commit to a `MutPartState`. This does not verify the final
+    /// statesum and does not use the metadata stored in this commit.
     /// 
-    /// Fails if the given state's initial state-sum is not equal to this
-    /// commit's parent or if there are any errors in applying this patch.
-    pub fn apply(&self, parent: &PartState<E>) ->
-            Result<PartState<E>, PatchOp>
-    {
-        if *parent.statesum() != self.parents[0] { return Err(PatchOp::WrongParent); }
-        let mut mut_state = parent.clone_mut();
-        try!(self.apply_mut(&mut mut_state));
-        
-        let state = PartState::from_mut_with_parents(mut_state,
-                self.parents.clone(), self.meta.clone());
-        if state.statesum() != self.statesum() { return Err(PatchOp::PatchApply); }
-        Ok(state)
-    }
-    
-    /// Apply this commit to a `MutPartState`. Unlike `apply()`, this does not
-    /// verify the final statesum and does not use the metadata stored in this
-    /// commit.
+    /// You should probably use
+    /// `PartState::from_state_commit(&par_state, &commit)` instead of using
+    /// this method directly.
     pub fn apply_mut(&self, mut_state: &mut MutPartState<E>) -> Result<(), ElementOp> {
         for (id, ref change) in self.changes.iter() {
             match *change {
@@ -413,11 +359,7 @@ impl<E: ElementT> Commit<E> {
     /// Warning: the state used to do this must match this commit or this
     /// commit will be messed up!
     pub fn mutate_meta(&mut self, mutated: (u32, Sum)) {
-        match &mut self.meta.meta {
-            &mut MetaInternal::Meta1(ref mut m) => {
-                m.number = mutated.0;
-            },
-        }
+        self.meta.number = mutated.0;
         self.statesum = mutated.1;
     }
     

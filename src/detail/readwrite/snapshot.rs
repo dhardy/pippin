@@ -14,8 +14,8 @@ use byteorder::{ByteOrder, BigEndian, WriteBytesExt};
 use detail::readwrite::{sum};
 use {PartState, State};
 use {ElementT, PartId, Sum};
-use commit::CommitMeta1;
 use detail::SUM_BYTES;
+use commit::{ExtraMeta, CommitMeta};
 use error::{Result, ReadError, ElementOp};
 
 /// Read a snapshot of a set of elements from a stream.
@@ -62,11 +62,11 @@ pub fn read_snapshot<T: ElementT>(reader: &mut Read, part_id: PartId,
     let mut xm_data = vec![0; xm_len];
     try!(r.read_exact(&mut xm_data));
     let xm = if xm_type_txt {
-        Some(try!(String::from_utf8(xm_data)
+        ExtraMeta::Text(try!(String::from_utf8(xm_data)
             .map_err(|_| ReadError::new("content not valid UTF-8", pos, (0, xm_len)))))
     } else {
         // even if xm_len > 0 we ignore it
-        None
+        ExtraMeta::None
     };
     
     pos += xm_len;
@@ -76,11 +76,7 @@ pub fn read_snapshot<T: ElementT>(reader: &mut Read, part_id: PartId,
         pos += pad_len;
     }
     
-    let meta = CommitMeta1 {
-        number: cnum,
-        timestamp: secs,
-        extra: xm,
-    }.into();
+    let meta = CommitMeta::new_explicit(cnum, secs, xm);
     
     let mut parents = Vec::with_capacity(num_parents);
     for _ in 0..num_parents {
@@ -206,20 +202,22 @@ pub fn write_snapshot<T: ElementT>(state: &PartState<T>,
     try!(w.write(b"CNUM"));
     try!(w.write_u32::<BigEndian>(state.meta().number()));
     
-    assert_eq!(state.meta().ver(), 1);  // serialisation may need to change for future versions
-    if let Some(ref txt) = state.meta().extra() {
-        try!(w.write(b"XMTT"));
-        assert!(txt.len() <= u32::MAX as usize);
-        try!(w.write_u32::<BigEndian>(txt.len() as u32));
-        try!(w.write(txt.as_bytes()));
-        let pad_len = 16 * ((txt.len() + 15) / 16) - txt.len();
-        if pad_len > 0 {
-            let padding = [0u8; 15];
-            try!(w.write(&padding[0..pad_len]));
-        }
-    } else {
-        // last four zeros is 0u32 encoded in bytes
-        try!(w.write(b"XM\x00\x00\x00\x00\x00\x00"));
+    match state.meta().extra() {
+        &ExtraMeta::None => {
+            // last four zeros is 0u32 encoded in bytes
+            try!(w.write(b"XM\x00\x00\x00\x00\x00\x00"));
+        },
+        &ExtraMeta::Text(ref txt) => {
+            try!(w.write(b"XMTT"));
+            assert!(txt.len() <= u32::MAX as usize);
+            try!(w.write_u32::<BigEndian>(txt.len() as u32));
+            try!(w.write(txt.as_bytes()));
+            let pad_len = 16 * ((txt.len() + 15) / 16) - txt.len();
+            if pad_len > 0 {
+                let padding = [0u8; 15];
+                try!(w.write(&padding[0..pad_len]));
+            }
+        },
     }
     
     for parent in state.parents() {
@@ -277,7 +275,7 @@ pub fn write_snapshot<T: ElementT>(state: &PartState<T>,
 #[test]
 fn snapshot_writing() {
     use ::MutState;
-    use ::commit::CommitMeta;
+    use ::commit::{MakeMeta};
     
     let part_id = PartId::from_num(1);
     let mut state = PartState::<String>::new(part_id).clone_mut();
@@ -302,8 +300,13 @@ fn snapshot_writing() {
         zxcvm,./ZXCVM;:?`\"ç$0,./ζχψωμ~·÷";
     state.insert(data.to_string()).unwrap();
     
-    let meta = CommitMeta::now_with(5617, Some("text".to_string()));
-    let state = PartState::from_mut(state, meta);
+    struct MyMM {}
+    impl MakeMeta for MyMM {
+        fn make_extrameta(&self) -> ExtraMeta {
+            ExtraMeta::Text("text".to_string())
+        }
+    }
+    let state = PartState::from_mut(state, Some(&MyMM {}));
     
     let mut result = Vec::new();
     assert!(write_snapshot(&state, &mut result).is_ok());

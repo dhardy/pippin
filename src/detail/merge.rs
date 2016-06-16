@@ -271,11 +271,7 @@ impl<'a, E: ElementT> TwoWayMerge<'a, E> {
             (sum2, vec![self.b.statesum().clone(), self.a.statesum().clone()], c2)
         };
         let part_id = self.a.part_id(); // all states have same part_id
-        let meta = if let Some(mm) = make_meta {
-            mm(part_id, vec![&self.a.meta(), &self.b.meta()])
-        } else {
-            CommitMeta::make_default(vec![&self.a.meta(), &self.b.meta()])
-        };
+        let meta = CommitMeta::new_par_mm(vec![&self.a.meta(), &self.b.meta()], make_meta);
         let statesum = &sum ^ &Sum::state_meta_sum(part_id, &parents, &meta);
         Some(Commit::new_explicit(statesum, parents, changes, meta))
     }

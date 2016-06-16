@@ -115,7 +115,7 @@ pub mod util;
 
 /// Exposes several types to do with commits
 pub mod commit {
-    pub use detail::{Commit, CommitQueue, EltChange, CommitMeta, CommitMeta1, MakeMeta};
+    pub use detail::{Commit, CommitQueue, EltChange, CommitMeta, ExtraMeta, MakeMeta};
 }
 
 /// Version. The low 16 bits are patch number, next 16 are the minor version
