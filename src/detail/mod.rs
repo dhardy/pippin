@@ -5,7 +5,7 @@
 //! In-memory representations of Pippin data
 
 pub use self::elt::{PartId, EltId, ElementT};
-pub use self::commits::{Commit, CommitQueue, EltChange, CommitMeta, ExtraMeta, MakeMeta};
+pub use self::commit::{Commit, CommitQueue, EltChange, CommitMeta, ExtraMeta, MakeMeta};
 pub use self::sum::Sum;
 pub use self::sum::BYTES as SUM_BYTES;
 pub use self::repo::{Repository, RepoState};
@@ -17,6 +17,6 @@ pub mod merge;
 
 mod sum;
 mod states;
-mod commits;
+mod commit;
 mod elt;
 mod repo_traits;
