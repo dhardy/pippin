@@ -12,7 +12,7 @@ use std::cmp::max;
 
 use chrono::{DateTime, NaiveDateTime, UTC};
 
-use {PartState, MutPartState, MutState};
+use {PartState, MutPartState, MutStateT};
 use {ElementT, EltId, Sum};
 use error::{Result, ElementOp};
 

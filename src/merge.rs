@@ -35,7 +35,7 @@ use std::marker::PhantomData;
 use std::rc::Rc;
 
 use commit::{Commit, CommitMeta, MakeMeta, EltChange};
-use {PartState, State};
+use {PartState, StateT};
 use {EltId, ElementT, Sum};
 
 /// This struct controls the merging of two states into one.

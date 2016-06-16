@@ -1,6 +1,6 @@
 // The obligatory hello-world example.
 
-use pippin::{discover, fileio, Partition, State, MutState, PartId, Result};
+use pippin::{Result, Partition, PartId, StateT, MutStateT, discover, fileio};
 
 extern crate pippin;
 
@@ -29,7 +29,8 @@ fn inner() -> Result<()> {
             
             // Create a new partition:
             // PartFileIO is a dumb file accessor; hence needing to specify PartId. This may change.
-            let io = Box::new(fileio::PartFileIO::new_empty(PartId::from_num(1), "hello"));
+            let part_id = PartId::from_num(1);
+            let io = Box::new(fileio::PartFileIO::new_empty(part_id, "hello"));
             
             let mut part = try!(Partition::create(io, "hello world", None));
             

@@ -25,7 +25,7 @@ use std::mem::swap;
 // Re-export these. We pretend these are part of the same module while keeping files smaller.
 pub use repo_traits::{RepoIO, ClassifierT, ClassifyFallback, RepoT,
     RepoDivideError, DummyClassifier};
-use {Partition, State, MutState, MutPartState};
+use {Partition, StateT, MutStateT, MutPartState};
 use merge::TwoWaySolver;
 use {EltId, PartId};
 use commit::MakeMeta; 
@@ -385,7 +385,7 @@ impl<C: ClassifierT> RepoState<C> {
     }
 }
 
-impl<C: ClassifierT> State<C::Element> for RepoState<C> {
+impl<C: ClassifierT> StateT<C::Element> for RepoState<C> {
     fn any_avail(&self) -> bool {
         self.states.values().any(|v| v.any_avail())
     }
@@ -404,7 +404,7 @@ impl<C: ClassifierT> State<C::Element> for RepoState<C> {
         }
     }
 }
-impl<C: ClassifierT> MutState<C::Element> for RepoState<C> {
+impl<C: ClassifierT> MutStateT<C::Element> for RepoState<C> {
     fn insert_rc(&mut self, elt: Rc<C::Element>) -> Result<EltId, ElementOp> {
         let part_id = if let Some(part_id) = self.classifier.classify(&*elt) {
             part_id

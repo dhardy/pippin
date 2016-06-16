@@ -12,7 +12,7 @@ use std::collections::hash_map::{HashMap, Entry};
 use byteorder::{ByteOrder, BigEndian, WriteBytesExt};
 
 use readwrite::sum;
-use {PartState, State};
+use {PartState, StateT};
 use {ElementT, PartId, Sum};
 use sum::BYTES as SUM_BYTES;
 use commit::{ExtraMeta, CommitMeta};
@@ -274,7 +274,7 @@ pub fn write_snapshot<T: ElementT>(state: &PartState<T>,
 
 #[test]
 fn snapshot_writing() {
-    use ::MutState;
+    use ::MutStateT;
     use ::commit::{MakeMeta};
     
     let part_id = PartId::from_num(1);

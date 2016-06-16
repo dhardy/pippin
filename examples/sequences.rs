@@ -24,7 +24,7 @@ use docopt::Docopt;
 use rand::Rng;
 use rand::distributions::{IndependentSample, Range, Normal, LogNormal};
 
-use pippin::{ElementT, PartId, Partition, State, MutState, PartState};
+use pippin::{ElementT, PartId, Partition, StateT, MutStateT, PartState};
 use pippin::{PartIO, UserFields, UserData};
 use pippin::{discover, fileio};
 use pippin::repo::*;
@@ -470,7 +470,7 @@ fn run(path: &Path, part_num: Option<u64>, mode: Mode, create: bool,
     let merge_solver = TwoWaySolverChain::new(&solver1, &solver2);
     
     let mut rng = rand::thread_rng();
-    let mut generate = |state: &mut MutState<_>| match mode {
+    let mut generate = |state: &mut MutStateT<_>| match mode {
         Mode::Generate(num) => {
             match Range::new(0, 4).ind_sample(&mut rng) {
                 0 => {
@@ -572,7 +572,7 @@ fn run(path: &Path, part_num: Option<u64>, mode: Mode, create: bool,
     Ok(())
 }
 
-fn generate<R: Rng>(state: &mut MutState<Sequence>, rng: &mut R,
+fn generate<R: Rng>(state: &mut MutStateT<Sequence>, rng: &mut R,
     num: usize, generator: &Generator)
 {
     let len_range = LogNormal::new(1., 2.);

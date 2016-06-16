@@ -18,7 +18,7 @@ use std::io::{Read, Write};
 use std::ffi::OsStr;
 use std::os::unix::ffi::OsStrExt;
 use docopt::Docopt;
-use pippin::{Partition, PartIO, ElementT, State, MutState, UserData, PartId};
+use pippin::{Partition, PartIO, ElementT, StateT, MutStateT, UserData, PartId};
 use pippin::{discover, fileio};
 use pippin::error::{Result, PathError, ErrorTrait};
 use pippin::util::rtrim;

@@ -2,7 +2,18 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-//! Pippin: support for dealing with log replay, commit creation, etc.
+//! Pippin: representation of some *state* of a partition (the latest state or
+//! some historical state).
+//! 
+//! The main components of this module are `PartState` and `MutPartState`,
+//! which each hold a set of elements of a partition and provide access to
+//! them, along with some metadata (partition identifier, parent commit(s),
+//! checksums, commit metadata). `MutPartState` additionally allows
+//! modification of the set of elements and updates its checksums as this
+//! happens.
+//! 
+//! This module also contains the `StateT` and `MutStateT` traits which
+//! abstract over operations on partition and repository states.
 
 use std::collections::{HashMap};
 use std::clone::Clone;
@@ -17,7 +28,7 @@ use error::{ElementOp, PatchOp};
 
 /// Trait abstracting over read operations on the state of a partition or
 /// repository.
-pub trait State<E: ElementT> {
+pub trait StateT<E: ElementT> {
     /// Returns true when any elements are available.
     /// 
     /// In a single partition this means that the partition is not empty; in a
@@ -56,7 +67,7 @@ pub trait State<E: ElementT> {
 
 /// Trait abstracting over write operations on the state of a partition or
 /// repository.
-pub trait MutState<E: ElementT>: State<E> {
+pub trait MutStateT<E: ElementT>: StateT<E> {
     /// Insert a new element and return the identifier.
     /// 
     /// This fails if the relevant partition is not loaded or if the relevant
@@ -106,17 +117,16 @@ pub trait MutState<E: ElementT>: State<E> {
     fn remove(&mut self, id: EltId) -> Result<Rc<E>, ElementOp>;
 }
 
-/// A state of elements within a partition.
+/// A 'state' is the set of elements in a partition at some point in time.
+/// Partitions have multiple states (the latest and each historical state which
+/// has been loaded, possibly also unmerged branches).
 /// 
-/// Essentially this holds a map of element identifiers to elements plus some
-/// machinery to calculate checksums.
-///
 /// This holds one state. It is fairly cheap to clone one of these; the map of
 /// elements must be cloned but elements hold their data in a
 /// reference-counted way.
 /// 
-/// Elements may be inserted, deleted or replaced. Direct modification is not
-/// supported.
+/// Essentially this holds a map of elements indexed by their identifiers, a
+/// map of moved elements, partition-metadata and commit-metadata.
 #[derive(PartialEq, Debug)]
 pub struct PartState<E: ElementT> {
     part_id: PartId,
@@ -127,7 +137,19 @@ pub struct PartState<E: ElementT> {
     meta: CommitMeta,
 }
 
-/// An editable state
+/// An editable version of `PartState`.
+///
+/// Elements may be inserted, deleted or replaced. Direct modification is not
+/// supported.
+/// 
+/// This is a distinct type for two reasons: it is convenient to represent
+/// metadata differently, and requiring explicit type conversion ensures that
+/// commit creation happens correctly.
+/// 
+/// Note: there is a possibility that the internal representation be adjusted
+/// to a copy of the parent state plus a list of changes, however, it remains
+/// to be seen what advantages and disadvantages this would have. See issue
+/// #0021.
 #[derive(PartialEq, Debug)]
 pub struct MutPartState<E: ElementT> {
     part_id: PartId,
@@ -411,7 +433,7 @@ impl<E: ElementT> MutPartState<E> {
     }
 }
 
-impl<E: ElementT> State<E> for PartState<E> {
+impl<E: ElementT> StateT<E> for PartState<E> {
     fn any_avail(&self) -> bool {
         !self.elts.is_empty()
     }
@@ -425,7 +447,7 @@ impl<E: ElementT> State<E> for PartState<E> {
         self.elts.get(&id).ok_or(ElementOp::NotFound)
     }
 }
-impl<E: ElementT> State<E> for MutPartState<E> {
+impl<E: ElementT> StateT<E> for MutPartState<E> {
     fn any_avail(&self) -> bool {
         !self.elts.is_empty()
     }
@@ -439,7 +461,7 @@ impl<E: ElementT> State<E> for MutPartState<E> {
         self.elts.get(&id).ok_or(ElementOp::NotFound)
     }
 }
-impl<E: ElementT> MutState<E> for MutPartState<E> {
+impl<E: ElementT> MutStateT<E> for MutPartState<E> {
     fn insert_rc(&mut self, elt: Rc<E>) -> Result<EltId, ElementOp> {
         let id = try!(self.gen_id());
         try!(self.insert_with_id(id, elt));

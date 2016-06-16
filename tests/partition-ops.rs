@@ -17,7 +17,7 @@ use std::any::Any;
 use vec_map::VecMap;
 
 use pippin::PartId;
-use pippin::{Partition, PartIO, MutState};
+use pippin::{Partition, PartIO, MutStateT};
 use pippin::error::{make_io_err, Result};
 
 /// Allows writing to in-memory streams. Refers to external data so that it
