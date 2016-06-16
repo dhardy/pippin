@@ -94,10 +94,10 @@ pub use error::{Result};
 pub use elt::{EltId, PartId, ElementT};
 pub use part::{Partition, PartIO, UserFields};
 pub use repo::{Repository, RepoIO, RepoT, ClassifierT, RepoState};
+pub use state::{PartState, MutPartState, State, MutState};
 pub use sum::Sum;
 // Export some items not otherwise available here:
 pub use readwrite::{FileType, read_head, UserData};
-pub use states::{PartState, MutPartState, State, MutState};
 
 pub mod commit;
 pub mod discover;
@@ -109,7 +109,7 @@ pub mod part;
 mod readwrite;
 pub mod repo;
 mod repo_traits;
-mod states;
+pub mod state;
 pub mod sum;
 pub mod util;
 

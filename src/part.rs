@@ -13,13 +13,10 @@ use std::usize;
 use std::cmp::min;
 use hashindexed::{HashIndexed, Iter};
 
-// Some of states' items get re-exported here:
-pub use states::{State, MutState, PartState, MutPartState};
-
 use readwrite::{FileHeader, UserData, FileType, read_head, write_head, validate_repo_name};
 use readwrite::{read_snapshot, write_snapshot};
 use readwrite::{read_log, start_log, write_commit};
-use states::{PartStateSumComparator};
+use state::{PartState, MutPartState, PartStateSumComparator};
 use commit::{Commit, MakeMeta};
 use merge::{TwoWayMerge, TwoWaySolver};
 use {ElementT, Sum, PartId};
@@ -1074,12 +1071,11 @@ mod tests {
     use super::*;
     use commit::{Commit};
     use PartId;
+    use state::*;
+    use std::rc::Rc;
     
     #[test]
     fn commit_creation_and_replay(){
-        use {PartId};
-        use std::rc::Rc;
-        
         let p = PartId::from_num(1);
         let mut queue = vec![];
         
