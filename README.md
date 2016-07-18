@@ -61,6 +61,22 @@ of code. All of these can be found with grep:
     egrep -IR "#00[0-9]{2}" doc/ src/
 
 
+Examples & tests
+-----------------------
+
+Some self-contained examples can be found in the `examples` and `tests`
+directories:
+
+    examples/hello.rs       — minimal example
+    examples/pippincmd.rs    — tool to read/write DB entries as plain text
+    examples/sequences.rs   — test program generating random DB entries
+    
+    tests/partition-ops.rs  — external test suite for partition operations
+
+More examples and tests can be found in the `applications` directory. These
+make use of an extra library including some common code.
+
+
 Building, running, testing
 -------------------------
 
