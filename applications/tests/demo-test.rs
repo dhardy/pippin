@@ -1,3 +1,5 @@
+// Subject to the ISC licence (LICENSE-ISC.txt).
+
 extern crate pippin_app_tests;
 
 use pippin_app_tests::util;

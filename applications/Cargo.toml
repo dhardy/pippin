@@ -1,7 +1,10 @@
 [package]
-authors = ["Diggory Hardy <git@dhardy.name>"]
 name = "pippin_app_tests"
 version = "0.0.0"
+authors = ["Diggory Hardy <git@dhardy.name>"]
+
+description = "Examples and test suites for Pippin, including support code"
+license = "MPL-2.0"
 
 [lib]
 name = "pippin_app_tests"

@@ -1,3 +1,5 @@
+// Subject to the ISC licence (LICENSE-ISC.txt).
+
 // The obligatory hello-world example.
 
 use pippin::{Result, Partition, StateT, MutStateT, discover, fileio};
