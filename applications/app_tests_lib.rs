@@ -2,10 +2,16 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+#[macro_use]
+extern crate log;
+
+extern crate byteorder;
+
+#[macro_use(try_read)]
 extern crate pippin;
 
 
-/// —————  Utility functions used by tests  —————
+/// Utility functions used by tests
 pub mod util {
     use std::env;
     use std::path::{Path, PathBuf};
@@ -25,3 +31,7 @@ pub mod util {
         target_dir.parent().expect("target parent")
     }
 }
+
+
+/// Sequences example: type and generators
+pub mod seq;

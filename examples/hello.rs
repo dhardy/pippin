@@ -27,7 +27,7 @@ fn inner() -> Result<()> {
         },
         Err(e) => {
             println!("Error: {}", e);
-            println!("Creating a new partition instead");
+            println!("Creating a new partition instead (run again to see contents)");
             
             // Create a new partition, using PartFileIO:
             let io = Box::new(fileio::PartFileIO::new_default("hello"));
