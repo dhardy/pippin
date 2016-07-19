@@ -1,7 +1,8 @@
 # You can always use Cargo directly. But this makefile helps by:
-# 1) doing the operation on both the main project and the 'applications' sub-project
+# 1) doing the operation on both the main project and the 'app_tests' sub-project
 # 2) including examples in build and check operations
 # 3) sym-linking binaries into bin/
+
 
 EXAMPLES = hello pippincmd
 APP_EXAMPLES = demo-example sequences
@@ -20,8 +21,8 @@ build:	links
 		echo "→ $(C_B_EX)" && \
 		$(C_B_EX) ; \
 	done && \
-	echo "———  applications  ———" && \
-	cd applications && \
+	echo "———  app_tests  ———" && \
+	cd app_tests && \
 	echo "→ $(C_B)" && $(C_B) && \
 	for ex in $(APP_EXAMPLES); do \
 		echo "→ $(C_B_EX)" && \
@@ -35,8 +36,8 @@ check:
 		echo "→ $(C_C_EX)" && \
 		$(C_C_EX) ; \
 	done && \
-	echo "———  applications  ———" && \
-	cd applications && \
+	echo "———  app_tests  ———" && \
+	cd app_tests && \
 	echo "→ $(C_C)" && $(C_C) && \
 	for ex in $(APP_EXAMPLES); do \
 		echo "→ $(C_C_EX)" && \
@@ -46,23 +47,25 @@ check:
 test:	links
 	@echo "———  main project  ———" && \
 	echo "→ $(C_T)" && $(C_T) && \
-	echo "———  applications  ———" && \
-	cd applications && \
+	echo "———  app_tests  ———" && \
+	cd app_tests && \
 	echo "→ $(C_T)" && $(C_T)
 
 clean:
 	cargo clean && \
-	cd applications && cargo clean
+	cd app_tests && cargo clean
 
 links:
 	@mkdir -p bin
 	@for ex in $(EXAMPLES); do \
+		test -L bin/$$ex && (test -e bin/$$ex || rm bin/$$ex) ; \
 		test -L bin/$$ex || ( \
 			echo "Creating symlink bin/$$ex" && \
 			ln -s ../target/debug/examples/$$ex bin/$$ex ) ; \
 	done
 	@for ex in $(APP_EXAMPLES); do \
+		test -L bin/$$ex && (test -e bin/$$ex || rm bin/$$ex) ; \
 		test -L bin/$$ex || ( \
 			echo "Creating symlink bin/$$ex" && \
-			ln -s ../applications/target/debug/examples/$$ex bin/$$ex ) ; \
+			ln -s ../app_tests/target/debug/examples/$$ex bin/$$ex ) ; \
 	done

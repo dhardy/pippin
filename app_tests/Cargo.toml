@@ -8,7 +8,6 @@ license = "MPL-2.0"
 
 [lib]
 name = "pippin_app_tests"
-path = "app_tests_lib.rs"
 
 [dependencies]
 pippin = { path = ".." }
