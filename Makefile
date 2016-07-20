@@ -5,7 +5,7 @@
 
 
 EXAMPLES = hello pippincmd
-APP_EXAMPLES = demo-example sequences
+APP_EXAMPLES = sequences
 C_B = cargo build
 C_B_EX = $(C_B) --example $$ex
 C_C = cargo check
