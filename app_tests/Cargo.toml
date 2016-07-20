@@ -17,3 +17,4 @@ rustc-serialize = "0.3" # for docopt
 log = "0.3"
 env_logger = "0.3"
 rand = "0.3"
+mktemp = "0.3"

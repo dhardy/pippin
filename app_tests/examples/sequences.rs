@@ -14,11 +14,10 @@ extern crate pippin_app_tests;
 use std::path::{Path};
 use std::process::exit;
 use std::cmp::min;
-use std::u32;
 
 use docopt::Docopt;
 use rand::Rng;
-use rand::distributions::{IndependentSample, Range, Normal, LogNormal};
+use rand::distributions::{IndependentSample, LogNormal};
 
 use pippin::{PartId, Partition, StateT, MutStateT, Result};
 use pippin::{discover, fileio};
@@ -26,63 +25,6 @@ use pippin::repo::Repository;
 use pippin::merge::*;
 
 use pippin_app_tests::seq::*;
-
-
-// —————  Generators  —————
-trait Generator {
-    fn generate(&self, n: usize) -> Vec<R>;
-}
-struct Arithmetic { start: R, step: R }
-struct Geometric { start: R, factor: R }
-struct Fibonacci { x1: R, x2: R }
-struct Power { e: R }
-
-impl Generator for Arithmetic {
-    fn generate(&self, n: usize) -> Vec<R> {
-        let mut v = Vec::with_capacity(n);
-        let mut x = self.start;
-        while v.len() < n {
-            v.push(x);
-            x += self.step;
-        }
-        v
-    }
-}
-impl Generator for Geometric {
-    fn generate(&self, n: usize) -> Vec<R> {
-        let mut v = Vec::with_capacity(n);
-        let mut x = self.start;
-        while v.len() < n {
-            v.push(x);
-            x *= self.factor;
-        }
-        v
-    }
-}
-impl Generator for Fibonacci {
-    fn generate(&self, n: usize) -> Vec<R> {
-        let mut v = Vec::with_capacity(n);
-        let (mut x1, mut x2) = (self.x1, self.x2);
-        while v.len() < n {
-            v.push(x1);
-            let x = x1 + x2;
-            x1 = x2;
-            x2 = x;
-        }
-        v
-    }
-}
-impl Generator for Power {
-    fn generate(&self, n: usize) -> Vec<R> {
-        let mut v = Vec::with_capacity(n);
-        let mut i: R = 0.0;
-        while v.len() < n {
-            v.push(i.powf(self.e));
-            i += 1.0;
-        }
-        v
-    }
-}
 
 
 // —————  main  —————
@@ -160,36 +102,8 @@ fn run(path: &Path, part_num: Option<u64>, mode: Mode, create: bool,
     let mut rng = rand::thread_rng();
     let mut generate = |state: &mut MutStateT<_>| match mode {
         Mode::Generate(num) => {
-            match Range::new(0, 4).ind_sample(&mut rng) {
-                0 => {
-                    let gen = Arithmetic{
-                        start: LogNormal::new(0., 100.).ind_sample(&mut rng),
-                        step: Normal::new(0., 10.).ind_sample(&mut rng),
-                    };
-                    generate(state, &mut rng, num, &gen);
-                },
-                1 => {
-                    let gen = Geometric{
-                        start: LogNormal::new(0., 100.).ind_sample(&mut rng),
-                        factor: Normal::new(0., 2.).ind_sample(&mut rng),
-                    };
-                    generate(state, &mut rng, num, &gen);
-                },
-                2 => {
-                    let gen = Fibonacci{
-                        x1: Normal::new(1., 1.).ind_sample(&mut rng),
-                        x2: Normal::new(1., 1.).ind_sample(&mut rng),
-                    };
-                    generate(state, &mut rng, num, &gen);
-                },
-                3 => {
-                    let gen = Power{
-                        e: LogNormal::new(0., 1.).ind_sample(&mut rng),
-                    };
-                    generate(state, &mut rng, num, &gen);
-                },
-                _ => { panic!("invalid sample"); }
-            }
+            let gen = GeneratorEnum::new_random(&mut rng);
+            generate(state, &mut rng, num, &gen);
         },
         Mode::None => {},
     };
@@ -269,7 +183,7 @@ fn generate<R: Rng>(state: &mut MutStateT<Sequence>, rng: &mut R,
     let mut total = 0;
     for _ in 0..num {
         let len = min(len_range.ind_sample(rng) as usize, max_len);
-        if len > longest { longest = len; }
+        longest = max(longest, len);
         total += len;
         let seq = generator.generate(len).into();
         state.insert(seq).expect("insert element");

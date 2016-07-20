@@ -10,6 +10,8 @@ use std::u32;
 use std::collections::hash_map::{HashMap, Entry};
 use std::mem::size_of;
 
+use rand::Rng;
+use rand::distributions::{IndependentSample, Range, Normal, LogNormal};
 use byteorder::{ByteOrder, LittleEndian, ReadBytesExt, WriteBytesExt};
 
 use pippin::*;
@@ -52,6 +54,119 @@ impl ElementT for Sequence {
             v.push(try!(r.read_f64::<LittleEndian>()));
         }
         Ok(Sequence{ v: v })
+    }
+}
+
+
+// —————  Generators  —————
+/// A generator can generate a sequence of numbers.
+pub trait Generator {
+    /// Generate a sequence of `n` numbers.
+    fn generate(&self, n: usize) -> Vec<R>;
+}
+/// Arithmetic sequence (e.g. 1, 4, 7, 10)
+pub struct Arithmetic { start: R, step: R }
+/// Geometric sequence (e.g. 2, 6, 18, 54)
+pub struct Geometric { start: R, factor: R }
+/// Fibonacci sequence (usually 1, 1, 2, 3, 5, 8, ..., but starting numbers
+/// can be changed)
+pub struct Fibonacci { x1: R, x2: R }
+/// Power sequence (e.g. 3, 9, 27, 81)
+pub struct Power { e: R }
+
+impl Generator for Arithmetic {
+    fn generate(&self, n: usize) -> Vec<R> {
+        let mut v = Vec::with_capacity(n);
+        let mut x = self.start;
+        while v.len() < n {
+            v.push(x);
+            x += self.step;
+        }
+        v
+    }
+}
+impl Generator for Geometric {
+    fn generate(&self, n: usize) -> Vec<R> {
+        let mut v = Vec::with_capacity(n);
+        let mut x = self.start;
+        while v.len() < n {
+            v.push(x);
+            x *= self.factor;
+        }
+        v
+    }
+}
+impl Generator for Fibonacci {
+    fn generate(&self, n: usize) -> Vec<R> {
+        let mut v = Vec::with_capacity(n);
+        let (mut x1, mut x2) = (self.x1, self.x2);
+        while v.len() < n {
+            v.push(x1);
+            let x = x1 + x2;
+            x1 = x2;
+            x2 = x;
+        }
+        v
+    }
+}
+impl Generator for Power {
+    fn generate(&self, n: usize) -> Vec<R> {
+        let mut v = Vec::with_capacity(n);
+        let mut i: R = 0.0;
+        while v.len() < n {
+            v.push(i.powf(self.e));
+            i += 1.0;
+        }
+        v
+    }
+}
+
+/// Enum of all generator types
+pub enum GeneratorEnum {
+    Arithmetic(Arithmetic),
+    Geometric(Geometric),
+    Fibonacci(Fibonacci),
+    Power(Power),
+}
+impl GeneratorEnum {
+    /// Randomly create a new generator.
+    pub fn new_random(mut rng: &mut Rng) -> GeneratorEnum {
+        match Range::new(0, 4).ind_sample(&mut rng) {
+            0 => {
+                GeneratorEnum::Arithmetic(Arithmetic {
+                    start: LogNormal::new(0., 100.).ind_sample(&mut rng),
+                    step: Normal::new(0., 10.).ind_sample(&mut rng),
+                })
+            },
+            1 => {
+                GeneratorEnum::Geometric(Geometric {
+                    start: LogNormal::new(0., 100.).ind_sample(&mut rng),
+                    factor: Normal::new(0., 2.).ind_sample(&mut rng),
+                })
+            },
+            2 => {
+                GeneratorEnum::Fibonacci(Fibonacci {
+                    x1: Normal::new(1., 1.).ind_sample(&mut rng),
+                    x2: Normal::new(1., 1.).ind_sample(&mut rng),
+                })
+            },
+            3 => {
+                GeneratorEnum::Power(Power {
+                    e: LogNormal::new(0., 1.).ind_sample(&mut rng),
+                })
+            },
+            _ => { panic!("invalid sample"); }
+        }
+    }
+}
+impl Generator for GeneratorEnum {
+    fn generate(&self, n: usize) -> Vec<R> {
+        match self {
+            &GeneratorEnum::Arithmetic(ref gen) => gen.generate(n),
+            &GeneratorEnum::Geometric(ref gen) => gen.generate(n),
+            &GeneratorEnum::Fibonacci(ref gen) => gen.generate(n),
+            &GeneratorEnum::Power(ref gen) => gen.generate(n),
+        }
     }
 }
 
