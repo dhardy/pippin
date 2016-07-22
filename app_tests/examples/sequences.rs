@@ -13,7 +13,7 @@ extern crate pippin_app_tests;
 
 use std::path::{Path};
 use std::process::exit;
-use std::cmp::min;
+use std::cmp::{min, max};
 
 use docopt::Docopt;
 use rand::Rng;
