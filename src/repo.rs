@@ -67,11 +67,13 @@ impl<C: ClassifierT, R: RepoT<C>> Repository<C, R> {
     /// 
     /// This creates an initial 'partition' ready for use (all contents must
     /// be kept within a `Partition`).
-    pub fn create<S: Into<String>>(mut classifier: R, name: S) -> Result<Repository<C, R>> {
+    pub fn create<S: Into<String>>(mut classifier: R, name: S,
+            make_meta: Option<&MakeMeta>) -> Result<Repository<C, R>>
+    {
         let name: String = name.into();
         info!("Creating repository: {}", name);
         let part_io = try!(classifier.init_first());
-        let part = try!(Partition::create(part_io, &name, Some(&mut classifier)));
+        let part = try!(Partition::create(part_io, &name, Some(&mut classifier), make_meta));
         let mut partitions = HashMap::new();
         partitions.insert(part.part_id(), part);
         Ok(Repository{
@@ -127,9 +129,9 @@ impl<C: ClassifierT, R: RepoT<C>> Repository<C, R> {
     // TODO: some way to iterate or access partitions?
     
     /// Load the latest state of all partitions
-    pub fn load_latest(&mut self) -> Result<()> {
+    pub fn load_latest(&mut self, make_meta: Option<&MakeMeta>) -> Result<()> {
         for (_, part) in &mut self.partitions {
-            try!(part.load_latest(Some(&mut self.classifier)));
+            try!(part.load_latest(Some(&mut self.classifier), make_meta));
         }
         Ok(())
     }

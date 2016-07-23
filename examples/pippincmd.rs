@@ -197,7 +197,7 @@ fn inner(path: PathBuf, op: Operation, args: Rest) -> Result<()>
             
             let prefix = path.join(name);
             let io = fileio::PartFileIO::new_empty(part_id, prefix);
-            try!(Partition::<DataElt>::create(Box::new(io), &repo_name, None));
+            try!(Partition::<DataElt>::create(Box::new(io), &repo_name, None, None));
             Ok(())
         },
         Operation::Header => {
@@ -250,7 +250,7 @@ fn inner(path: PathBuf, op: Operation, args: Rest) -> Result<()>
                 }
                 if list_commits {
                     let mut part = try!(Partition::<DataElt>::open(Box::new(part.clone())));
-                    try!(part.load_all(None));
+                    try!(part.load_all(None, None));
                     let mut states: Vec<_> = part.states().collect();
                     states.sort_by_key(|s| s.meta().number());
                     for state in states {
@@ -272,11 +272,11 @@ fn inner(path: PathBuf, op: Operation, args: Rest) -> Result<()>
             let mut part = try!(Partition::<DataElt>::open(Box::new(part_files)));
             {
                 let (is_tip, mut state) = if let Some(ss) = args.commit {
-                    try!(part.load_all(None));
+                    try!(part.load_all(None, None));
                     let state = try!(part.state_from_string(ss));
                     (part.tip_key().map(|k| k == state.statesum()).unwrap_or(false), state.clone_mut())
                 } else {
-                    try!(part.load_latest(None));
+                    try!(part.load_latest(None, None));
                     (true, try!(part.tip()).clone_mut())
                 };
                 match part_op {

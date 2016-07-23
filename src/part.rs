@@ -253,17 +253,19 @@ impl<E: ElementT> Partition<E> {
     /// use pippin::part::DummyPartIO;
     /// 
     /// let io = Box::new(DummyPartIO::new(PartId::from_num(1)));
-    /// let partition = Partition::<String>::create(io, "example repo", None);
+    /// let partition = Partition::<String>::create(io, "example repo", None, None);
     /// ```
+    //TODO: are we passing too many optional parameters: user & make_meta?
     pub fn create<'a>(mut io: Box<PartIO>, name: &str,
-            user: Option<&mut UserFields>) -> Result<Partition<E>>
+            user: Option<&mut UserFields>, make_meta: Option<&MakeMeta>)
+            -> Result<Partition<E>>
     {
         try!(validate_repo_name(name));
         let ss = 0;
         let part_id = io.part_id();
         info!("Creating partiton {}; writing snapshot {}", part_id, ss);
         
-        let state = PartState::new(part_id);
+        let state = PartState::new(part_id, make_meta);
         let header = FileHeader {
             ftype: FileType::Snapshot(0),
             name: name.to_string(),
@@ -372,13 +374,19 @@ impl<E: ElementT> Partition<E> {
     }
     
     /// Load all history. Shortcut for `load_range(0, usize::MAX, user)`.
-    pub fn load_all(&mut self, user: Option<&mut UserFields>) -> Result<()> {
-        self.load_range(0, usize::MAX, user)
+    //TODO: are we passing too many optional parameters: user & make_meta?
+    pub fn load_all(&mut self, user: Option<&mut UserFields>,
+            make_meta: Option<&MakeMeta>) -> Result<()>
+    {
+        self.load_range(0, usize::MAX, user, make_meta)
     }
     /// Load latest state from history (usually including some historical
     /// data). Shortcut for `load_range(usize::MAX, usize::MAX, user)`.
-    pub fn load_latest(&mut self, user: Option<&mut UserFields>) -> Result<()> {
-        self.load_range(usize::MAX, usize::MAX, user)
+    //TODO: are we passing too many optional parameters: user & make_meta?
+    pub fn load_latest(&mut self, user: Option<&mut UserFields>,
+            make_meta: Option<&MakeMeta>) -> Result<()>
+    {
+        self.load_range(usize::MAX, usize::MAX, user, make_meta)
     }
     
     /// Load snapshots `ss` where `ss0 <= ss < ss1`, and all log files for each
@@ -393,8 +401,10 @@ impl<E: ElementT> Partition<E> {
     /// 
     /// The `user` parameter allows any headers read to be examined. If `None`
     /// is passed, these fields are simply ignored.
+    //TODO: are we passing too many optional parameters: user & make_meta?
     pub fn load_range(&mut self, ss0: usize, ss1: usize,
-            mut user: Option<&mut UserFields>) -> Result<()>
+            mut user: Option<&mut UserFields>, make_meta: Option<&MakeMeta>)
+            -> Result<()>
     {
         // We have to consider several cases: nothing previously loaded, that
         // we're loading data older than what was previously loaded, or newer,
@@ -423,7 +433,7 @@ impl<E: ElementT> Partition<E> {
         if ss0 == 0 && !self.io.has_ss(ss0) {
             assert!(self.states.is_empty());
             // No initial snapshot; assume a blank state
-            let state = PartState::new(self.part_id);
+            let state = PartState::new(self.part_id, make_meta);
             self.tips.insert(state.statesum().clone());
             self.states.insert(state);
         }
@@ -710,7 +720,8 @@ impl<E: ElementT> Partition<E> {
                 },
                 Err(MergeError::NoCommonAncestor) if auto_load && self.ss0 > 0 => {
                     let ss0 = self.ss0;
-                    try!(self.load_range(ss0 - 1, ss0, None));
+                    //FIXME: user & make_meta should be specified here! Perhaps there should be two versions of this function for loading and not?
+                    try!(self.load_range(ss0 - 1, ss0, None, None));
                     continue;
                 },
                 Err(e) => {
@@ -1083,7 +1094,7 @@ mod tests {
             state.insert_with_id(p.elt_id(num), Rc::new(string.to_string()))
         };
         
-        let mut state = PartState::new(p).clone_mut();
+        let mut state = PartState::new(p, None).clone_mut();
         insert(&mut state, 1, "one").unwrap();
         insert(&mut state, 2, "two").unwrap();
         let state_a = PartState::from_mut(state, None);
@@ -1113,7 +1124,7 @@ mod tests {
         queue.push(commit);
         
         let io = box DummyPartIO::new(PartId::from_num(1));
-        let mut part = Partition::create(io, "replay part", None).unwrap();
+        let mut part = Partition::create(io, "replay part", None, None).unwrap();
         part.add_state(state_a, 0);
         for commit in queue {
             part.push_commit(commit).unwrap();
@@ -1127,7 +1138,7 @@ mod tests {
     #[test]
     fn on_new_partition() {
         let io = box DummyPartIO::new(PartId::from_num(7));
-        let mut part = Partition::<String>::create(io, "on_new_partition", None)
+        let mut part = Partition::<String>::create(io, "on_new_partition", None, None)
                 .expect("partition creation");
         assert_eq!(part.tips.len(), 1);
         

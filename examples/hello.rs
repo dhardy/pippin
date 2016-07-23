@@ -14,7 +14,7 @@ fn inner() -> Result<()> {
         Ok(io) => {
             // Read the found files:
             let mut part = try!(Partition::<String>::open(Box::new(io)));
-            try!(part.load_latest(None));
+            try!(part.load_latest(None, None));
             
             // Get access to the latest state:
             let tip = try!(part.tip());
@@ -31,7 +31,7 @@ fn inner() -> Result<()> {
             
             // Create a new partition, using PartFileIO:
             let io = Box::new(fileio::PartFileIO::new_default("hello"));
-            let mut part = try!(Partition::create(io, "hello world", None));
+            let mut part = try!(Partition::create(io, "hello world", None, None));
             
             // Create a new state derived from the tip:
             let mut state = try!(part.tip()).clone_mut();

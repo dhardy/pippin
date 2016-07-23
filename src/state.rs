@@ -166,11 +166,9 @@ impl<E: ElementT> PartState<E> {
     /// 
     /// The partition's identifier must be given; this is used to assign new
     /// element identifiers. Panics if the partition identifier is invalid.
-    pub fn new(part_id: PartId) -> PartState<E> {
-        Self::new_meta(part_id, None)
-    }
-    /// As `new()`, but letting the user specify commit meta-data and parents.
-    pub fn new_meta(part_id: PartId, make_meta: Option<&MakeMeta>) ->
+    /// 
+    /// Meta-data may be specified via `make_meta` or `None` can be passed.
+    pub fn new(part_id: PartId, make_meta: Option<&MakeMeta>) ->
             PartState<E>
     {
         let parents = vec![];

@@ -95,7 +95,7 @@ fn create_small() {
             part_id: PartId::from_num(56),
             ss: VecMap::new() };
     let mut part = Partition::<String>::create(box part_streams,
-        "create_small", None).expect("creating partition");
+        "create_small", None, None).expect("creating partition");
     
     // 2 Add a few elements over multiple commits
     let mut state = part.tip().expect("has tip").clone_mut();
@@ -165,7 +165,7 @@ fn create_small() {
     
     // 5 Read streams back again and compare
     let mut part2 = Partition::open(boxed_io).expect("opening partition");
-    part2.load_all(None).expect("part2.load");
+    part2.load_all(None, None).expect("part2.load");
     assert_eq!(state1,
         *part2.state(state1.statesum()).expect("get state1 by sum"));
     assert_eq!(state3, *part2.tip().expect("part2 tip"));

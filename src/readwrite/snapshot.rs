@@ -278,7 +278,7 @@ fn snapshot_writing() {
     use ::commit::{MakeMeta};
     
     let part_id = PartId::from_num(1);
-    let mut state = PartState::<String>::new(part_id).clone_mut();
+    let mut state = PartState::<String>::new(part_id, None).clone_mut();
     let data = "But I must explain to you how all this \
         mistaken idea of denouncing pleasure and praising pain was born and I \
         will give you a complete account of the system, and expound the \

@@ -113,12 +113,12 @@ fn run(path: &Path, part_num: Option<u64>, mode: Mode, create: bool,
             // On creation we need a number; 0 here means "default":
             let part_id = PartId::from_num(if pn == 0 { 1 } else { pn });
             let io = Box::new(fileio::PartFileIO::new_empty(part_id, path.join("seqdb")));
-            try!(Partition::<Sequence>::create(io, "sequences db", None))
+            try!(Partition::<Sequence>::create(io, "sequences db", None, None))
         } else {
             let part_id = if pn != 0 { Some(PartId::from_num(pn)) } else { None };
             let io = Box::new(try!(discover::part_from_path(path, part_id)));
             let mut part = try!(Partition::<Sequence>::open(io));
-            try!(part.load_latest(None));
+            try!(part.load_latest(None, None));
             part
         };
         
@@ -146,10 +146,10 @@ fn run(path: &Path, part_num: Option<u64>, mode: Mode, create: bool,
         let rt = SeqRepo::new(discover);
         
         let mut repo = if create {
-            try!(Repository::create(rt, "sequences db"))
+            try!(Repository::create(rt, "sequences db", None))
         } else {
             let mut repo = try!(Repository::open(rt));
-            try!(repo.load_latest());
+            try!(repo.load_latest(None));
             repo
         };
         

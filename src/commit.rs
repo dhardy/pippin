@@ -129,6 +129,9 @@ impl CommitMeta {
 /// It is also possible to change the way timestamps are assigned with this
 /// trait, but it is up to the user to avoid causing confusion when this
 /// happens. Timestamps are not acutally used for anything by the library.
+/// 
+/// Note that instances of this are passed as "ref" not "ref mut" for
+/// simplicity, but `Cell` and `RefCell` can be used for interior mutability.
 pub trait MakeMeta {
     /// Make a timestamp for a commit (usually the time now). The default
     /// implementation simply wraps `CommitMeta::timestamp_now()`.
