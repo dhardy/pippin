@@ -30,6 +30,7 @@ These may or may not be acted upon.
 *   list classifiers by name and maybe output restrictions
 *   describe classifier restrictions for the current partition
 *   describe all classifier restrictions / other known partitions
+*   make written files replicable by making orders of lists deterministic
 
 
 Terms

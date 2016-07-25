@@ -75,7 +75,7 @@ impl fmt::Display for PartId {
 /// Supports `From` (`EltId::from(n)`) to convert from a `u64` (this panics if
 /// the value is not a valid identifier). Supports `Into` (`pn.into()`) to
 /// convert to a `u64`.
-#[derive(Copy, Clone, PartialEq, Eq, Debug, Hash)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug, Hash, PartialOrd, Ord)]
 pub struct EltId {
     // #0018: optimise usage as Option with NonZero?
     id: u64,

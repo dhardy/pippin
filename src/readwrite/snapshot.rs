@@ -230,10 +230,13 @@ pub fn write_snapshot<T: ElementT>(state: &PartState<T>,
     
     let mut elt_buf = Vec::new();
     
-    for (ident, elt) in state.elts_iter() {
+    let mut keys: Vec<_> = state.elts_iter().map(|(k,_)| k).collect();
+    keys.sort();
+    for ident in keys {
         try!(w.write(b"ELEMENT\x00"));
         try!(w.write_u64::<BigEndian>(ident.into()));
         
+        let elt = state.get_rc(ident).expect("get elt by key");
         try!(w.write(b"BYTES\x00\x00\x00"));
         elt_buf.clear();
         try!(elt.write_buf(&mut &mut elt_buf));

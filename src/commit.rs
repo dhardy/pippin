@@ -353,6 +353,10 @@ impl<E: ElementT> Commit<E> {
     pub fn num_changes(&self) -> usize { self.changes.len() }
     /// Get an iterator over changes
     pub fn changes_iter(&self) -> hash_map::Iter<EltId, EltChange<E>> { self.changes.iter() }
+    /// Get a specific change, if this element was changed
+    pub fn change(&self, id: EltId) -> Option<&EltChange<E>> {
+        self.changes.get(&id)
+    }
     /// Access the commit's meta-data
     pub fn meta(&self) -> &CommitMeta { &self.meta }
     /// Write acces to the commit's meta-data

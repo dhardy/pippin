@@ -272,7 +272,10 @@ pub fn write_commit<E: ElementT>(commit: &Commit<E>, writer: &mut Write) -> Resu
     
     let mut elt_buf = Vec::new();
     
-    for (elt_id,change) in commit.changes_iter() {
+    let mut keys: Vec<_> = commit.changes_iter().map(|(k,_)| k).collect();
+    keys.sort();
+    for elt_id in keys {
+        let change = commit.change(*elt_id).expect("get change");
         let marker = match change {
             &EltChange::Deletion => b"ELT DEL\x00",
             &EltChange::Insertion(_) => b"ELT INS\x00",
