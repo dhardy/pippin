@@ -225,14 +225,14 @@ pub fn write_snapshot<T: ElementT>(state: &PartState<T>,
     }
     
     try!(w.write(b"ELEMENTS"));
-    let num_elts = state.elt_map().len() as u64;  // #0015
+    let num_elts = state.elts_len() as u64;  // #0015
     try!(w.write_u64::<BigEndian>(num_elts));
     
     let mut elt_buf = Vec::new();
     
-    for (ident, elt) in state.elt_map() {
+    for (ident, elt) in state.elts_iter() {
         try!(w.write(b"ELEMENT\x00"));
-        try!(w.write_u64::<BigEndian>((*ident).into()));
+        try!(w.write_u64::<BigEndian>(ident.into()));
         
         try!(w.write(b"BYTES\x00\x00\x00"));
         elt_buf.clear();
@@ -246,16 +246,15 @@ pub fn write_snapshot<T: ElementT>(state: &PartState<T>,
             try!(w.write(&padding[0..pad_len]));
         }
         
-        try!(elt.sum(*ident).write(&mut w));
+        try!(elt.sum(ident).write(&mut w));
     }
     
-    let moved = state.moved_map();
-    if !moved.is_empty() {
+    if state.moved_len() > 0 {
         try!(w.write(b"ELTMOVES"));
-        try!(w.write_u64::<BigEndian>(moved.len() as u64 /* #0015 */));
-        for (ident, new_ident) in moved {
-            try!(w.write_u64::<BigEndian>((*ident).into()));
-            try!(w.write_u64::<BigEndian>((*new_ident).into()));
+        try!(w.write_u64::<BigEndian>(state.moved_len() as u64 /* #0015 */));
+        for (ident, new_ident) in state.moved_iter() {
+            try!(w.write_u64::<BigEndian>(ident.into()));
+            try!(w.write_u64::<BigEndian>(new_ident.into()));
         }
     }
     

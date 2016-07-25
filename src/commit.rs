@@ -248,28 +248,30 @@ impl<E: ElementT> Commit<E> {
     pub fn from_diff(old_state: &PartState<E>, new_state: &PartState<E>)
             -> Option<Commit<E>>
     {
-        let mut elt_map = new_state.elt_map().clone();
+        // #0019: is using `collect()` for a HashMap efficient? Better to add a "clone_map" function to new_state?
+        let mut elt_map: HashMap<_,_> = new_state.elts_iter().collect();
         let mut changes = HashMap::new();
-        for (id, old_elt) in old_state.elt_map() {
-            if let Some(new_elt) = elt_map.remove(id) {
+        for (id, old_elt) in old_state.elts_iter() {
+            if let Some(new_elt) = elt_map.remove(&id) {
                 // #0019: should we compare sums? Would this be faster?
-                if new_elt == *old_elt {
+                if new_elt == old_elt {
                     /* no change */
                 } else {
-                    changes.insert(*id, EltChange::replacement(new_elt));
+                    changes.insert(id, EltChange::replacement(new_elt.clone()));
                 }
             } else {
                 // not in new state: has been deleted
-                changes.insert(*id, EltChange::deletion());
+                changes.insert(id, EltChange::deletion());
             }
         }
-        let mut moved_map = new_state.moved_map().clone();
-        for (id, new_id) in old_state.moved_map() {
+        // #0019: is using `collect()` for a HashMap efficient? Better to add a "clone_map" function to new_state?
+        let mut moved_map: HashMap<_,_> = new_state.moved_iter().collect();
+        for (id, new_id) in old_state.moved_iter() {
             if let Some(new_id2) = moved_map.remove(&id) {
-                if *new_id == new_id2 {
+                if new_id == new_id2 {
                     /* no change */
                 } else {
-                    changes.insert(*id, EltChange::moved(new_id2, false));
+                    changes.insert(id, EltChange::moved(new_id2, false));
                 }
             } else {
                 // we seem to have forgotten that an element was moved
@@ -278,7 +280,7 @@ impl<E: ElementT> Commit<E> {
             }
         }
         for (id, new_elt) in elt_map {
-            changes.insert(id, EltChange::insertion(new_elt));
+            changes.insert(id, EltChange::insertion(new_elt.clone()));
         }
         for (id, new_id) in moved_map {
             changes.insert(id, EltChange::moved(new_id, true));

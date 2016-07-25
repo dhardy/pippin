@@ -21,7 +21,7 @@ fn inner() -> Result<()> {
             println!("Found {} element(s)", tip.num_avail());
             
             // Read the elements (API may change here):
-            for (id, elt) in tip.elt_map().iter() {
+            for (id, elt) in tip.elts_iter() {
                 println!("Element {}: {}", id, *elt);
             }
         },

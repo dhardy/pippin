@@ -67,16 +67,17 @@ impl<'a, E: ElementT> TwoWayMerge<'a, E> {
         assert_eq!(b.part_id(), c.part_id());
         
         let mut v: Vec<(EltId, EltMerge<E>)> = Vec::new();
-        let mut map_b = b.elt_map().clone();
-        for (id, elt1) in a.elt_map() {
-            if let Some(elt2) = map_b.remove(id) {
+        // #0019: is using `collect()` for a HashMap efficient? Better to add a "clone_map" function to b?
+        let mut map_b: HashMap<_,_> = b.elts_iter().collect();
+        for (id, elt1) in a.elts_iter() {
+            if let Some(elt2) = map_b.remove(&id) {
                 // Have elt in states 1 and 2
-                if *elt1 != elt2 {
-                    v.push((*id, EltMerge::NoResult));
+                if elt1 != elt2 {
+                    v.push((id, EltMerge::NoResult));
                 }
             } else {
                 // Have elt in state 1 but not 2
-                v.push((*id, EltMerge::NoResult));
+                v.push((id, EltMerge::NoResult));
             }
         }
         for (id, _) in map_b.into_iter() {

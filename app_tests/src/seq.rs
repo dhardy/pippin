@@ -339,8 +339,8 @@ impl<IO: RepoIO> RepoT<SeqClassifier> for SeqRepo<IO> {
         // Algorithm: sample up to 999 lengths, find the median
         if part.num_avail() < 1 { return Err(RepoDivideError::NotSubdivisible); }
         let mut lens = Vec::with_capacity(min(999, part.num_avail()));
-        for elt in part.elt_map() {
-            let seq: &Sequence = elt.1;
+         for (_, elt) in part.elts_iter() {
+            let seq: &Sequence = elt;
             assert!(seq.v.len() <= u32::MAX as usize);
             lens.push(seq.v.len() as u32);
             if lens.len() >= 999 { break; }

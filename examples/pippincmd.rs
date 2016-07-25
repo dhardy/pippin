@@ -282,8 +282,8 @@ fn inner(path: PathBuf, op: Operation, args: Rest) -> Result<()>
                 match part_op {
                     PartitionOp::ListElts => {
                         println!("Elements:");
-                        for id in state.elt_map().keys() {
-                            let n: u64 = (*id).into();
+                        for (id,_) in state.elts_iter() {
+                            let n: u64 = id.into();
                             println!("  {}", n);
                         }
                     },

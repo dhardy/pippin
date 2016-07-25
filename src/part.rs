@@ -616,7 +616,7 @@ impl<E: ElementT> Partition<E> {
     
     /// Get an iterator over tips.
     pub fn tips_iter(&self) -> TipIter {
-        TipIter { iter: self.tips().iter() }
+        TipIter { iter: self.tips.iter() }
     }
     
     /// Get the set of all tips. Is empty before loading and has more than one
