@@ -251,7 +251,7 @@ fn inner(path: PathBuf, op: Operation, args: Rest) -> Result<()>
                 if list_commits {
                     let mut part = try!(Partition::<DataElt>::open(Box::new(part.clone())));
                     try!(part.load_all(None, None));
-                    let mut states: Vec<_> = part.states().collect();
+                    let mut states: Vec<_> = part.states_iter().collect();
                     states.sort_by_key(|s| s.meta().number());
                     for state in states {
                         println!("Commit {:4}: {}; parents: {:?}",

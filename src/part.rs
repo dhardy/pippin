@@ -6,6 +6,7 @@
 
 use std::io::{Read, Write, ErrorKind};
 use std::collections::{HashSet, VecDeque};
+use std::collections::hash_set as hs;
 use std::result;
 use std::any::Any;
 use std::ops::Deref;
@@ -232,7 +233,7 @@ pub struct Partition<E: ElementT> {
     // Known committed states indexed by statesum 
     states: HashIndexed<PartState<E>, Sum, PartStateSumComparator>,
     // All states not in `states` which are known to be superceded
-    parents: HashSet<Sum>,
+    ancestors: HashSet<Sum>,
     // All states without a known successor
     tips: HashSet<Sum>,
     // Commits created but not yet saved to disk. First in at front; use as queue.
@@ -288,7 +289,7 @@ impl<E: ElementT> Partition<E> {
             ss_commits: 0,
             ss_edits: 0,
             states: HashIndexed::new(),
-            parents: HashSet::new(),
+            ancestors: HashSet::new(),
             tips: HashSet::new(),
             unsaved: VecDeque::new(),
         };
@@ -331,7 +332,7 @@ impl<E: ElementT> Partition<E> {
             ss_commits: 0,
             ss_edits: 0,
             states: HashIndexed::new(),
-            parents: HashSet::new(),
+            ancestors: HashSet::new(),
             tips: HashSet::new(),
             unsaved: VecDeque::new(),
         })
@@ -454,12 +455,12 @@ impl<E: ElementT> Partition<E> {
                 
                 let state = try!(read_snapshot(&mut r, self.part_id, file_ver));
                 
-                if !self.parents.contains(state.statesum()) {
+                if !self.ancestors.contains(state.statesum()) {
                     self.tips.insert(state.statesum().clone());
                 }
                 for parent in state.parents() {
                     if !self.states.contains(parent) {
-                        self.parents.insert(parent.clone());
+                        self.ancestors.insert(parent.clone());
                     }
                 }
                 self.states.insert(state);
@@ -559,7 +560,7 @@ impl<E: ElementT> Partition<E> {
         trace!("Unloading partition {} data", self.part_id);
         if force || self.unsaved.is_empty() {
             self.states.clear();
-            self.parents.clear();
+            self.ancestors.clear();
             self.tips.clear();
             true
         } else {
@@ -584,23 +585,6 @@ impl<E: ElementT> Partition<E> {
 
 // Methods accessing or modifying a partition's data
 impl<E: ElementT> Partition<E> {
-    /// Get the state-sum (key) of the tip. Fails when `tip()` fails.
-    pub fn tip_key(&self) -> result::Result<&Sum, TipError> {
-        if self.tips.len() == 1 {
-            Ok(self.tips.iter().next().unwrap())
-        } else if self.tips.is_empty() {
-            Err(TipError::NotReady)
-        } else {
-            Err(TipError::MergeRequired)
-        }
-    }
-    
-    /// Get the set of all tips. Is empty before loading and has more than one
-    /// entry when `merge_required()`. May be useful for merging.
-    pub fn tips(&self) -> &HashSet<Sum> {
-        &self.tips
-    }
-    
     /// Get a reference to the PartState of the current tip. You can read
     /// this directly or make a clone in order to make your modifications.
     /// 
@@ -614,16 +598,46 @@ impl<E: ElementT> Partition<E> {
         Ok(&self.states.get(try!(self.tip_key())).unwrap())
     }
     
-    /// Iterate over all states known. If `self.load(true)` was used to load
-    /// all history available, this will include all historical states found
-    /// (which may still not be all history), otherwise if `self.load(false)`
-    /// was used, only some recent states (in theory, everything back to the
-    /// last snapshot at time of loading) will be present.
+    /// Get the state-sum (key) of the tip. Fails when `tip()` fails.
+    pub fn tip_key(&self) -> result::Result<&Sum, TipError> {
+        if self.tips.len() == 1 {
+            Ok(self.tips.iter().next().unwrap())
+        } else if self.tips.is_empty() {
+            Err(TipError::NotReady)
+        } else {
+            Err(TipError::MergeRequired)
+        }
+    }
+    
+    /// Get the number of tips.
+    pub fn tips_len(&self) -> usize {
+        self.tips.len()
+    }
+    
+    /// Get an iterator over tips.
+    pub fn tips_iter(&self) -> TipIter {
+        TipIter { iter: self.tips().iter() }
+    }
+    
+    /// Get the set of all tips. Is empty before loading and has more than one
+    /// entry when `merge_required()`. May be useful for merging.
+    pub fn tips(&self) -> &HashSet<Sum> {
+        &self.tips
+    }
+    
+    /// Get the number of states.
+    /// 
+    /// Tips are a subset of states, so `tips_len() <= states_len()`.
+    pub fn states_len(&self) -> usize {
+        self.states.len()
+    }
+    
+    /// Iterate over all states which have been loaded (see `load_...` functions).
     /// 
     /// Items are unordered (actually, they follow the order of an internal
     /// hash map, which is randomised and usually different each time the
     /// program is loaded).
-    pub fn states(&self) -> StateIter<E> {
+    pub fn states_iter(&self) -> StateIter<E> {
         StateIter { iter: self.states.iter(), tips: &self.tips }
     }
     
@@ -767,9 +781,6 @@ impl<E: ElementT> Partition<E> {
     /// updates the tip. The commit is added to the internal list
     /// waiting to be written to permanent storage (see `write()`).
     /// 
-    /// We assume there are no extra parents; merges should be pushed via
-    /// `push_commit` instead.
-    /// 
     /// Mutates the commit in the (very unlikely) case that its statesum
     /// clashes with another commit whose data is different.
     /// 
@@ -793,6 +804,12 @@ impl<E: ElementT> Partition<E> {
                 false
             }
         )
+    }
+    
+    /// The number of commits waiting to be written to permanent storage by
+    /// the `write(...)` function.
+    pub fn unsaved_len(&self) -> usize {
+        self.unsaved.len()
     }
     
     /// This will write all unsaved commits to a log on the disk. Does nothing
@@ -976,14 +993,14 @@ impl<E: ElementT> Partition<E> {
         for parent in state.parents() {
             // Remove from 'tips' if it happened to be there:
             self.tips.remove(parent);
-            // Add to 'parents' if not in 'states':
+            // Add to 'ancestors' if not in 'states':
             if !self.states.contains(parent) {
-                self.parents.insert(parent.clone());
+                self.ancestors.insert(parent.clone());
             }
         }
         // We know from above 'state' is not in 'self.states'; if it's not in
-        // 'self.parents' either then it must be a tip:
-        if !self.parents.contains(state.statesum()) {
+        // 'self.ancestors' either then it must be a tip:
+        if !self.ancestors.contains(state.statesum()) {
             self.ss_commits += 1;
             self.ss_edits += n_edits;
             self.tips.insert(state.statesum().clone());
@@ -1033,6 +1050,27 @@ impl<E: ElementT> Partition<E> {
         self.add_state(state, commit.num_changes());
         self.unsaved.push_back(commit);
         true
+    }
+}
+
+/// Wrapper around underlying iterator structure
+pub struct TipIter<'a> {
+    iter: hs::Iter<'a, Sum>
+}
+impl<'a> Clone for TipIter<'a> {
+    fn clone(&self) -> TipIter<'a> {
+        TipIter { iter: self.iter.clone() }
+    }
+}
+impl<'a> Iterator for TipIter<'a> {
+    type Item = &'a Sum;
+    fn next(&mut self) -> Option<&'a Sum> {
+        self.iter.next()
+    }
+}
+impl<'a> ExactSizeIterator for TipIter<'a> {
+    fn len(&self) -> usize {
+        self.iter.len()
     }
 }
 
