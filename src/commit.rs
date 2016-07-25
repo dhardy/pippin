@@ -341,8 +341,11 @@ impl<E: ElementT> Commit<E> {
     pub fn statesum(&self) -> &Sum { &self.statesum }
     /// Get the parents. There must be at least one. The first is the primary,
     /// which can be patched by this commit.
-    pub fn parents(&self) -> &Vec<Sum> { &self.parents }
+    pub fn parents(&self) -> &[Sum] { &self.parents }
     /// Get the first parent. This is the one the commit is applied against.
+    /// 
+    /// This is identical to calling `commit.parents()[0]`, but clarifies that
+    /// the first parent is special and always present.
     pub fn first_parent(&self) -> &Sum { &self.parents[0] }
     /// Get the number of changes in the "patch"
     pub fn num_changes(&self) -> usize { self.changes.len() }

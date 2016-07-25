@@ -223,7 +223,7 @@ impl<E: ElementT> PartState<E> {
     pub fn from_state_commit(parent: &PartState<E>, commit: &Commit<E>) ->
             Result<PartState<E>, PatchOp>
     {
-        if *parent.statesum() != commit.parents()[0] { return Err(PatchOp::WrongParent); }
+        if parent.statesum() != commit.first_parent() { return Err(PatchOp::WrongParent); }
         let mut mut_state = parent.clone_mut();
         try!(commit.apply_mut(&mut mut_state));
         
@@ -233,7 +233,7 @@ impl<E: ElementT> PartState<E> {
         
         Ok(PartState {
             part_id: mut_state.part_id,
-            parents: commit.parents().clone(),
+            parents: commit.parents().to_vec(),
             statesum: statesum,
             elts: mut_state.elts,
             moved: mut_state.moved,
@@ -267,7 +267,7 @@ impl<E: ElementT> PartState<E> {
     }
     /// Get the parents' sums. Normally a state has one parent, but the initial
     /// state has zero and merge outcomes have two (or more).
-    pub fn parents(&self) -> &Vec<Sum> { &self.parents }
+    pub fn parents(&self) -> &[Sum] { &self.parents }
     /// Get the partition identifier
     pub fn part_id(&self) -> PartId { self.part_id }
     /// Get the commit meta-data associated with this state
