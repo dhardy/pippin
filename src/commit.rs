@@ -154,8 +154,8 @@ pub trait MakeMeta {
 pub struct Commit<E: ElementT> {
     /// Expected resultant state sum; doubles as an ID.
     statesum: Sum,
-    /// State sum (ID) of parent states. There must be at least one. Thes first
-    /// state is the *primary parent* and is what the *changes* are relative
+    /// State sum (ID) of parent states. There must be at least one. The first
+    /// is the *primary parent* and is what the *changes* are relative
     /// to; the rest are simply "additional parents".
     parents: Vec<Sum>,
     /// Per-element changes

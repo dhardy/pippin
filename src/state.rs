@@ -267,9 +267,6 @@ impl<E: ElementT> PartState<E> {
     }
     /// Get the parents' sums. Normally a state has one parent, but the initial
     /// state has zero and merge outcomes have two (or more).
-    /// 
-    /// Note: 'parents' is not persisted by snapshots; currently it doesn't
-    /// need to be.
     pub fn parents(&self) -> &Vec<Sum> { &self.parents }
     /// Get the partition identifier
     pub fn part_id(&self) -> PartId { self.part_id }

@@ -255,7 +255,7 @@ impl<E: ElementT> Partition<E> {
     /// let io = Box::new(DummyPartIO::new(PartId::from_num(1)));
     /// let partition = Partition::<String>::create(io, "example repo", None, None);
     /// ```
-    //TODO: are we passing too many optional parameters: user & make_meta?
+    // #0040: are we passing too many optional parameters: user & make_meta?
     pub fn create<'a>(mut io: Box<PartIO>, name: &str,
             user: Option<&mut UserFields>, make_meta: Option<&MakeMeta>)
             -> Result<Partition<E>>
@@ -374,7 +374,7 @@ impl<E: ElementT> Partition<E> {
     }
     
     /// Load all history. Shortcut for `load_range(0, usize::MAX, user)`.
-    //TODO: are we passing too many optional parameters: user & make_meta?
+    // #0040: are we passing too many optional parameters: user & make_meta?
     pub fn load_all(&mut self, user: Option<&mut UserFields>,
             make_meta: Option<&MakeMeta>) -> Result<()>
     {
@@ -382,7 +382,7 @@ impl<E: ElementT> Partition<E> {
     }
     /// Load latest state from history (usually including some historical
     /// data). Shortcut for `load_range(usize::MAX, usize::MAX, user)`.
-    //TODO: are we passing too many optional parameters: user & make_meta?
+    // #0040: are we passing too many optional parameters: user & make_meta?
     pub fn load_latest(&mut self, user: Option<&mut UserFields>,
             make_meta: Option<&MakeMeta>) -> Result<()>
     {
@@ -401,7 +401,7 @@ impl<E: ElementT> Partition<E> {
     /// 
     /// The `user` parameter allows any headers read to be examined. If `None`
     /// is passed, these fields are simply ignored.
-    //TODO: are we passing too many optional parameters: user & make_meta?
+    // #0040: are we passing too many optional parameters: user & make_meta?
     pub fn load_range(&mut self, ss0: usize, ss1: usize,
             mut user: Option<&mut UserFields>, make_meta: Option<&MakeMeta>)
             -> Result<()>
