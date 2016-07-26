@@ -69,9 +69,10 @@ directories:
 
     examples/hello.rs       — minimal example
     examples/pippincmd.rs    — tool to read/write DB entries as plain text
-    examples/sequences.rs   — test program generating random DB entries
+    app_tests/examples/sequences.rs — test program generating random DB entries
     
     tests/partition-ops.rs  — external test suite for partition operations
+    app_tests/tests/seq_create_small.rs — create a small random repo as a test
 
 More examples and tests can be found in the `applications` directory. These
 make use of an extra library including some common code.
