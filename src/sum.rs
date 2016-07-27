@@ -22,7 +22,7 @@ const BYTES_U8: u8 = BYTES as u8;
 /// A convenient way to manage and manipulate a checksum.
 /// 
 /// This is not marked `Copy` but in any case should be fairly cheap to clone.
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Sum {
 //     s1: u8x16, s2: u8x16
     s: [u8; BYTES]

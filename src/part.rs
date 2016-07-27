@@ -685,10 +685,10 @@ impl<E: ElementT> Partition<E> {
     {
         while self.tips.len() > 1 {
             let (tip1, tip2): (Sum, Sum) = {
-                let mut iter = self.tips.iter();
-                let tip1 = iter.next().unwrap();
-                let tip2 = iter.next().unwrap();
-                (tip1.clone(), tip2.clone())
+                // We sort tips in order to make the operation deterministic.
+                let mut tips: Vec<_> = self.tips.iter().collect();
+                tips.sort();
+                (tips[0].clone(), tips[1].clone())
             };
             trace!("Partition {}: attempting merge of tips {} and {}", self.part_id, &tip1, &tip2);
             let c = try!(self.merge_two(&tip1, &tip2, auto_load))
