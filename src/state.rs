@@ -69,7 +69,8 @@ pub trait StateT<E: ElementT> {
 /// Trait abstracting over write operations on the state of a partition or
 /// repository.
 pub trait MutStateT<E: ElementT>: StateT<E> {
-    /// Insert a new element and return the identifier.
+    /// Inserts a new element with a generated identifier then returns that
+    /// identifier.
     /// 
     /// This fails if the relevant partition is not loaded or if the relevant
     /// partition is unable to find a free identifier. In the latter case
@@ -83,9 +84,23 @@ pub trait MutStateT<E: ElementT>: StateT<E> {
     fn insert(&mut self, elt: E) -> Result<EltId, ElementOp> {
         self.insert_rc(Rc::new(elt))
     }
-    /// Low-level version of `insert(id)`: takes a reference-counter wrapper
-    /// for an element.
-    fn insert_rc(&mut self, elt: Rc<E>) -> Result<EltId, ElementOp>;
+    /// Low-level version of `insert(elt)`: takes a reference-counter wrapper
+    /// of an element.
+    fn insert_rc(&mut self, elt: Rc<E>) -> Result<EltId, ElementOp> {
+        // #0049: configurable source of randomness?
+        let initial = random::<u32>() & 0xFF_FFFF;
+        self.insert_rc_initial(initial, elt)
+    }
+    /// Low-level version of `insert(elt)` which allows specification of
+    /// a number used to generate an identifier. See documentation of
+    /// `MutPartState::id_from_initial()` for details.
+    fn insert_initial(&mut self, initial: u32, elt: E) -> Result<EltId, ElementOp> {
+        self.insert_rc_initial(initial, Rc::new(elt))
+    }
+    /// Lowest-level version of `insert(elt)`: takes an Rc-wrapped element and
+    /// allows specification of a number used to generate an identifier.
+    /// See documentation of `MutPartState::id_from_initial()` for details.
+    fn insert_rc_initial(&mut self, initial: u32, elt: Rc<E>) -> Result<EltId, ElementOp>;
     
     /// Replace an existing element and return the identifier of the newly
     /// inserted element and the replaced element. Note that the identifier
@@ -312,25 +327,21 @@ impl<E: ElementT> PartState<E> {
     
     /// As `gen_id()`, but ensure the generated id is free in both self and
     /// another state. Note that the other state is assumed to have the same
-    /// `part_id`; if not this is equivalent to `gen_id()`.
+    /// `part_id`.
     pub fn gen_id_binary(&self, s2: &PartState<E>) -> Result<EltId, ElementOp> {
         assert_eq!(self.part_id, s2.part_id);
+        // #0049: configurable source of randomness?
         let initial = self.part_id.elt_id(random::<u32>() & 0xFF_FFFF);
         let mut id = initial;
-        let mut tries = 1000;
-        loop {
+        for _ in 0..10000 {
             if !self.elts.contains_key(&id) && !s2.elts.contains_key(&id) &&
                 !self.moved.contains_key(&id) && !s2.moved.contains_key(&id)
             {
-                break;
+                return Ok(id)
             }
             id = id.next_elt();
-            tries -= 1;
-            if tries == 0 {
-                return Err(ElementOp::IdGenFailure);
-            }
         }
-        Ok(id)
+        Err(ElementOp::IdGenFailure)
     }
     
     /// Clone the state, creating a child state. The new state will consider
@@ -416,25 +427,25 @@ impl<E: ElementT> MutPartState<E> {
         self.moved.get(&id).map(|id| *id) // Some(value) or None
     }
     
-    /// Generate an element identifier.
+    /// Find a free element identifier, given an initial number. This number
+    /// must be between zero and `EltId::max()`. An initial element identifier
+    /// will be generated from the partition number (`part_id.elt_id(initial)`)
+    /// which will be returned if free, otherwise the function searches nearby
+    /// deterministically for a free identifier.
     /// 
-    /// This generates a pseudo-random number
-    pub fn gen_id(&self) -> Result<EltId, ElementOp> {
-        // Generate an identifier: (1) use a random sample, (2) increment if
-        // taken, (3) add the partition identifier.
-        let initial = self.part_id.elt_id(random::<u32>() & 0xFF_FFFF);
-        let mut id = initial;
-        loop {
-            if !self.elts.contains_key(&id) && !self.moved.contains_key(&id) { break; }
-            id = id.next_elt();
-            // #0019: is this too many to check exhaustively? We could use a
-            // lower limit, and possibly resample a few times.
-            // Note that gen_id_binary uses a slightly different algorithm.
-            if id == initial {
-                return Err(ElementOp::IdGenFailure);
+    /// Note that the search algorithm is desiged to handle the case that the
+    /// initial number is fairly well distributed (e.g. uniform random) and
+    /// there are quite a few free identifiers. It is not designed to find the
+    /// last few free identifiers efficiently, and it can fail.
+    pub fn id_from_initial(&self, initial: u32) -> Result<EltId, ElementOp> {
+        let mut id = self.part_id.elt_id(initial);
+        for _ in 0..10000 {
+            if !self.elts.contains_key(&id) && !self.moved.contains_key(&id) {
+                return Ok(id);
             }
+            id = id.next_elt();
         }
-        Ok(id)
+        Err(ElementOp::IdGenFailure)
     }
     
     /// Insert an element and return the id (the one inserted).
@@ -500,10 +511,9 @@ impl<E: ElementT> StateT<E> for MutPartState<E> {
     }
 }
 impl<E: ElementT> MutStateT<E> for MutPartState<E> {
-    fn insert_rc(&mut self, elt: Rc<E>) -> Result<EltId, ElementOp> {
-        let id = try!(self.gen_id());
-        try!(self.insert_with_id(id, elt));
-        Ok(id)
+    fn insert_rc_initial(&mut self, initial: u32, elt: Rc<E>) -> Result<EltId, ElementOp> {
+        let id = try!(self.id_from_initial(initial));
+        self.insert_with_id(id, elt)
     }
     fn replace_rc(&mut self, id: EltId, elt: Rc<E>) -> Result<Rc<E>, ElementOp> {
         self.elt_sum.permute(&elt.sum(id));

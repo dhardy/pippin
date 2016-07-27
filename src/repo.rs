@@ -407,7 +407,7 @@ impl<C: ClassifierT> StateT<C::Element> for RepoState<C> {
     }
 }
 impl<C: ClassifierT> MutStateT<C::Element> for RepoState<C> {
-    fn insert_rc(&mut self, elt: Rc<C::Element>) -> Result<EltId, ElementOp> {
+    fn insert_rc_initial(&mut self, initial: u32, elt: Rc<C::Element>) -> Result<EltId, ElementOp> {
         let part_id = if let Some(part_id) = self.classifier.classify(&*elt) {
             part_id
         } else {
@@ -420,7 +420,7 @@ impl<C: ClassifierT> MutStateT<C::Element> for RepoState<C> {
         };
         if let Some(mut state) = self.states.get_mut(&part_id) {
             // Now insert into our PartState (may also fail):
-            state.insert_rc(elt)
+            state.insert_rc_initial(initial, elt)
         } else {
             Err(ElementOp::NotLoaded)
         }
