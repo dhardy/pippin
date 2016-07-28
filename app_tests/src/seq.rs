@@ -9,6 +9,7 @@ use std::cmp::min;
 use std::u32;
 use std::collections::hash_map::{HashMap, Entry};
 use std::mem::size_of;
+use std::fmt::Debug;
 
 use rand::Rng;
 use rand::distributions::{IndependentSample, Range, Normal, LogNormal};
@@ -60,18 +61,22 @@ impl ElementT for Sequence {
 
 // —————  Generators  —————
 /// A generator can generate a sequence of numbers.
-pub trait Generator {
+pub trait Generator: Debug {
     /// Generate a sequence of `n` numbers.
     fn generate(&self, n: usize) -> Vec<R>;
 }
 /// Arithmetic sequence (e.g. 1, 4, 7, 10)
+#[derive(Debug)]
 pub struct Arithmetic { start: R, step: R }
 /// Geometric sequence (e.g. 2, 6, 18, 54)
+#[derive(Debug)]
 pub struct Geometric { start: R, factor: R }
 /// Fibonacci sequence (usually 1, 1, 2, 3, 5, 8, ..., but starting numbers
 /// can be changed)
+#[derive(Debug)]
 pub struct Fibonacci { x1: R, x2: R }
 /// Power sequence (e.g. 3, 9, 27, 81)
+#[derive(Debug)]
 pub struct Power { e: R }
 
 impl Generator for Arithmetic {
@@ -122,6 +127,7 @@ impl Generator for Power {
 }
 
 /// Enum of all generator types
+#[derive(Debug)]
 pub enum GeneratorEnum {
     Arithmetic(Arithmetic),
     Geometric(Geometric),

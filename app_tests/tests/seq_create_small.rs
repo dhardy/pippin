@@ -11,7 +11,6 @@ use rand::distributions::{IndependentSample, LogNormal};
 use pippin::{MutStateT, Repository};
 use pippin::fileio::RepoFileIO;
 use pippin::commit::MakeMeta;
-use pippin::error::ElementOp;
 use pippin_app_tests::util;
 use pippin_app_tests::seq::*;
 
@@ -52,25 +51,18 @@ fn create() {
     
     for _ in 0..5 {
         let mut state = repo.clone_state().expect("clone state");
-        let gen = GeneratorEnum::new_random(&mut rng);
-        generate(&mut state, &mut rng, 50, &gen).expect("generate");
+        let len_range = LogNormal::new(1., 2.);
+        let max_len = 1_000;
+        for _ in 0..50 {
+            let gen = GeneratorEnum::new_random(&mut rng);
+            let len = min(len_range.ind_sample(&mut rng) as usize, max_len);
+            let seq = gen.generate(len).into();
+            state.insert_initial(rng.gen::<u32>() & 0xFF_FFFF, seq).expect("insert element");
+        }
         repo.merge_in(state, Some(&meta_gen)).expect("merge");
         repo.write_all(false).expect("write");
     }
     
     //TODO: compare result with something
     tmp_dir.release();  // TODO: we might need to keep it
-}
-
-fn generate<R: Rng>(state: &mut MutStateT<Sequence>, rng: &mut R,
-    num: usize, generator: &Generator) -> Result<(), ElementOp>
-{
-    let len_range = LogNormal::new(1., 2.);
-    let max_len = 1_000;
-    for _ in 0..num {
-        let len = min(len_range.ind_sample(rng) as usize, max_len);
-        let seq = generator.generate(len).into();
-        state.insert_initial(rng.gen::<u32>() & 0xFF_FFFF, seq).expect("insert element");
-    }
-    Ok(())
 }
