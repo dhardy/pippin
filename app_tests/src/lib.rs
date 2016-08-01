@@ -167,16 +167,14 @@ pub mod util {
     
     #[test]
     fn test_path_diff() {
-        let ss = get_data_dir("seq_small");
-        let result = paths_are_eq(&ss, &ss).expect("paths_are_eq");
-        assert_eq!(result, true);
-        let none = get_data_dir("nonexistant");
-        assert_eq!(paths_are_eq(&none, &ss).unwrap_err().kind(), io::ErrorKind::NotFound);
         let top = get_top_dir();
-        let result = paths_are_eq(&ss, &top).expect("paths_are_eq");
-        assert_eq!(result, false);
-        let result = paths_are_eq(&top, &top).expect("paths_are_eq");
+        let src = top.join("src");
+        let none = top.join("nonexistant");
+        let result = paths_are_eq(&src, &src).expect("paths_are_eq");
         assert_eq!(result, true);
+        assert_eq!(paths_are_eq(&none, &src).unwrap_err().kind(), io::ErrorKind::NotFound);
+        let result = paths_are_eq(&src, &top).expect("paths_are_eq");
+        assert_eq!(result, false);
     }
 }
 

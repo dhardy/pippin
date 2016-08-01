@@ -63,6 +63,12 @@ fn create() {
         repo.write_all(false).expect("write");
     }
     
-    //TODO: compare result with something
-    tmp_dir.release();  // TODO: we might need to keep it
+    let comparator = util::get_data_dir("seq_small");
+    if util::paths_are_eq(&tmp_dir, &comparator).unwrap_or(false) {
+        // okay
+    } else {
+        println!("Please check diff {} {}", comparator.display(), tmp_dir.as_ref().display());
+        tmp_dir.release();  // don't delete
+        assert!(false);
+    }
 }
