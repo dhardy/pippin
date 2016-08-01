@@ -69,7 +69,7 @@ pub mod util {
     }
     
     /// Test whether two files are the same. Returns true if they are.
-    pub fn files_are_eq(p1: &Path, p2: &Path) -> io::Result<bool> {
+    pub fn files_are_eq<P1: AsRef<Path>, P2: AsRef<Path>>(p1: P1, p2: P2) -> io::Result<bool> {
         let mut f1 = try!(File::open(p1));
         let mut f2 = try!(File::open(p2));
         
@@ -103,7 +103,7 @@ pub mod util {
     /// 
     /// Links are followed (the pointed objects compared); broken links result
     /// in an error with kind `ErrorKind::NotFound`.
-    pub fn paths_are_eq(p1: &Path, p2: &Path) -> io::Result<bool>
+    pub fn paths_are_eq<P1: AsRef<Path>, P2: AsRef<Path>>(p1: P1, p2: P2) -> io::Result<bool>
     {
         #[derive(PartialEq)]
         enum Cat { File, Dir }
@@ -116,8 +116,8 @@ pub mod util {
                 Err(io::Error::new(io::ErrorKind::NotFound, "broken symlink or unknown object"))
             }
         };
-        let cat1 = try!(classify(p1));
-        let cat2 = try!(classify(p2));
+        let cat1 = try!(classify(p1.as_ref()));
+        let cat2 = try!(classify(p2.as_ref()));
         if cat1 != cat2 {
             return Ok(false);
         }
