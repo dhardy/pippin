@@ -8,7 +8,7 @@ use std::cmp::min;
 use std::cell::Cell;
 use rand::Rng;
 use rand::distributions::{IndependentSample, LogNormal};
-use pippin::{MutStateT, Repository};
+use pippin::{StateT, MutStateT, Repository};
 use pippin::fileio::RepoFileIO;
 use pippin::commit::MakeMeta;
 use pippin_app_tests::util;
@@ -62,6 +62,18 @@ fn create() {
         repo.merge_in(state, Some(&meta_gen)).expect("merge");
         repo.write_all(false).expect("write");
     }
+    
+    // We do two types of check. Because our "random" number generator is
+    // deterministic, we know what elements to expect. And we also know what
+    // data files to expect.
+    
+    let tip = repo.clone_state().expect("clone state");   //TODO: do we need to clone?
+    assert_eq!(tip.num_avail(), 250);
+    
+    assert_eq!(*tip.get(19890080.into()).expect("get 19890080"), Sequence::from(vec![]));
+    assert_eq!(*tip.get(24685180.into()).expect("get 24685180"),
+            Sequence::from(vec![0.0000000000000000000000000000000000000000000000000000000000019783199897478986]));
+    assert_eq!(tip.get(29995559.into()).expect("get 29995559").len(), 9);
     
     let comparator = util::get_data_dir("seq_small");
     if util::paths_are_eq(&tmp_dir, &comparator).unwrap_or(false) {

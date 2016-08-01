@@ -31,6 +31,12 @@ pub type R = f64;
 pub struct Sequence {
     v: Vec<R>,
 }
+impl Sequence {
+    // Get length of sequence
+    pub fn len(&self) -> usize {
+        self.v.len()
+    }
+}
 impl From<Vec<R>> for Sequence {
     fn from(v: Vec<R>) -> Self {
         Sequence { v: v }
