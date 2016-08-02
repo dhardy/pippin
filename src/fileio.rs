@@ -9,9 +9,9 @@ use std::io::{Read, Write};
 use std::fs::{File, OpenOptions};
 use std::any::Any;
 use std::ops::Add;
+use std::collections::hash_map::{HashMap, Values};
 
 use vec_map::{VecMap, Entry};
-use hashindexed as hi;
 
 use {PartIO, PartId, RepoIO};
 use error::{Result, ReadOnly, OtherError};
@@ -269,12 +269,6 @@ impl PartIO for PartFileIO {
 
 // —————  Repository  —————
 
-/// Helper to use PartFileIO with HashIndexed
-pub struct PartFileIOIdComparator;
-impl hi::KeyComparator<PartFileIO, PartId> for PartFileIOIdComparator {
-    fn extract_key(value: &PartFileIO) -> &PartId { &value.part_id }
-}
-
 /// Stores a set of `PartFileIO`s, each of which stores the paths of its files.
 /// This is not "live" and could get out-of-date if another process touches the
 /// files or if multiple `PartIO`s are requested for the same partition in this
@@ -283,8 +277,9 @@ pub struct RepoFileIO {
     readonly: bool,
     // Top directory of partition (which paths are relative to)
     dir: PathBuf,
-    // For each partition number, a prefix
-    parts: hi::HashIndexed<PartFileIO, PartId, PartFileIOIdComparator>,
+    // PartFileIO for each partition. We duplicate PartId here, but accepting
+    // the overhead seems the easiest approach.
+    parts: HashMap<PartId, PartFileIO>,
 }
 impl RepoFileIO {
     /// Create a new instance. This could be for a new repository or existing
@@ -295,7 +290,7 @@ impl RepoFileIO {
     pub fn new<P: Into<PathBuf>>(dir: P) -> RepoFileIO {
         let dir = dir.into();
         trace!("New RepoFileIO; dir: {}", dir.display());
-        RepoFileIO { readonly: false, dir: dir, parts: hi::HashIndexed::new() }
+        RepoFileIO { readonly: false, dir: dir, parts: HashMap::new() }
     }
     
     /// Get property: is this readonly? If this is readonly, file creation and
@@ -308,14 +303,19 @@ impl RepoFileIO {
     /// modification of `RepoFileIO` and `PartFileIO` operations will be
     /// inhibited (operations will return a `ReadOnly` error).
     pub fn is_readonly(mut self, readonly: bool) -> Self {
-        self.readonly = readonly;
+        self.set_readonly(readonly);
         self
     }
     /// Set readonly. If this is readonly, file creation and
     /// modification of `RepoFileIO` and `PartFileIO` operations will be
     /// inhibited (operations will return a `ReadOnly` error).
     pub fn set_readonly(&mut self, readonly: bool) {
-        self.readonly = readonly;
+        if readonly != self.readonly {
+            for part in self.parts.values_mut() {
+                part.set_readonly(readonly);
+            }
+            self.readonly = readonly;
+        }
     }
     
     /// Add a (probably existing) partition to the repository. This differs
@@ -327,11 +327,11 @@ impl RepoFileIO {
     /// present, or false if a partition with this number just got replaced.
     pub fn insert_part(&mut self, mut part: PartFileIO) -> bool {
         part.set_readonly(self.readonly);
-        self.parts.insert(part)
+        self.parts.insert(part.part_id, part).is_none()
     }
     /// Iterate over partitions
     pub fn partitions(&self) -> RepoPartIter {
-        RepoPartIter { iter: self.parts.iter() }
+        RepoPartIter { iter: self.parts.values() }
     }
 }
 impl RepoIO for RepoFileIO {
@@ -340,10 +340,10 @@ impl RepoIO for RepoFileIO {
         self.parts.len()
     }
     fn parts(&self) -> Vec<PartId> {
-        self.parts.iter().map(|p| p.part_id).collect()
+        self.parts.keys().map(|k| *k).collect()
     }
     fn has_part(&self, pn: PartId) -> bool {
-        self.parts.contains(&pn)
+        self.parts.contains_key(&pn)
     }
     fn new_part(&mut self, num: PartId, prefix: &str) -> Result<()> {
         if self.readonly {
@@ -351,7 +351,7 @@ impl RepoIO for RepoFileIO {
         }
         // "pn{}" part is not essential so long as prefix is unique but is useful
         let path = self.dir.join(format!("{}pn{}", prefix, num));
-        self.parts.insert(PartFileIO::new_empty(num, path));
+        self.parts.insert(num, PartFileIO::new_empty(num, path));
         Ok(())
     }
     fn make_part_io(&self, num: PartId) -> Result<Box<PartIO>> {
@@ -365,7 +365,7 @@ impl RepoIO for RepoFileIO {
 
 /// Iterator over the partitions in a `RepoFileIO`.
 pub struct RepoPartIter<'a> {
-    iter: hi::Iter<'a, PartFileIO, PartId, PartFileIOIdComparator>
+    iter: Values<'a, PartId, PartFileIO>
 }
 impl<'a> Iterator for RepoPartIter<'a> {
     type Item = &'a PartFileIO;
