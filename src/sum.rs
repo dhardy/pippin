@@ -77,8 +77,8 @@ impl Sum {
         let mut buf = vec![b' '; BYTES * step];
         for i in 0..BYTES {
             let byte = self.s[i];
-            buf[i*step] = HEX_CHARS[(byte / BYTES_U8) as usize];
-            buf[i*step + 1] = HEX_CHARS[(byte % BYTES_U8) as usize];
+            buf[i*step] = HEX_CHARS[(byte >> 4) as usize];
+            buf[i*step + 1] = HEX_CHARS[(byte & 0xF) as usize];
         }
         String::from_utf8(buf).unwrap()
     }

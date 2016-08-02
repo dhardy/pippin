@@ -18,7 +18,7 @@
 //!     the `RepoIO` implementation
 
 use std::result;
-use std::collections::HashMap;
+use std::collections::hash_map::{HashMap, Values, ValuesMut};
 use std::rc::Rc;
 use std::mem::swap;
 
@@ -27,7 +27,7 @@ pub use repo_traits::{RepoIO, ClassifierT, ClassifyFallback, RepoT,
     RepoDivideError, DummyClassifier};
 use {Partition, StateT, MutStateT, MutPartState};
 use merge::TwoWaySolver;
-use {EltId, PartId};
+use {EltId, PartId, ElementT};
 use commit::MakeMeta; 
 use error::{Result, OtherError, TipError, ElementOp};
 
@@ -126,7 +126,21 @@ impl<C: ClassifierT, R: RepoT<C>> Repository<C, R> {
     /// Get the repo name
     pub fn name(&self) -> &str { &self.name }
     
-    // TODO: some way to iterate or access partitions?
+    /// Iterate over all partitions.
+    /// 
+    /// These do not necessarily have data loaded; use `load_latest()`
+    /// or one of the `Partition::load_...()` operations.
+    pub fn partitions(&self) -> PartIter<C::Element> {
+        PartIter { iter: self.partitions.values() }
+    }
+    
+    /// Get a mutable iterator over partitions.
+    /// 
+    /// These do not necessarily have data loaded; use `load_latest()`
+    /// or one of the `Partition::load_...()` operations.
+    pub fn partitions_mut(&mut self) -> PartIterMut<C::Element> {
+        PartIterMut { iter: self.partitions.values_mut() }
+    }
     
     /// Load the latest state of all partitions
     pub fn load_latest(&mut self, make_meta: Option<&MakeMeta>) -> Result<()> {
@@ -486,4 +500,28 @@ impl<C: ClassifierT> MutStateT<C::Element> for RepoState<C> {
             Err(ElementOp::NotLoaded)
         }
     }
+}
+
+/// Iterator over partitions.
+pub struct PartIter<'a, E: ElementT+'a> {
+    iter: Values<'a, PartId, Partition<E>>
+}
+impl<'a, E: ElementT> Iterator for PartIter<'a, E> {
+    type Item = &'a Partition<E>;
+    fn next(&mut self) -> Option<Self::Item> {
+        self.iter.next()
+    }
+    fn size_hint(&self) -> (usize, Option<usize>) { self.iter.size_hint() }
+}
+
+/// Mutating iterator over partitions.
+pub struct PartIterMut<'a, E: ElementT+'a> {
+    iter: ValuesMut<'a, PartId, Partition<E>>
+}
+impl<'a, E: ElementT> Iterator for PartIterMut<'a, E> {
+    type Item = &'a mut Partition<E>;
+    fn next(&mut self) -> Option<Self::Item> {
+        self.iter.next()
+    }
+    fn size_hint(&self) -> (usize, Option<usize>) { self.iter.size_hint() }
 }

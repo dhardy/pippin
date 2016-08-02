@@ -338,11 +338,14 @@ impl<E: ElementT> Partition<E> {
         })
     }
     
-    /// Set the repo name. This is left empty by `open()`. Once set,
-    /// partition operations will fail when loading a file with a different
-    /// name.
+    /// Set the repo name. This is not set by `open()`, but is used to verify
+    /// loaded files belong to the correct partition. Once set, load operations
+    /// will fail if the name stored in the file does not match.
     /// 
-    /// This will fail if the repo name has already been set *and* is not
+    /// This is used by `Repository::open()` but should not normally be needed
+    /// otherwise.
+    /// 
+    /// This operation fails if the name has already been set *and* is not
     /// equal to the `repo_name` parameter.
     pub fn set_repo_name(&mut self, repo_name: &str) -> Result<()> {
         if self.repo_name.len() == 0 {
@@ -535,7 +538,7 @@ impl<E: ElementT> Partition<E> {
     /// 
     /// This function is called for every file loaded. It does not take self as
     /// an argument, since it is called in situations where self.io is in use.
-    pub fn verify_head(head: &FileHeader, self_name: &mut String,
+    fn verify_head(head: &FileHeader, self_name: &mut String,
         self_partid: PartId) -> Result<()>
     {
         if self_name.len() == 0 {
@@ -588,12 +591,8 @@ impl<E: ElementT> Partition<E> {
     /// Get a reference to the PartState of the current tip. You can read
     /// this directly or make a clone in order to make your modifications.
     /// 
-    /// This operation will fail if no data has been loaded yet or a merge is
-    /// required.
-    /// 
-    /// The operation requires some copying but uses copy'c,d-on-write elements
-    /// internally. This copy is needed to create a commit from the diff of the
-    /// last committed state and the new state.
+    /// This operation will fail if no data has been loaded yet or if a merge
+    /// is required (i.e. it fails if the number of tips is not exactly one).
     pub fn tip(&self) -> result::Result<&PartState<E>, TipError> {
         Ok(&self.states.get(try!(self.tip_key())).unwrap())
     }
