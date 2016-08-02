@@ -344,6 +344,30 @@ impl From<PatchOp> for MergeError {
 }
 
 
+// —————  ReadOnly  —————
+/// Thing is not modifiable.
+#[derive(PartialEq, Eq, Debug)]
+pub struct ReadOnly {}
+impl ReadOnly {
+    /// Create.
+    pub fn new() -> ReadOnly { ReadOnly{} }
+    /// Create, wrapped with `Err`
+    pub fn err<T>() -> Result<T> {
+        Err(box ReadOnly::new())
+    }
+}
+impl ErrorTrait for ReadOnly {
+    fn description(&self) -> &str {
+        "operation failed: readonly"
+    }
+}
+impl fmt::Display for ReadOnly {
+    fn fmt(&self, f: &mut fmt::Formatter) -> result::Result<(), fmt::Error> {
+        write!(f, "operation failed: readonly")
+    }
+}
+
+
 // —————  OtherError  —————
 /// Unclassified, generally not recoverable errors
 #[derive(PartialEq, Eq, Debug)]

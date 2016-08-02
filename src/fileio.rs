@@ -14,7 +14,7 @@ use vec_map::{VecMap, Entry};
 use hashindexed as hi;
 
 use {PartIO, PartId, RepoIO};
-use error::{Result, OtherError};
+use error::{Result, ReadOnly, OtherError};
 
 
 // —————  Partition  —————
@@ -95,6 +95,7 @@ impl PartPaths {
 /// and write streams on these and creates new partition files.
 #[derive(Debug, Clone)]
 pub struct PartFileIO {
+    readonly: bool,
     // Partition identifier (required)
     part_id: PartId,
     // Appended with snapshot/log number and extension to get a file path
@@ -130,10 +131,31 @@ impl PartFileIO {
     pub fn new<P: Into<PathBuf>>(part_id: PartId, prefix: P, paths: PartPaths) -> PartFileIO
     {
         PartFileIO {
+            readonly: false,
             part_id: part_id,
             prefix: prefix.into(),
             paths: paths,
         }
+    }
+    
+    /// Get property: is this readonly? If this is readonly, file creation and
+    /// modification of `RepoFileIO` and `PartFileIO` operations will be
+    /// inhibited (operations will return a `ReadOnly` error).
+    pub fn readonly(&self) -> bool {
+        self.readonly
+    }
+    /// Set readonly, inline style. If this is readonly, file creation and
+    /// modification of `RepoFileIO` and `PartFileIO` operations will be
+    /// inhibited (operations will return a `ReadOnly` error).
+    pub fn is_readonly(mut self, readonly: bool) -> Self {
+        self.readonly = readonly;
+        self
+    }
+    /// Set readonly. If this is readonly, file creation and
+    /// modification of `RepoFileIO` and `PartFileIO` operations will be
+    /// inhibited (operations will return a `ReadOnly` error).
+    pub fn set_readonly(&mut self, readonly: bool) {
+        self.readonly = readonly;
     }
     
     /// Get a reference to the prefix
@@ -192,6 +214,9 @@ impl PartIO for PartFileIO {
     }
     
     fn new_ss<'a>(&mut self, ss_num: usize) -> Result<Option<Box<Write+'a>>> {
+        if self.readonly {
+            return ReadOnly::err();
+        }
         let mut p = self.prefix.as_os_str().to_os_string();
         p.push(format!("-ss{}.pip", ss_num));
         let p = PathBuf::from(p);
@@ -209,6 +234,9 @@ impl PartIO for PartFileIO {
     }
     
     fn append_ss_cl<'a>(&mut self, ss_num: usize, cl_num: usize) -> Result<Option<Box<Write+'a>>> {
+        if self.readonly {
+            return ReadOnly::err();
+        }
         Ok(match self.paths.paths.get(ss_num).and_then(|&(_, ref logs)| logs.get(cl_num)) {
             Some(p) => {
                 trace!("Appending to log file: {}", p.display());
@@ -218,6 +246,9 @@ impl PartIO for PartFileIO {
         })
     }
     fn new_ss_cl<'a>(&mut self, ss_num: usize, cl_num: usize) -> Result<Option<Box<Write+'a>>> {
+        if self.readonly {
+            return ReadOnly::err();
+        }
         let mut logs = &mut self.paths.paths.entry(ss_num).or_insert_with(|| (None, VecMap::new())).1;
         let mut p = self.prefix.as_os_str().to_os_string();
         p.push(format!("-ss{}-cl{}.piplog", ss_num, cl_num));
@@ -247,6 +278,7 @@ impl hi::KeyComparator<PartFileIO, PartId> for PartFileIOIdComparator {
 /// files or if multiple `PartIO`s are requested for the same partition in this
 /// process.
 pub struct RepoFileIO {
+    readonly: bool,
     // Top directory of partition (which paths are relative to)
     dir: PathBuf,
     // For each partition number, a prefix
@@ -259,8 +291,29 @@ impl RepoFileIO {
     /// *   `dir` is the top directory, in which all data files are (as a
     ///     `String`, `Path` or anything which converts to a `PathBuf`)
     pub fn new<P: Into<PathBuf>>(dir: P) -> RepoFileIO {
-        RepoFileIO { dir: dir.into(), parts: hi::HashIndexed::new() }
+        RepoFileIO { readonly: false, dir: dir.into(), parts: hi::HashIndexed::new() }
     }
+    
+    /// Get property: is this readonly? If this is readonly, file creation and
+    /// modification of `RepoFileIO` and `PartFileIO` operations will be
+    /// inhibited (operations will return a `ReadOnly` error).
+    pub fn readonly(&self) -> bool {
+        self.readonly
+    }
+    /// Set readonly, inline style. If this is readonly, file creation and
+    /// modification of `RepoFileIO` and `PartFileIO` operations will be
+    /// inhibited (operations will return a `ReadOnly` error).
+    pub fn is_readonly(mut self, readonly: bool) -> Self {
+        self.readonly = readonly;
+        self
+    }
+    /// Set readonly. If this is readonly, file creation and
+    /// modification of `RepoFileIO` and `PartFileIO` operations will be
+    /// inhibited (operations will return a `ReadOnly` error).
+    pub fn set_readonly(&mut self, readonly: bool) {
+        self.readonly = readonly;
+    }
+    
     /// Add a (probably existing) partition to the repository. This differs
     /// from `RepoIO::add_partition` in that the prefix is specified in full
     /// here and a `PartFileIO` is passed, where `add_partition` creates a new
@@ -268,7 +321,8 @@ impl RepoFileIO {
     /// 
     /// Returns true if there was not already a partition with this number
     /// present, or false if a partition with this number just got replaced.
-    pub fn insert_part(&mut self, part: PartFileIO) -> bool {
+    pub fn insert_part(&mut self, mut part: PartFileIO) -> bool {
+        part.set_readonly(self.readonly);
         self.parts.insert(part)
     }
     /// Iterate over partitions
@@ -288,6 +342,9 @@ impl RepoIO for RepoFileIO {
         self.parts.contains(&pn)
     }
     fn new_part(&mut self, num: PartId, prefix: &str) -> Result<()> {
+        if self.readonly {
+            return ReadOnly::err();
+        }
         // "pn{}" part is not essential so long as prefix is unique but is useful
         let path = self.dir.join(format!("{}pn{}", prefix, num));
         self.parts.insert(PartFileIO::new_empty(num, path));
