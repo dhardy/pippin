@@ -69,6 +69,13 @@ fn create() {
     
     let tip = repo.clone_state().expect("clone state");   //TODO: do we need to clone?
     assert_eq!(tip.num_avail(), 250);
+    for part in repo.partitions() {
+        let tip = part.tip_key().expect("tip_key");
+        // This is what we found before. Check consistency rather than correctness.
+        // We should have one partition, so "each" iteration is the same.
+        assert_eq!(tip.as_string(false),
+            "5627C6820CBC498B8A6F84ECC103E4753929863B5E82DEE107382126BCE9879C");
+    }
     
     assert_eq!(*tip.get(19890080.into()).expect("get 19890080"), Sequence::from(vec![]));
     assert_eq!(*tip.get(24685180.into()).expect("get 24685180"),
@@ -82,5 +89,42 @@ fn create() {
         println!("Please check diff {} {}", comparator.display(), tmp_dir.as_ref().display());
         tmp_dir.release();  // don't delete
         assert!(false);
+    }
+}
+
+#[test]
+fn insert() {
+    use pippin::discover;
+    
+    let repo_dir = util::get_data_dir("seq_small");
+    let io = discover::repo_from_path(repo_dir.to_path_buf()).expect("discover")
+            .is_readonly(true);
+    let rt = SeqRepo::new(io);
+    let mut repo = Repository::open(rt).expect("open");
+    repo.load_latest(None).expect("load");
+    
+    // make some repeatable generator
+    let mut rng = util::mk_rng(3168136158);
+    let meta_gen = RepeatableMeta::new();
+    
+    let mut state = repo.clone_state().expect("clone state");
+    let len_range = LogNormal::new(1., 2.);
+    let max_len = 1_000;
+    for _ in 0..50 {
+        let gen = GeneratorEnum::new_random(&mut rng);
+        let len = min(len_range.ind_sample(&mut rng) as usize, max_len);
+        let seq = gen.generate(len).into();
+        state.insert_initial(rng.gen::<u32>() & 0xFF_FFFF, seq).expect("insert element");
+    }
+    repo.merge_in(state, Some(&meta_gen)).expect("merge");
+    
+    let tip = repo.clone_state().expect("clone state");   //TODO: do we need to clone?
+    assert_eq!(tip.num_avail(), 300);
+    for part in repo.partitions() {
+        let tip = part.tip_key().expect("tip_key");
+        // This is what we found before. Check consistency rather than correctness.
+        // We should have one partition, so "each" iteration is the same.
+        assert_eq!(tip.as_string(false),
+            "1374C065686236F33C7A1B73B1CE7577678DDB81753C119E2B89063A961CF2A1");
     }
 }
