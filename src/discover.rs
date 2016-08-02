@@ -138,8 +138,12 @@ pub fn part_from_path<P: AsRef<Path>>(path: P, opt_part_num: Option<PartId>) -> 
     }
     }   // destroy filter_skip: end borrow on part_id and basename
     
-    if let Some(bname) = basename {
+    if let Some(mut bname) = basename {
         let part_id = part_id.expect("has part_id when has basename");
+        if bname.ends_with('-') {
+            // PartFileIO does not expect '-' separator in prefix
+            bname.pop();
+        }
         Ok(PartFileIO::new(part_id, dir.join(bname), part_paths))
     } else {
         Err(Box::new(if opt_part_num.is_some() {
@@ -235,9 +239,13 @@ pub fn repo_from_path<P: AsRef<Path>>(path: P) -> Result<RepoFileIO> {
     }
     
     let mut repo = RepoFileIO::new(dir);
-    for (prefix, pn) in prefixes {
+    for (mut prefix, pn) in prefixes {
         if let Some(part_files) = partitions.remove(&pn) {
-             repo.insert_part(PartFileIO::new(pn, prefix, part_files));
+            if prefix.ends_with('-') {
+                // PartFileIO does not expect '-' separator in prefix
+                prefix.pop();
+            }
+            repo.insert_part(PartFileIO::new(pn, dir.join(prefix), part_files));
         } else {
             // It is possible that multiple prefixes exist for the same
             // partition number, thus the part_files were already used

@@ -107,7 +107,7 @@ impl PartFileIO {
     /// Create an empty partition IO with partition identifier 1.
     /// 
     /// *   `prefix` is a dir + partial-file-name; it is appended with
-    ///     something like `-ss1.pip` or `-ss2-lf3.piplog` to get a file name
+    ///     something like `-ss1.pip` or `-ss2-cl3.piplog` to get a file name
     pub fn new_default<P: Into<PathBuf>>(prefix: P) -> PartFileIO {
         Self::new(PartId::from_num(1), prefix, PartPaths::new())
     }
@@ -130,10 +130,12 @@ impl PartFileIO {
     /// *   `paths` is a list of paths of all known partition files
     pub fn new<P: Into<PathBuf>>(part_id: PartId, prefix: P, paths: PartPaths) -> PartFileIO
     {
+        let prefix = prefix.into();
+        trace!("New PartFileIO; part_id: {}, prefix: {}, ss_len: {}", part_id, prefix.display(), paths.ss_len());
         PartFileIO {
             readonly: false,
             part_id: part_id,
-            prefix: prefix.into(),
+            prefix: prefix,
             paths: paths,
         }
     }
@@ -291,7 +293,9 @@ impl RepoFileIO {
     /// *   `dir` is the top directory, in which all data files are (as a
     ///     `String`, `Path` or anything which converts to a `PathBuf`)
     pub fn new<P: Into<PathBuf>>(dir: P) -> RepoFileIO {
-        RepoFileIO { readonly: false, dir: dir.into(), parts: hi::HashIndexed::new() }
+        let dir = dir.into();
+        trace!("New RepoFileIO; dir: {}", dir.display());
+        RepoFileIO { readonly: false, dir: dir, parts: hi::HashIndexed::new() }
     }
     
     /// Get property: is this readonly? If this is readonly, file creation and
