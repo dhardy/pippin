@@ -429,6 +429,7 @@ impl<C: ClassifierT> MutStateT<C::Element> for RepoState<C> {
         let class_id = if let Some(class_id) = self.classifier.classify(&*elt) {
             class_id
         } else {
+            warn!("Failed to classify element");
             match self.classifier.fallback() {
                 ClassifyFallback::Default(class_id) => class_id,
                 ClassifyFallback::ReplacedOrFail | ClassifyFallback::ReplacedOrDefault(_) => id.part_id(),

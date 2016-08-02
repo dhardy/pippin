@@ -234,7 +234,7 @@ pub struct SeqRepo<IO: RepoIO> {
     parts: HashMap<PartId, PartInfo>,
 }
 impl<IO: RepoIO> SeqRepo<IO> {
-    /// Create an new repo around a given I/O device.
+    /// Create an new `RepoT` around a given I/O device.
     pub fn new(r: IO) -> SeqRepo<IO> {
         SeqRepo {
             csf: SeqClassifier { classes: Vec::new() },
@@ -265,7 +265,7 @@ impl<IO: RepoIO> SeqRepo<IO> {
         let ver = LittleEndian::read_u32(&v[4..8]);
         let min_len = LittleEndian::read_u32(&v[8..12]);
         let max_len = LittleEndian::read_u32(&v[12..16]);
-         let id = try_read!(PartId::try_from(LittleEndian::read_u64(&v[16..24])), 16, (0, 8));
+        let id = try_read!(PartId::try_from(LittleEndian::read_u64(&v[16..24])), 16, (0, 8));
         let max_id = try_read!(PartId::try_from(LittleEndian::read_u64(&v[24..32])), 24, (0, 8));
         let pi = PartInfo {
             max_part_id: max_id,
@@ -280,7 +280,7 @@ impl<IO: RepoIO> UserFields for SeqRepo<IO> {
     fn write_user_fields(&mut self, _part_id: PartId, _is_log: bool) -> Vec<UserData> {
         let mut ud = Vec::with_capacity(self.parts.len());
         for (id,pi) in &self.parts {
-            let mut buf = Vec::from(&b"SCPI...8..12..16..20..24..28..32"[..]);
+            let mut buf = Vec::from(&b"SCPI4...8...12..16..-...24..-..."[..]);
             LittleEndian::write_u32(&mut buf[4..], pi.ver);
             LittleEndian::write_u32(&mut buf[8..], pi.min_len);
             LittleEndian::write_u32(&mut buf[12..], pi.max_len);
@@ -322,6 +322,7 @@ impl<IO: RepoIO> UserFields for SeqRepo<IO> {
                 },
             }
         }
+        self.set_classifier();
     }
 }
 impl<IO: RepoIO> RepoT<SeqClassifier> for SeqRepo<IO> {
@@ -404,68 +405,5 @@ impl<IO: RepoIO> RepoT<SeqClassifier> for SeqRepo<IO> {
         self.set_classifier();
         //TODO: what happens with return value?
         Ok((vec![id1, id2], vec![]))
-    }
-    fn write_buf(&self, _num: PartId, w: &mut Write) -> Result<()> {
-        // Classifier data (little endian):
-        // "SeqCSF01" identifier
-        // Number of PartInfos (u32)
-        // PartInfos: two PartIds (u64 × 2), ver (u32), lengths (u32 × 2)
-        try!(w.write(b"SeqCSF01"));
-        assert!(self.parts.len() <= u32::MAX as usize);
-        try!(w.write_u32::<LittleEndian>(self.parts.len() as u32));
-        for (part_id, part) in &self.parts {
-            try!(w.write_u64::<LittleEndian>((*part_id).into()));
-            try!(w.write_u64::<LittleEndian>(part.max_part_id.into()));
-            try!(w.write_u32::<LittleEndian>(part.ver));
-            try!(w.write_u32::<LittleEndian>(part.min_len));
-            try!(w.write_u32::<LittleEndian>(part.max_len));
-        }
-        Ok(())
-    }
-    fn read_buf(&mut self, _num: PartId, buf: &[u8]) -> Result<()> {
-        // Format is as defined in `write_buf()`.
-        
-        //TODO: how should errors be handled? Clean up handling.
-        if buf.len() < 12 {
-            return OtherError::err("Insufficient data for classifier's read_buf()");
-        }
-        if buf[0..8] != *b"SeqCSF01" {
-            return OtherError::err("Invalid format identifier for classifier's read_buf()");
-        }
-        let n_parts = LittleEndian::read_u32(&buf[8..12]) as usize;
-        if buf.len() != 12 + (8*2 + 4*3) * n_parts {
-            return OtherError::err("Wrong data length for classifier's read_buf()");
-        }
-        let mut r = &mut &buf[12..];
-        for _ in 0..n_parts {
-            let part_id = try!(PartId::try_from(try!(r.read_u64::<LittleEndian>())));
-            let max_part_id = try!(PartId::try_from(try!(r.read_u64::<LittleEndian>())));
-            let ver = try!(r.read_u32::<LittleEndian>());
-            let min_len = try!(r.read_u32::<LittleEndian>());
-            let max_len = try!(r.read_u32::<LittleEndian>());
-            
-            match self.parts.entry(part_id) {
-                Entry::Occupied(mut e) => {
-                    if ver > e.get().ver {
-                        // Replace all entries with more recent information
-                        let v = e.get_mut();
-                        v.max_part_id = max_part_id;
-                        v.ver = ver;
-                        v.min_len = min_len;
-                        v.max_len = max_len;
-                    }   // else: information is not newer; ignore
-                },
-                Entry::Vacant(e) => {
-                    e.insert(PartInfo {
-                        max_part_id: max_part_id,
-                        ver: ver,
-                        min_len: min_len,
-                        max_len: max_len,
-                    });
-                },
-            }
-        }
-        self.set_classifier();
-        Ok(())
     }
 }
