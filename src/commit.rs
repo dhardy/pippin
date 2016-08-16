@@ -30,6 +30,11 @@ pub enum ExtraMeta {
     Text(String),
 }
 
+const FLAG_RECLASSIFY_BIT: u16 = 0b10;
+const FLAG_RECLASSIFY_MASK: u16 = 0b11;
+// Mask for 'essential' bit of all undefined flags:
+const FLAG_UNDEF_ESSENTIAL_MASK: u16 = 0b01010101_01010100;
+
 /// Metadata is attached to every commit. The following is included by the
 /// library:
 /// 
@@ -73,10 +78,7 @@ impl CommitMeta {
     }
     /// Create, explicitly providing all fields.
     pub fn new_explicit(number: u32, timestamp: i64, ext_flags: u16, _ext_data: Vec<u8>, extra: ExtraMeta) -> Result<Self, OtherError> {
-        // Flag 0 means data is being reclassified.
-        // Mask for 'essential' bit of unknown flags:
-        let mask = 0b01010101_01010100;
-        if (ext_flags & mask) != 0 {
+        if (ext_flags & FLAG_UNDEF_ESSENTIAL_MASK) != 0 {
             return Err(OtherError::new("found essential unknown commit meta flag"));
         }
         // ignore ext_data because we can and don't currently store anything there
@@ -117,9 +119,25 @@ impl CommitMeta {
         self.number = n;
     }
     
-    /// Get extension flags as a u16.
+    /// Get extension flags as a u16. This isn't intended to allow direct
+    /// manipulation, only to allow the bit-field to be saved.
     pub fn ext_flags(&self) -> u16 {
         self.ext_flags
+    }
+    /// Get status of "reclassify" flag. If true, reclassification is needed
+    /// and will be done in a maintenance cycle.
+    pub fn flag_reclassify(&self) -> bool {
+        (self.ext_flags & FLAG_RECLASSIFY_BIT) != 0
+    }
+    /// Set "reclassify" flag.
+    pub fn set_flag_reclassify(&mut self, state: bool) {
+        if state {
+            // set only flag not 'essential' bit since this feature is not essential to correct reading
+            self.ext_flags |= FLAG_RECLASSIFY_BIT;
+        } else {
+            // mask with inverse of "reclassify" bits mask
+            self.ext_flags &= !FLAG_RECLASSIFY_MASK;
+        }
     }
     
     /// Get the commit's extra data.

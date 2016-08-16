@@ -191,7 +191,7 @@ numbers 2 and 4 are active, and and extension 2 is essential).
 
 The following extensions are defined:
 
-*   0: "moving"; if this is set, data in this partition is in the process of
+*   0: "reclassify"; if this is set, data in this partition is in the process of
     being reclassified; load operations seeing this bit should continue
     reclassification in the next maintenance cycle.
 
