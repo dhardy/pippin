@@ -6,10 +6,11 @@
 
 use std::marker::PhantomData;
 use std::any::Any;
+use std::{fmt, result};
 
 use {PartIO, UserFields};
-use {ElementT, PartId, PartState};
-use error::{Error, Result, OtherError};
+use {ElementT, PartId, Partition};
+use error::{Error, Result, OtherError, ErrorTrait};
 
 
 /// Provides file discovery and creation for a repository.
@@ -33,10 +34,10 @@ pub trait RepoIO {
     fn has_part(&self, pn: PartId) -> bool;
     
     /// Add a new partition. `num` is the partition number to use; this function
-    /// fails if it is already taken. `prefix` is a relative path plus file-name
-    /// prefix, e.g. `data/misc-` would result in a snapshot having a name like
-    /// `misc-pn1-ss1.pip` inside the `data` subdirectory.
-    fn new_part(&mut self, num: PartId, prefix: &str) -> Result<()>;
+    /// fails if it is already taken. `prefix` is the common part of the
+    /// path/name of files for this partition; it must be unique from that of
+    /// other partitions.
+    fn new_part(&mut self, num: PartId, prefix: String) -> Result<()>;
     
     /// Construct and return a new PartIO for partition `num`.
     /// 
@@ -112,7 +113,7 @@ pub enum ClassifyFallback {
 pub trait RepoT<C: ClassifierT+Sized>: UserFields {
     /// Get access to the I/O provider. This could be an instance of
     /// `DiscoverRepoFiles` or could be self (among other possibilities).
-    fn repo_io<'a>(&'a mut self) -> &'a mut RepoIO;
+    fn io<'a>(&'a mut self) -> &'a mut RepoIO;
     
     /// Make a copy of the classifier. This should be independent (for use with
     /// `Repository::clone_state()`) and be unaffected by repartitioning (e.g.
@@ -123,58 +124,90 @@ pub trait RepoT<C: ClassifierT+Sized>: UserFields {
     
     /// This method is called once by `Repository::create()`. It should
     /// initialise the classifier for a new repository (if the classifier
-    /// requires this). It must choose an
-    /// initial `PartId`, create a partition, and return its `PartIO`.
+    /// requires this) and return an identifier for the first partition.
     /// 
-    /// Sample code to do this (apart from any internal set-up required):
+    /// If no initialisation is needed, this may simply return a PartId:
     /// 
     /// ```no_compile
-    /// fn init_first(&mut self) -> Result<Box<PartIO>> {
-    ///     let part_id = PartId::from_num(1);
-    ///     try!(self.repo_io().add_partition(part_id, "" /*no prefix*/));
-    ///     Ok(try!(self.repo_io().make_partition_io(part_id)))
+    /// fn init_first(&mut self) -> Result<PartId> {
+    ///     Ok(PartId::from_num(1))
     /// }
     /// ```
     /// 
     /// It is allowed for this function to panic if it is called a second time
-    /// or after any method besides `repo_io()` has been called.
-    fn init_first(&mut self) -> Result<Box<PartIO>>;
+    /// or after any method besides `io()` has been called.
+    fn init_first(&mut self) -> Result<PartId>;
+    
+    /// Allows users to pick human-readable prefixes for partition file names.
+    /// The default implementation returns `None`.
+    /// 
+    /// If `None` is returned, the library uses `format!("pn{}", part_id)`.
+    /// Otherwise, it is suggested but not required that the partition number
+    /// feature in this prefix (the only requirement is uniqueness).
+    fn suggest_part_prefix(&mut self, _part_id: PartId) -> Option<String> {
+        None
+    }
+    
+    /// Determines whether a partition should be divided.
+    /// 
+    /// This is called by `Repository::write_all()` on all partitions.
+    /// 
+    /// The default implementation returns `false` (never divide). A simple
+    /// working version could base its decision on the number of elements
+    /// contained, e.g.
+    /// `part.tip().map_or(false, |state| state.num_avail()) > 10_000`.
+    fn should_divide(&mut self, _part_id: PartId, _part: &Partition<C::Element>)
+            -> bool
+    {
+        false
+    }
     
     /// This function is called when too many elements correspond to the given
-    /// classification. The function should divide some partition with two
-    /// or more new classifications each with new partition numbers;
-    /// the number of the old classification should not be used again (unless
-    /// somehow the new classifications were to recombined into the old).
+    /// classification (see `should_divide()`). The function should create new
+    /// partition numbers and update the classifier to reassign some or all
+    /// elements of the existing partition. Elements are moved only from the
+    /// source ("divided") partition, and can be moved to any partition.
     /// 
-    /// The function should return the numbers of the new classifications,
-    /// along with a list of other modified partitions (see below; if other
-    /// partitions are not modified this should be empty).
+    /// The divided partition cannot be destroyed or its number
+    /// reassigned, but it can still have elements assigned.
     /// 
-    /// It is possible for this function to modify other partitions, e.g. to
-    /// steal numbers allocated to a different partition. In this case the
-    /// second list in the result should indicate which partitions have been
-    /// changed and need to be updated. In case another
-    /// partition needs to be loaded first, this function may fail with
-    /// `RepoDivideError::LoadPart(num)`.
+    /// The return value should be `Ok((new_ids, changed))` on success where
+    /// `new_ids` are the partition numbers of new partitions (to be created)
+    /// and `changed` are the numbers of partitions whose `UserFields` must be
+    /// updated (via a new snapshot or change log). Normally `changed` may be
+    /// empty, but this strategy allows assigning and "stealing" ranges of free
+    /// partition numbers.
     /// 
-    /// After division, new snapshots will be written for the old and new
-    /// partitions. The implementation of `UserFields` on this object should
-    /// be used to store up-to-date details of the partitioning in these files'
-    /// headers. Any other partitions adjusted (second list of `PartId`s) will
-    /// also have new snapshots or commit-logs written so that new user-fields
-    /// can be written.
+    /// This may fail with `RepoDivideError::NotSubdivisible` if the partition
+    /// cannot be divided at this time. It may fail with
+    /// `RepoDivideError::LoadPart(num)`; this causes the numbered partition to
+    /// be loaded then this function called again (may be useful for "stealing"
+    /// partition numbers). Any other error will cause the operation doing the
+    /// division to fail.
     /// 
-    /// Information written in user fields must be versioned per partition,
-    /// since other partitions may not have new user-fields written before the
-    /// program is closed, and thus may not record this repartitioning, and
-    /// further, it is possible that next time the repository is loaded another
-    /// partition will be adjusted without first loading any partitions which
-    /// recorded details of *this* divison.
-    fn divide(&mut self, part: &PartState<C::Element>) ->
+    /// After division, a special strategy is used to move elements safely:
+    /// 
+    /// 1.  the divided partition is saved with a special code noting that
+    ///     elements are being moved
+    /// 2.  new partitions are created (TODO: what if this fails?)
+    /// 3.  "changed" partitions are saved
+    /// 4.  a table is made listing where elements of the divided partition
+    ///     should go, then for each target partition elements are inserted,
+    ///     the partition saved, then the elements are removed from the divided
+    ///     partition and this saved (TODO: in multiple stages if large number?
+    ///     how to avoid duplication on failure?)
+    /// 5.  a new snapshot is written for the divided partition
+    /// 
+    /// Details of the new partitioning may be stored in the `UserFields` of
+    /// each partition which gets touched. This may not be all partitions, so
+    /// code handling loading of `UserFields` needs to use per-partition
+    /// versioning to determine which information is up-to-date.
+    fn divide(&mut self, part: &Partition<C::Element>) ->
         Result<(Vec<PartId>, Vec<PartId>), RepoDivideError>;
 }
 
 /// Failures allowed for `ClassifierT::divide`.
+#[derive(Debug)]
 pub enum RepoDivideError {
     /// No logic is available allowing subdivision of the category.
     NotSubdivisible,
@@ -189,6 +222,27 @@ impl RepoDivideError {
     /// way to create with an error message.
     pub fn msg(msg: &'static str) -> RepoDivideError {
         RepoDivideError::Other(box OtherError::new(msg))
+    }
+}
+impl ErrorTrait for RepoDivideError {
+    fn description(&self) -> &str {
+        match self {
+            &RepoDivideError::NotSubdivisible => "divide: partition is not divisible",
+            &RepoDivideError::LoadPart(_) => "divide: another partition needs loading",
+            &RepoDivideError::Other(ref e) => e.description(),
+        }
+    }
+}
+impl fmt::Display for RepoDivideError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> result::Result<(), fmt::Error> {
+        match self {
+            &RepoDivideError::NotSubdivisible =>
+                write!(f, "divide: partition is not divisible"),
+            &RepoDivideError::LoadPart(id) =>
+                write!(f, "divide: another partition, {}, needs loading", id),
+            &RepoDivideError::Other(ref e) =>
+                write!(f, "divide: other error: {}", e.description()),
+        }
     }
 }
 

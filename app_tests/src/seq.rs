@@ -326,13 +326,13 @@ impl<IO: RepoIO> UserFields for SeqRepo<IO> {
     }
 }
 impl<IO: RepoIO> RepoT<SeqClassifier> for SeqRepo<IO> {
-    fn repo_io(&mut self) -> &mut RepoIO {
+    fn io(&mut self) -> &mut RepoIO {
         &mut self.io
     }
     fn clone_classifier(&self) -> SeqClassifier {
         self.csf.clone()
     }
-    fn init_first(&mut self) -> Result<Box<PartIO>> {
+    fn init_first(&mut self) -> Result<PartId> {
         assert!(self.parts.is_empty());
         let p_id = PartId::from_num(1);
         self.parts.insert(p_id, PartInfo {
@@ -342,17 +342,17 @@ impl<IO: RepoIO> RepoT<SeqClassifier> for SeqRepo<IO> {
             max_len: u32::MAX,
         });
         self.set_classifier();
-        try!(self.io.new_part(p_id, ""));
-        Ok(try!(self.io.make_part_io(p_id)))
+        Ok(p_id)
     }
-    fn divide(&mut self, part: &PartState<Sequence>) ->
+    fn divide(&mut self, part: &Partition<Sequence>) ->
         Result<(Vec<PartId>, Vec<PartId>), RepoDivideError>
     {
+        let tip = try!(part.tip().map_err(|e| RepoDivideError::Other(Box::new(e))));
         // 1: choose new lengths to use for partitioning
         // Algorithm: sample up to 999 lengths, find the median
-        if part.num_avail() < 1 { return Err(RepoDivideError::NotSubdivisible); }
-        let mut lens = Vec::with_capacity(min(999, part.num_avail()));
-         for (_, elt) in part.elts_iter() {
+        if tip.num_avail() < 1 { return Err(RepoDivideError::NotSubdivisible); }
+        let mut lens = Vec::with_capacity(min(999, tip.num_avail()));
+         for (_, elt) in tip.elts_iter() {
             let seq: &Sequence = elt;
             assert!(seq.v.len() <= u32::MAX as usize);
             lens.push(seq.v.len() as u32);

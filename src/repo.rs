@@ -48,7 +48,7 @@ pub struct Repository<C: ClassifierT, R: RepoT<C>> {
     /// Classifier. This must use compile-time polymorphism since it gives us
     /// the element type, and we do not want element look-ups to involve a
     /// run-time conversion.
-    classifier: R,
+    repo_t: R,
     /// Descriptive identifier for the repository
     name: String,
     /// List of loaded partitions, by their `PartId`.
@@ -67,17 +67,21 @@ impl<C: ClassifierT, R: RepoT<C>> Repository<C, R> {
     /// 
     /// This creates an initial 'partition' ready for use (all contents must
     /// be kept within a `Partition`).
-    pub fn create<S: Into<String>>(mut classifier: R, name: S,
+    pub fn create<S: Into<String>>(mut repo_t: R, name: S,
             make_meta: Option<&MakeMeta>) -> Result<Repository<C, R>>
     {
         let name: String = name.into();
         info!("Creating repository: {}", name);
-        let part_io = try!(classifier.init_first());
-        let part = try!(Partition::create(part_io, &name, Some(&mut classifier), make_meta));
+        let part_id = try!(repo_t.init_first());
+        let suggestion = repo_t.suggest_part_prefix(part_id);
+        let prefix = suggestion.unwrap_or_else(|| format!("pn{}", part_id));
+        try!(repo_t.io().new_part(part_id, prefix));
+        let part_io = try!(repo_t.io().make_part_io(part_id));
+        let part = try!(Partition::create(part_io, &name, Some(&mut repo_t), make_meta));
         let mut partitions = HashMap::new();
         partitions.insert(part.part_id(), part);
         Ok(Repository{
-            classifier: classifier,
+            repo_t: repo_t,
             name: name,
             partitions: partitions,
         })
@@ -87,9 +91,9 @@ impl<C: ClassifierT, R: RepoT<C>> Repository<C, R> {
     /// 
     /// This does not automatically load partition data, however it must load
     /// at least one header in order to identify the repository.
-    pub fn open(mut classifier: R)-> Result<Repository<C, R>> {
+    pub fn open(mut repo_t: R)-> Result<Repository<C, R>> {
         let (name, parts) = {
-            let io = classifier.repo_io();
+            let io = repo_t.io();
             let mut part_nums = io.parts().into_iter();
             let num0 = if let Some(num) = part_nums.next() {
                 num
@@ -114,7 +118,7 @@ impl<C: ClassifierT, R: RepoT<C>> Repository<C, R> {
         
         info!("Opening repository with {} partitions: {}", parts.len(), name);
         Ok(Repository{
-            classifier: classifier,
+            repo_t: repo_t,
             name: name,
             partitions: parts,
         })
@@ -145,7 +149,7 @@ impl<C: ClassifierT, R: RepoT<C>> Repository<C, R> {
     /// Load the latest state of all partitions
     pub fn load_latest(&mut self, make_meta: Option<&MakeMeta>) -> Result<()> {
         for (_, part) in &mut self.partitions {
-            try!(part.load_latest(Some(&mut self.classifier), make_meta));
+            try!(part.load_latest(Some(&mut self.repo_t), make_meta));
         }
         Ok(())
     }
@@ -156,7 +160,7 @@ impl<C: ClassifierT, R: RepoT<C>> Repository<C, R> {
     /// are suppressed.
     pub fn write_all(&mut self, fast: bool) -> Result<()> {
         for (_, part) in &mut self.partitions {
-            try!(part.write(fast, Some(&mut self.classifier)));
+            try!(part.write(fast, Some(&mut self.repo_t)));
         }
         Ok(())
     }
@@ -164,7 +168,7 @@ impl<C: ClassifierT, R: RepoT<C>> Repository<C, R> {
     /// Force all loaded partitions to write a snapshot.
     pub fn write_snapshot_all(&mut self) -> Result<()> {
         for (_, part) in &mut self.partitions {
-            try!(part.write_snapshot(Some(&mut self.classifier)));
+            try!(part.write_snapshot(Some(&mut self.repo_t)));
         }
         Ok(())
     }
@@ -229,7 +233,7 @@ impl<C: ClassifierT, R: RepoT<C>> Repository<C, R> {
     /// 
     /// TODO: a way to copy only some of the loaded partitions.
     pub fn clone_state(&self) -> result::Result<RepoState<C>, TipError> {
-        let mut rs = RepoState::new(self.classifier.clone_classifier());
+        let mut rs = RepoState::new(self.repo_t.clone_classifier());
         for (num, part) in &self.partitions {
             if part.is_loaded() {
                 rs.add_part(*num, try!(part.tip()).clone_mut());

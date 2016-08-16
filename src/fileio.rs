@@ -345,12 +345,11 @@ impl RepoIO for RepoFileIO {
     fn has_part(&self, pn: PartId) -> bool {
         self.parts.contains_key(&pn)
     }
-    fn new_part(&mut self, num: PartId, prefix: &str) -> Result<()> {
+    fn new_part(&mut self, num: PartId, prefix: String) -> Result<()> {
         if self.readonly {
             return ReadOnly::err();
         }
-        // "pn{}" part is not essential so long as prefix is unique but is useful
-        let path = self.dir.join(format!("{}pn{}", prefix, num));
+        let path = self.dir.join(prefix);
         self.parts.insert(num, PartFileIO::new_empty(num, path));
         Ok(())
     }
