@@ -17,9 +17,9 @@ use sum::BYTES as SUM_BYTES;
 use util::rtrim;
 
 // Snapshot header. This is the latest version.
-const HEAD_SNAPSHOT : [u8; 16] = *b"PIPPINSS20160516";
+const HEAD_SNAPSHOT : [u8; 16] = *b"PIPPINSS20160815";
 // Commit log header. This is the latest version.
-const HEAD_COMMITLOG : [u8; 16] = *b"PIPPINCL20160516";
+const HEAD_COMMITLOG : [u8; 16] = *b"PIPPINCL20160815";
 // Versions of header (all versions, including latest), encoded as an integer.
 // All restrictions to specific versions should mention `HEAD_VERSIONS` in
 // comments to aid searches.
@@ -27,7 +27,7 @@ const HEAD_COMMITLOG : [u8; 16] = *b"PIPPINCL20160516";
 // Note: new versions can be implemented just by updating the three HEAD_...
 // constants and updating code, so long as the code will still read old
 // versions. The file format documentation should also be updated.
-const HEAD_VERSIONS : [u32; 2] = [
+pub const HEAD_VERSIONS : [u32; 3] = [
     /* unsupported versions:
     2015_09_29, // initial standardisation
     2016_01_05, // add 'PARTID' to header blocks (snapshot only)
@@ -38,6 +38,7 @@ const HEAD_VERSIONS : [u32; 2] = [
     */
     2016_03_10, // new element and state sums break compatibility
     2016_05_16, // support Bbbb header sections
+    2016_08_15, // allow non-breaking extensions to commit-meta
 ];
 const SUM_SHA256 : [u8; 16] = *b"HSUM SHA-2 256\x00\x00";
 const SUM_BLAKE2_16 : [u8; 16] = *b"HSUM BLAKE2 16\x00\x00";
@@ -194,16 +195,19 @@ pub fn read_head(reader: &mut Read) -> Result<FileHeader> {
             user_fields.push(UserData::Text(try!(String::from_utf8(rtrim(&block[1..], 0).to_vec()))));
         } else if block[0] == b'U' {
             user_fields.push(UserData::Data(block[1..].to_vec()));
-        } else if block[0] == b'O' {
-            // Match optional extensions here; we currently have none
         } else if block[0] >= b'A' && block[0] <= b'Z' {
-            // Match important extensions here; we currently have none
-            // No match:
-            // #0017: proper output of warnings
-            println!("Warning: unrecognised file extension:");
-            println!("{:?}", block);
+            // Match unknown essential extensions here
+            // Note: we *could* go ahead and read file with caution, but how
+            // should we proceed when we know we missed something important?
+            error!("Unknown essential header block: {}", String::from_utf8_lossy(block));
+            return ReadError::err("unknown essential header block", pos, (off, off+block.len()));
+        } else if block[0] >= b'a' && block[0] <= b'z' {
+            // Match unknown inessential extensions here
+            trace!("Ignoring unknown inessential header block: {}", String::from_utf8_lossy(block));
         } else {
             // Match any other block rules here.
+            error!("Invalid header block: {}", String::from_utf8_lossy(block));
+            return ReadError::err("invalid header block", pos, (off, off+block.len()));
         }
         pos += block.len();
     }
@@ -305,14 +309,14 @@ fn read_header() {
     let head = b"PIPPINSS20160516\
                 test AbC \xce\xb1\xce\xb2\xce\xb3\x00\
                 HRemark 12345678\
-                HOoptional rule\x00\
+                Hoptional rule\x00\x00\
                 B\x00\x00\x0eUuser rule\x00\x00\
                 HUuser rule\x00\x00\x00\x00\x00\
                 Q2REM  completel\
                 y pointless text\
-                H123456789ABCDEF\
+                Hi123456789ABCDE\
                 HSUM BLAKE2 16\x00\x00\
-                \x03\xfa\xe2\xc5\x9f\xfa\x13\xc8-\xc3\"_\x08P\xaf\x01A\x14\x02\x18r$\x0a\xbf\xa2\xf8}\x82\xedX\x91\xa4";
+                \xba>\xf5\x18\xcf\xbb?\x95\x1c\xed\xeb(OPM\xf5\xa1\x1aQ_h\xb2e\"\xf2\xbc\x9d\x04\x84\xb7\"8";
     
     use ::Sum;
     let sum = Sum::calculate(&head[0..head.len() - SUM_BYTES]);
@@ -345,7 +349,7 @@ fn write_header() {
     let mut buf = Vec::new();
     write_head(&header, &mut buf).unwrap();
     
-    let expected = b"PIPPINSS20160516\
+    let expected = b"PIPPINSS20160815\
             \xc3\x84hnliche Unsinn\
             HRRemark \xcf\x89\x00\x00\x00\x00\x00\
             Q2R Quatsch Quatsch \
@@ -355,7 +359,7 @@ fn write_header() {
             B\x00\x00\x20U rsei noasr a\
             uyv 10()% xovn\
             HSUM BLAKE2 16\x00\x00\
-            \x80\x89\xb1\x1c\xb6\xba\xa4\"q\x10W\xfbE\xe6\xbcL7\xd9=\xceP\xfdlE\xe5\xf5\x8c\xde|\x82T\xeb";
+            \xdd0N\"\xceb#\x0d\x88\xa1\x19\xceu\xdd\x0e\xdej\xc8\xea|\xc3\xb3q\xdaO\x92)u\xa1\xf6\xe9\x01";
     use ::util::ByteFormatter;
     println!("Checksum: '{}'", ByteFormatter::from(&buf[buf.len()-SUM_BYTES..buf.len()]));
     if buf[..] != expected[..] {

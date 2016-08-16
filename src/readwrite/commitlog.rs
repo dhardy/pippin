@@ -13,8 +13,8 @@ use std::u32;
 
 use byteorder::{ByteOrder, BigEndian, WriteBytesExt};
 
-use readwrite::sum;
-use commit::{Commit, EltChange, CommitMeta, ExtraMeta};
+use readwrite::{sum, read_meta, write_meta};
+use commit::{Commit, EltChange};
 use {ElementT, Sum};
 use sum::BYTES as SUM_BYTES;
 use error::{Result, ReadError};
@@ -38,8 +38,10 @@ impl<E: ElementT> CommitReceiver<E> for Vec<Commit<E>> {
 
 
 /// Read a commit log from a stream
+/// 
+/// `format_ver` is the decimalised file format version
 pub fn read_log<E: ElementT>(mut reader: &mut Read,
-        receiver: &mut CommitReceiver<E>) -> Result<()>
+        receiver: &mut CommitReceiver<E>, format_ver: u32) -> Result<()>
 {
     let mut pos: usize = 0;
     let mut buf = vec![0; 32];
@@ -74,40 +76,7 @@ pub fn read_log<E: ElementT>(mut reader: &mut Read,
         if buf[6..8] != *b"\x00U" {
             return ReadError::err("unexpected contents (expected \\x00U)", pos, (6, 8));
         }
-        let secs = BigEndian::read_i64(&buf[8..16]);
-        pos += 16;
-        
-        try!(r.read_exact(&mut buf[0..16]));
-        if buf[0..4] != *b"CNUM" {
-            return ReadError::err("unexpected contents (expected CNUM)", pos, (0, 4));
-        }
-        let cnum = BigEndian::read_u32(&buf[4..8]);
-        
-        if buf[8..10] != *b"XM" {
-            return ReadError::err("unexpected contents (expected XM)", pos, (8, 10));
-        }
-        let xm_type_txt = buf[10..12] == *b"TT";
-        let xm_len = BigEndian::read_u32(&buf[12..16]) as usize;
-        pos += 16;
-        
-        let mut xm_data = vec![0; xm_len];
-        try!(r.read_exact(&mut xm_data));
-        let xm = if xm_type_txt {
-            ExtraMeta::Text(try!(String::from_utf8(xm_data)
-                .map_err(|_| ReadError::new("content not valid UTF-8", pos, (0, xm_len)))))
-        } else {
-            // even if xm_len > 0 we ignore it
-            ExtraMeta::None
-        };
-        
-        pos += xm_len;
-        let pad_len = 16 * ((xm_len + 15) / 16) - xm_len;
-        if pad_len > 0 {
-            try!(r.read_exact(&mut buf[0..pad_len]));
-            pos += pad_len;
-        }
-        
-        let meta = CommitMeta::new_explicit(cnum, secs, xm);
+        let meta = try!(read_meta(&mut r, &mut buf, &mut pos, format_ver));
         
         let mut parents = Vec::with_capacity(n_parents);
         for _ in 0..n_parents {
@@ -135,7 +104,7 @@ pub fn read_log<E: ElementT>(mut reader: &mut Read,
                 b"DEL\x00" => { Change::Delete },
                 b"INS\x00" => { Change::Insert },
                 b"REPL" => { Change::Replace },
-                b"MOVO" => { Change::MovedOut },
+                b"MOVO" => { Change::MoveOut },
                 b"MOV\x00" => { Change::Moved },
                 _ => {
                     return ReadError::err("unexpected contents (expected one \
@@ -178,13 +147,13 @@ pub fn read_log<E: ElementT>(mut reader: &mut Read,
                         _ => panic!()
                     }
                 },
-                Change::MovedOut | Change::Moved => {
+                Change::MoveOut | Change::Moved => {
                     try!(r.read_exact(&mut buf[0..16]));
                     if buf[0..8] != *b"NEW ELT\x00" {
                         return ReadError::err("unexpected contents (expected NEW ELT)", pos, (0, 8));
                     }
                     let new_id = BigEndian::read_u64(&buf[8..16]).into();
-                    EltChange::moved(new_id, change_t == Change::MovedOut)
+                    EltChange::moved(new_id, change_t == Change::MoveOut)
                 }
             };
             changes.insert(elt_id, change);
@@ -208,7 +177,7 @@ pub fn read_log<E: ElementT>(mut reader: &mut Read,
     
     #[derive(Eq, PartialEq, Copy, Clone, Debug)]
     enum Change {
-        Delete, Insert, Replace, MovedOut, Moved
+        Delete, Insert, Replace, MoveOut, Moved
     }
     
     Ok(())
@@ -239,28 +208,7 @@ pub fn write_commit<E: ElementT>(commit: &Commit<E>, writer: &mut Write) -> Resu
         try!(w.write(b"\x00U"));
     }
     
-    try!(w.write_i64::<BigEndian>(commit.meta().timestamp()));
-    
-    try!(w.write(b"CNUM"));
-    try!(w.write_u32::<BigEndian>(commit.meta().number()));
-    
-    match commit.meta().extra() {
-        &ExtraMeta::None => {
-            // last four zeros is 0u32 encoded in bytes
-            try!(w.write(b"XM\x00\x00\x00\x00\x00\x00"));
-        },
-        &ExtraMeta::Text(ref txt) => {
-            try!(w.write(b"XMTT"));
-            assert!(txt.len() <= u32::MAX as usize);
-            try!(w.write_u32::<BigEndian>(txt.len() as u32));
-            try!(w.write(txt.as_bytes()));
-            let pad_len = 16 * ((txt.len() + 15) / 16) - txt.len();
-            if pad_len > 0 {
-                let padding = [0u8; 15];
-                try!(w.write(&padding[0..pad_len]));
-            }
-        },
-    }
+    try!(write_meta(&mut w, commit.meta()));
     
     // Parent statesums (we wrote the number above already):
     for parent in commit.parents() {
@@ -280,7 +228,7 @@ pub fn write_commit<E: ElementT>(commit: &Commit<E>, writer: &mut Write) -> Resu
             &EltChange::Deletion => b"ELT DEL\x00",
             &EltChange::Insertion(_) => b"ELT INS\x00",
             &EltChange::Replacement(_) => b"ELT REPL",
-            &EltChange::MovedOut(_) => b"ELT MOVO",
+            &EltChange::MoveOut(_) => b"ELT MOVO",
             &EltChange::Moved(_) => b"ELT MOV\x00",
         };
         try!(w.write(marker));
@@ -316,6 +264,8 @@ pub fn write_commit<E: ElementT>(commit: &Commit<E>, writer: &mut Write) -> Resu
 
 #[test]
 fn commit_write_read(){
+    use readwrite::header::HEAD_VERSIONS;
+    use commit::{CommitMeta, ExtraMeta};
     use PartId;
     
     // Note that we can make up completely nonsense commits here. Element
@@ -335,14 +285,14 @@ fn commit_write_read(){
     changes.insert(p.elt_id(3), EltChange::insertion(Rc::new("three".to_string())));
     changes.insert(p.elt_id(4), EltChange::insertion(Rc::new("four".to_string())));
     changes.insert(p.elt_id(5), EltChange::insertion(Rc::new("five".to_string())));
-    let meta1 = CommitMeta::new_explicit(1, 123456, ExtraMeta::None);
+    let meta1 = CommitMeta::new_explicit(1, 123456, 0, vec![], ExtraMeta::None).expect("new meta");
     let commit_1 = Commit::new_explicit(seq, vec![squares], changes, meta1);
     
     changes = HashMap::new();
     changes.insert(p.elt_id(1), EltChange::deletion());
     changes.insert(p.elt_id(9), EltChange::replacement(Rc::new("NINE!".to_string())));
     changes.insert(p.elt_id(5), EltChange::insertion(Rc::new("five again?".to_string())));
-    let meta2 = CommitMeta::new_explicit(1, 321654, ExtraMeta::Text("123".to_string()));
+    let meta2 = CommitMeta::new_explicit(1, 321654, 0, vec![], ExtraMeta::Text("123".to_string())).expect("new meta");
     let commit_2 = Commit::new_explicit(nonsense, vec![quadr], changes, meta2);
     
     let mut obj = Vec::new();
@@ -351,7 +301,7 @@ fn commit_write_read(){
     assert!(write_commit(&commit_2, &mut obj).is_ok());
     
     let mut commits = Vec::new();
-    match read_log(&mut &obj[..], &mut commits) {
+    match read_log(&mut &obj[..], &mut commits, HEAD_VERSIONS[HEAD_VERSIONS.len() - 1]) {
         Ok(()) => {},
         Err(e) => {
 //             // specialisation for a ReadError:

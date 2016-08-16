@@ -173,8 +173,8 @@ pub struct MutPartState<E: ElementT> {
     elt_sum: Sum,
     elts: HashMap<EltId, Rc<E>>,
     moved: HashMap<EltId, EltId>,
-    // Number to assign to next commit (i.e. parent's `meta.next_number()`)
-    number: u32,
+    // Parent's metadata
+    par_meta: CommitMeta,
 }
 
 impl<E: ElementT> PartState<E> {
@@ -224,7 +224,7 @@ impl<E: ElementT> PartState<E> {
             make_meta: Option<&MakeMeta>) -> PartState<E>
     {
         let parents = vec![mut_state.parent.clone()];
-        let metadata = CommitMeta::new_num_mm(mut_state.number, make_meta);
+        let metadata = CommitMeta::new_par_mm(vec![&mut_state.par_meta], make_meta);
         let metasum = Sum::state_meta_sum(mut_state.part_id, &parents, &metadata);
         PartState {
             part_id: mut_state.part_id,
@@ -360,7 +360,7 @@ impl<E: ElementT> PartState<E> {
             elt_sum: self.statesum() ^ &self.metasum(),
             elts: self.elts.clone(),
             moved: self.moved.clone(),
-            number: self.meta.next_number(),
+            par_meta: self.meta.clone(),
         }
     }
     

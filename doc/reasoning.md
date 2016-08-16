@@ -327,3 +327,35 @@ XOR is still used to combine sums, effectively making a state a set of named
 elements. This is convenient for calculating sums resulting from patches. I see
 no obvious security issues with this (since all inputs are secure checksums and
 no other operations are used on sums).
+
+
+Extension of file formats without unnecessary breakage
+------------------------------------------------
+
+1.  old files should work with new software (backwards compatibility)
+2.  new files using only old features should work with old software (forwards compatibility)
+3.  writing new files with new features should be possible (extensibility)
+
+To support backwards compatibility, new software needs to support reading all old formats.
+
+To support forwards compatibility, either files need to be written in the oldest suitible format,
+or old software needs to be able to ignore optional additions *and* find everything it can
+understand in a format it understands.
+
+To support extensibility, either new versions are needed or additions to the existing format must
+be possible.
+
+
+### Using versions
+
+This requires that new software knows how to read and write all old versions, which adds a lot of
+complexity.
+
+It also means that additions cannot be optional (except by writing multiple versions).
+
+### Using additions
+
+This requires that the file format allows things to be added in various places (e.g. in the file
+header, in the start of a snapshot, commit or commit-log, and in the list of commit changes)
+such that old versions of software can (a) recognise that it is an addition, (b) determine whether
+it is safe to ignore the addition, and (c) skip the addition (assuming that it is safe to ignore).

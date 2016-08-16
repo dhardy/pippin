@@ -14,7 +14,7 @@ use chrono::{DateTime, NaiveDateTime, UTC};
 
 use {PartState, MutPartState, MutStateT};
 use {ElementT, EltId, Sum};
-use error::{Result, ElementOp};
+use error::{Result, ElementOp, OtherError};
 
 
 /// The type of the user-specified *extra* metadata field. This allows users
@@ -52,33 +52,35 @@ pub struct CommitMeta {
     /// 
     /// In rare cases this may be zero. 
     timestamp: i64,
+    /// Extension flags. These are inherited verbatim, so stored in this format.
+    ext_flags: u16,
     /// User-provided extra metadata
     extra: ExtraMeta,
 }
 
 impl CommitMeta {
-    /// Create, with a specified number and an optional `MakeMeta` trait.
-    pub fn new_num_mm(number: u32, mm: Option<&MakeMeta>) -> Self {
-        let timestamp = mm.map_or_else(|| Self::timestamp_now(), |mm| mm.make_timestamp());
-        CommitMeta {
-            number: number,
-            timestamp: timestamp,
-            extra: mm.map_or(ExtraMeta::None, |mm| mm.make_extrameta()),
-        }
-    }
     /// Create from parent(s)' metadata and an optional `MakeMeta` trait.
     pub fn new_par_mm(parents: Vec<&CommitMeta>, mm: Option<&MakeMeta>) -> Self {
         let number = parents.iter().fold(0, |prev, &m| max(prev, m.next_number()));
+        let ext_flags = parents.iter().fold(0, |prev, &m| prev | m.ext_flags);
         let timestamp = mm.map_or_else(|| Self::timestamp_now(), |mm| mm.make_timestamp());
         CommitMeta {
             number: number,
             timestamp: timestamp,
-            extra: mm.map_or(ExtraMeta::None, |mm| mm.make_extrameta()),
+            ext_flags: ext_flags,
+            extra: mm.map_or(ExtraMeta::None, |mm| mm.make_extrameta(&parents)),
         }
     }
     /// Create, explicitly providing all fields.
-    pub fn new_explicit(number: u32, timestamp: i64, extra: ExtraMeta) -> Self {
-        CommitMeta { number: number, timestamp: timestamp, extra: extra }
+    pub fn new_explicit(number: u32, timestamp: i64, ext_flags: u16, _ext_data: Vec<u8>, extra: ExtraMeta) -> Result<Self, OtherError> {
+        // Flag 0 means data is being reclassified.
+        // Mask for 'essential' bit of unknown flags:
+        let mask = 0b01010101_01010100;
+        if (ext_flags & mask) != 0 {
+            return Err(OtherError::new("found essential unknown commit meta flag"));
+        }
+        // ignore ext_data because we can and don't currently store anything there
+        Ok(CommitMeta { number: number, timestamp: timestamp, ext_flags: ext_flags, extra: extra })
     }
     
     /// Utility method to create a timestamp representing this moment.
@@ -115,6 +117,11 @@ impl CommitMeta {
         self.number = n;
     }
     
+    /// Get extension flags as a u16.
+    pub fn ext_flags(&self) -> u16 {
+        self.ext_flags
+    }
+    
     /// Get the commit's extra data.
     pub fn extra(&self) -> &ExtraMeta {
         &self.extra
@@ -141,7 +148,9 @@ pub trait MakeMeta {
     
     /// Make an extra-metadata item. The default implementation simply
     /// returns `ExtraMeta::None`.
-    fn make_extrameta(&self) -> ExtraMeta {
+    /// 
+    /// Parent metadata is passed in.
+    fn make_extrameta(&self, _par_meta: &Vec<&CommitMeta>) -> ExtraMeta {
         ExtraMeta::None
     }
 }
@@ -174,8 +183,8 @@ pub enum EltChange<E: ElementT> {
     /// Element was replaced (full data)
     Replacement(Rc<E>),
     /// Element has been moved, must be removed from this partition; new identity mentioned
-    MovedOut(EltId),
-    /// Same as `MovedOut` except that the element has already been removed from the partition
+    MoveOut(EltId),
+    /// Same as `MoveOut` except that the element has already been removed from the partition
     Moved(EltId),
 }
 impl<E: ElementT> EltChange<E> {
@@ -197,7 +206,7 @@ impl<E: ElementT> EltChange<E> {
     /// (otherwise it is assumed that the element has already been deleted).
     pub fn moved(new_id: EltId, remove: bool) -> EltChange<E> {
         match remove {
-            true => EltChange::MovedOut(new_id),
+            true => EltChange::MoveOut(new_id),
             false => EltChange::Moved(new_id),
         }
     }
@@ -207,7 +216,7 @@ impl<E: ElementT> EltChange<E> {
             &EltChange::Deletion => None,
             &EltChange::Insertion(ref elt) => Some(elt),
             &EltChange::Replacement(ref elt) => Some(elt),
-            &EltChange::MovedOut(_) => None,
+            &EltChange::MoveOut(_) => None,
             &EltChange::Moved(_) => None,
         }
     }
@@ -217,7 +226,7 @@ impl<E: ElementT> EltChange<E> {
             &EltChange::Deletion => None,
             &EltChange::Insertion(_) => None,
             &EltChange::Replacement(_) => None,
-            &EltChange::MovedOut(id) => Some(id),
+            &EltChange::MoveOut(id) => Some(id),
             &EltChange::Moved(id) => Some(id)
         }
     }
@@ -316,7 +325,7 @@ impl<E: ElementT> Commit<E> {
                 &EltChange::Replacement(ref elt) => {
                     try!(mut_state.replace_rc(*id, elt.clone()));
                 }
-                &EltChange::MovedOut(new_id) => {
+                &EltChange::MoveOut(new_id) => {
                     try!(mut_state.remove(*id));
                     mut_state.set_move(*id, new_id);
                 }

@@ -11,11 +11,10 @@ use std::collections::hash_map::{HashMap, Entry};
 
 use byteorder::{ByteOrder, BigEndian, WriteBytesExt};
 
-use readwrite::sum;
+use readwrite::{sum, read_meta, write_meta};
 use {PartState, StateT};
 use {ElementT, PartId, Sum};
 use sum::BYTES as SUM_BYTES;
-use commit::{ExtraMeta, CommitMeta};
 use error::{Result, ReadError, ElementOp};
 
 /// Read a snapshot of a set of elements from a stream.
@@ -29,7 +28,7 @@ use error::{Result, ReadError, ElementOp};
 /// The file version affects how data is read. Get it from a header with
 /// `header.ftype.ver()`.
 pub fn read_snapshot<T: ElementT>(reader: &mut Read, part_id: PartId,
-        _file_ver: u32) -> Result<PartState<T>>
+        format_ver: u32) -> Result<PartState<T>>
 {
     // A reader which calculates the checksum of what was read:
     let mut r = sum::HashReader::new(reader);
@@ -43,40 +42,7 @@ pub fn read_snapshot<T: ElementT>(reader: &mut Read, part_id: PartId,
         return ReadError::err("unexpected contents (expected SNAPSH_U where _ is any)", pos, (0, 8));
     }
     let num_parents = buf[6] as usize;
-    let secs = BigEndian::read_i64(&buf[8..16]);
-    pos += 16;
-    
-    try!(r.read_exact(&mut buf[0..16]));
-    if buf[0..4] != *b"CNUM" {
-        return ReadError::err("unexpected contents (expected CNUM)", pos, (0, 4));
-    }
-    let cnum = BigEndian::read_u32(&buf[4..8]);
-    
-    if buf[8..10] != *b"XM" {
-        return ReadError::err("unexpected contents (expected XM)", pos, (8, 10));
-    }
-    let xm_type_txt = buf[10..12] == *b"TT";
-    let xm_len = BigEndian::read_u32(&buf[12..16]) as usize;
-    pos += 16;
-    
-    let mut xm_data = vec![0; xm_len];
-    try!(r.read_exact(&mut xm_data));
-    let xm = if xm_type_txt {
-        ExtraMeta::Text(try!(String::from_utf8(xm_data)
-            .map_err(|_| ReadError::new("content not valid UTF-8", pos, (0, xm_len)))))
-    } else {
-        // even if xm_len > 0 we ignore it
-        ExtraMeta::None
-    };
-    
-    pos += xm_len;
-    let pad_len = 16 * ((xm_len + 15) / 16) - xm_len;
-    if pad_len > 0 {
-        try!(r.read_exact(&mut buf[0..pad_len]));
-        pos += pad_len;
-    }
-    
-    let meta = CommitMeta::new_explicit(cnum, secs, xm);
+    let meta = try!(read_meta(&mut r, &mut buf, &mut pos, format_ver));
     
     let mut parents = Vec::with_capacity(num_parents);
     for _ in 0..num_parents {
@@ -197,28 +163,7 @@ pub fn write_snapshot<T: ElementT>(state: &PartState<T>,
     assert!(state.parents().len() <= (u8::MAX as usize));
     snapsh_u[6] = state.parents().len() as u8;
     try!(w.write(&snapsh_u));
-    try!(w.write_i64::<BigEndian>(state.meta().timestamp()));
-    
-    try!(w.write(b"CNUM"));
-    try!(w.write_u32::<BigEndian>(state.meta().number()));
-    
-    match state.meta().extra() {
-        &ExtraMeta::None => {
-            // last four zeros is 0u32 encoded in bytes
-            try!(w.write(b"XM\x00\x00\x00\x00\x00\x00"));
-        },
-        &ExtraMeta::Text(ref txt) => {
-            try!(w.write(b"XMTT"));
-            assert!(txt.len() <= u32::MAX as usize);
-            try!(w.write_u32::<BigEndian>(txt.len() as u32));
-            try!(w.write(txt.as_bytes()));
-            let pad_len = 16 * ((txt.len() + 15) / 16) - txt.len();
-            if pad_len > 0 {
-                let padding = [0u8; 15];
-                try!(w.write(&padding[0..pad_len]));
-            }
-        },
-    }
+    try!(write_meta(&mut w, state.meta()));
     
     for parent in state.parents() {
         try!(parent.write(&mut w));
@@ -277,7 +222,8 @@ pub fn write_snapshot<T: ElementT>(state: &PartState<T>,
 #[test]
 fn snapshot_writing() {
     use ::MutStateT;
-    use ::commit::{MakeMeta};
+    use readwrite::header::HEAD_VERSIONS;
+    use ::commit::{ExtraMeta, CommitMeta, MakeMeta};
     
     let part_id = PartId::from_num(1);
     let mut state = PartState::<String>::new(part_id, None).clone_mut();
@@ -304,7 +250,7 @@ fn snapshot_writing() {
     
     struct MyMM {}
     impl MakeMeta for MyMM {
-        fn make_extrameta(&self) -> ExtraMeta {
+        fn make_extrameta(&self, _: &Vec<&CommitMeta>) -> ExtraMeta {
             ExtraMeta::Text("text".to_string())
         }
     }
@@ -313,6 +259,6 @@ fn snapshot_writing() {
     let mut result = Vec::new();
     assert!(write_snapshot(&state, &mut result).is_ok());
     
-    let state2 = read_snapshot(&mut &result[..], part_id, 2016_02_27).unwrap();
+    let state2 = read_snapshot(&mut &result[..], part_id, HEAD_VERSIONS[HEAD_VERSIONS.len() - 1]).unwrap();
     assert_eq!(state, state2);
 }

@@ -486,7 +486,7 @@ impl<E: ElementT> Partition<E> {
                     if let Some(ref mut u) = user {
                         u.read_user_fields(head.user, self.part_id, true);
                     }
-                    try!(read_log(&mut r, &mut queue));
+                    try!(read_log(&mut r, &mut queue, head.ftype.ver()));
                 }
             }
             for commit in queue {
