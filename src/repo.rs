@@ -175,8 +175,72 @@ impl<C: ClassifierT, R: RepoT<C>> Repository<C, R> {
             try!(part.write_full(Some(&mut self.repo_t)));
         }
         
-        // TODO:
         // Maintenance: do any division needed, then do any reclassification needed.
+        
+        // This is tricky due to lifetime analysis preventing re-use of partitions. So,
+        // 1) we collect partition numbers of any partition needing repartitioning.
+        let mut should_divide: Vec<PartId> = Vec::new();
+        for (id, part) in &self.partitions {
+            if self.repo_t.should_divide(*id, part) && part.is_ready() {
+                should_divide.push(*id);
+            }
+        }
+        
+        while let Some(old_id) = should_divide.pop() {
+            // Get new partition numbers and update classifiers. This gets saved later if successful.
+            let result = self.repo_t.divide(self.partitions.get(&old_id).expect("get partition"));
+            let (new_parts, changed) = match result {
+                Ok(result) => result,
+                Err(RepoDivideError::NotSubdivisible) => {
+                    continue;
+                },
+                Err(RepoDivideError::LoadPart(pid)) => {
+                    if let Some(mut part) = self.partitions.get_mut(&pid) {
+                        try!(part.load_latest(Some(&mut self.repo_t), None /*TODO: MakeMeta*/));
+                        should_divide.push(old_id); // try again
+                        continue;
+                    } else {
+                        error!("Division requested load of partition {}, but partition was not found", pid);
+                        return OtherError::err("requested partition not found during division");
+                    }
+                },
+                Err(e) => {
+                    return Err(box e);
+                }
+            };
+            
+            // Mark partition as needing reclassification:
+            {
+                let old_part = self.partitions.get_mut(&old_id).expect("has old part");
+                // TODO: mark old_part/old_id as needing reclassification
+            }
+            
+            // Create new partitions:
+            for new_id in new_parts {
+                let suggestion = self.repo_t.suggest_part_prefix(new_id);
+                let prefix = suggestion.unwrap_or_else(|| format!("pn{}", new_id));
+                try!(self.repo_t.io().new_part(new_id, prefix));
+                let part_io = try!(self.repo_t.io().make_part_io(new_id));
+                let mut part = try!(Partition::create(part_io, &self.name,
+                    Some(&mut self.repo_t), None /*TODO: MakeMeta?*/));
+                try!(part.write_full(Some(&mut self.repo_t)));
+                self.partitions.insert(new_id, part);
+            }
+            
+            // Save all changed partitions:
+            for id in changed {
+                match self.partitions.get_mut(&id) {
+                    Some(part) => {
+                        //TODO: snapshot or log?
+                        //TODO: continue on fail (i.e. require write later)?
+                        try!(part.write_snapshot(Some(&mut self.repo_t)));
+                    },
+                    None => {
+                        warn!("Was notified that partition {} changed, but couldn't find it!", id);
+                    },
+                }
+            }
+        }
         
         Ok(())
     }
