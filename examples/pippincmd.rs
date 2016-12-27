@@ -348,7 +348,7 @@ fn inner(path: PathBuf, op: Operation, args: Rest) -> Result<()>
                 }
             }       // destroy reference `state`
             
-            let has_changes = try!(part.write(true, None));
+            let has_changes = try!(part.write_fast(None));
             if has_changes && args.snapshot {
                 try!(part.write_snapshot(None));
             }

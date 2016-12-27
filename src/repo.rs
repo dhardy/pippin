@@ -156,12 +156,28 @@ impl<C: ClassifierT, R: RepoT<C>> Repository<C, R> {
     
     /// Write commits to the disk for all partitions.
     /// 
-    /// If `fast` is true, "maintenance" operations (writing snapshot files)
-    /// are suppressed.
-    pub fn write_all(&mut self, fast: bool) -> Result<()> {
+    /// Also see the `write_full()` function.
+    pub fn write_fast(&mut self) -> Result<()> {
         for (_, part) in &mut self.partitions {
-            try!(part.write(fast, Some(&mut self.repo_t)));
+            try!(part.write_fast(Some(&mut self.repo_t)));
         }
+        Ok(())
+    }
+    /// Write commits to the disk for all partitions and do any needed
+    /// maintenance operations.
+    /// 
+    /// This should be called at least occasionally, but such calls could be
+    /// scheduled during less busy periods.
+    pub fn write_full(&mut self) -> Result<()> {
+        // Write all logs first, in case we crash later
+        try!(self.write_fast());
+        for (_, part) in &mut self.partitions {
+            try!(part.write_full(Some(&mut self.repo_t)));
+        }
+        
+        // TODO:
+        // Maintenance: do any division needed, then do any reclassification needed.
+        
         Ok(())
     }
     

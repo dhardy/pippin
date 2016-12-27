@@ -814,9 +814,7 @@ impl<E: ElementT> Partition<E> {
     /// This will write all unsaved commits to a log on the disk. Does nothing
     /// if there are no queued changes.
     /// 
-    /// If `fast` is true, no further actions will happen, otherwise required
-    /// maintenance operations will be carried out (e.g. creating a new
-    /// snapshot when the current commit-log is long).
+    /// Also see `write_full()`.
     /// 
     /// `user` allows extra data to be written to file headers.
     /// 
@@ -825,52 +823,66 @@ impl<E: ElementT> Partition<E> {
     /// 
     /// Note that writing to disk can fail. In this case it may be worth trying
     /// again.
-    pub fn write(&mut self, fast: bool, mut user: Option<&mut UserFields>) -> Result<bool> {
+    pub fn write_fast(&mut self, mut user: Option<&mut UserFields>) -> Result<bool> {
         // First step: write commits
-        let has_changes = !self.unsaved.is_empty();
-        if has_changes {
-            let part_id = self.part_id;
-            trace!("Partition {}: writing {} commits to log",
-                part_id, self.unsaved.len());
-            
-            // #0012: extend existing logs instead of always writing a new log file.
-            let mut cl_num = self.io.ss_cl_len(self.ss1 - 1);
-            loop {
-                if let Some(mut writer) = try!(self.io.new_ss_cl(self.ss1 - 1, cl_num)) {
-                    // Write a header since this is a new file:
-                    let header = FileHeader {
-                        ftype: FileType::CommitLog(0),
-                        name: self.repo_name.clone(),
-                        part_id: Some(part_id),
-                        user: user.as_mut().map_or(vec![], |u| u.write_user_fields(part_id, true)),
-                    };
-                    try!(write_head(&header, &mut writer));
-                    try!(start_log(&mut writer));
-                    
-                    // Now write commits:
-                    while !self.unsaved.is_empty() {
-                        // We try to write the commit, then when successful remove it
-                        // from the list of 'unsaved' commits.
-                        try!(write_commit(&self.unsaved.front().unwrap(), &mut writer));
-                        self.unsaved.pop_front().expect("pop_front");
-                    }
-                    break;
-                } else {
-                    // Log file already exists! So try another number.
-                    if cl_num > 1000_000 {
-                        // We should give up eventually. When is arbitrary.
-                        return Err(box OtherError::new("Commit log number too high"));
-                    }
-                    cl_num += 1;
-                }
-            }
+        if self.unsaved.is_empty() {
+            return Ok(false);
         }
         
-        // Second step: maintenance operations
-        if !fast {
-            if self.is_ready() && self.io.want_snapshot(self.ss_commits, self.ss_edits) {
-                try!(self.write_snapshot(user));
+        let part_id = self.part_id;
+        trace!("Partition {}: writing {} commits to log",
+            part_id, self.unsaved.len());
+        
+        // #0012: extend existing logs instead of always writing a new log file.
+        let mut cl_num = self.io.ss_cl_len(self.ss1 - 1);
+        loop {
+            if let Some(mut writer) = try!(self.io.new_ss_cl(self.ss1 - 1, cl_num)) {
+                // Write a header since this is a new file:
+                let header = FileHeader {
+                    ftype: FileType::CommitLog(0),
+                    name: self.repo_name.clone(),
+                    part_id: Some(part_id),
+                    user: user.as_mut().map_or(vec![], |u| u.write_user_fields(part_id, true)),
+                };
+                try!(write_head(&header, &mut writer));
+                try!(start_log(&mut writer));
+                
+                // Now write commits:
+                while !self.unsaved.is_empty() {
+                    // We try to write the commit, then when successful remove it
+                    // from the list of 'unsaved' commits.
+                    try!(write_commit(&self.unsaved.front().unwrap(), &mut writer));
+                    self.unsaved.pop_front().expect("pop_front");
+                }
+                
+                return Ok(true);
+            } else {
+                // Log file already exists! So try another number.
+                if cl_num > 1000_000 {
+                    // We should give up eventually. When is arbitrary.
+                    return Err(box OtherError::new("Commit log number too high"));
+                }
+                cl_num += 1;
             }
+        }
+    }
+    
+    /// This will write all unsaved commits to a log on the disk, then write a
+    /// snapshot if needed.
+    /// 
+    /// `user` allows extra data to be written to file headers.
+    /// 
+    /// Returns true if any commits were written (i.e. unsaved commits
+    /// were found). Returns false if nothing needed doing. OR SNAPSHOTS?
+    /// 
+    /// Note that writing to disk can fail. In this case it may be worth trying
+    /// again.
+    pub fn write_full(&mut self, mut user: Option<&mut UserFields>) -> Result<bool> {
+        let has_changes = try!(self.write_fast(user.as_mut().map_or(None, |p| Some(*p))));
+        
+        // Second step: maintenance operations
+        if self.is_ready() && self.io.want_snapshot(self.ss_commits, self.ss_edits) {
+            try!(self.write_snapshot(user));
         }
         
         Ok(has_changes)

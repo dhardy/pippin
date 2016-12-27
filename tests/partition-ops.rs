@@ -121,7 +121,7 @@ fn create_small() {
     let state3 = part.tip().expect("has tip").clone_exact();
     
     // 3 Write to streams in memory
-    part.write(true, None).expect("writing");
+    part.write_fast(None).expect("writing");
     let boxed_io = part.unwrap_io();
     
     // 4 Check the generated streams

@@ -39,7 +39,7 @@ fn inner() -> Result<()> {
             try!(part.push_state(state, None));
             
             // Write our changes:
-            try!(part.write(false, None));
+            try!(part.write_full(None));
         }
     }
     Ok(())
