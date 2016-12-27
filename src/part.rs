@@ -506,8 +506,7 @@ impl<E: ElementT> Partition<E> {
         assert!(self.ss0 <= ss1 && ss1 <= self.ss1);
         
         if require_ss {
-            // require a snapshot
-            self.ss_commits = 0x10_0000;
+            self.require_snapshot();
         }
         Ok(())
     }
@@ -811,6 +810,12 @@ impl<E: ElementT> Partition<E> {
         self.unsaved.len()
     }
     
+    /// Require that a snapshot be written the next time `write_full` is called.
+    /// (This property is not persisted across save/load.)
+    pub fn require_snapshot(&mut self) {
+        self.ss_commits = 0x10_0000;
+    }
+    
     /// This will write all unsaved commits to a log on the disk. Does nothing
     /// if there are no queued changes.
     /// 
@@ -873,7 +878,8 @@ impl<E: ElementT> Partition<E> {
     /// `user` allows extra data to be written to file headers.
     /// 
     /// Returns true if any commits were written (i.e. unsaved commits
-    /// were found). Returns false if nothing needed doing. OR SNAPSHOTS?
+    /// were found). Returns false if no unsaved commits were present. This
+    /// value implies nothing about whether a snapshot was made.
     /// 
     /// Note that writing to disk can fail. In this case it may be worth trying
     /// again.
@@ -890,7 +896,7 @@ impl<E: ElementT> Partition<E> {
     
     /// Write a new snapshot from the tip.
     /// 
-    /// Normally you can just call `write()` and let the library figure out
+    /// Normally you can just call `write_full()` and let the library figure out
     /// when to write a new snapshot, though you can also call this directly.
     /// 
     /// Does nothing when `tip()` fails (returning `Ok(())`).

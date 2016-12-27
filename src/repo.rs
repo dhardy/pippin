@@ -180,9 +180,15 @@ impl<C: ClassifierT, R: RepoT<C>> Repository<C, R> {
         // This is tricky due to lifetime analysis preventing re-use of partitions. So,
         // 1) we collect partition numbers of any partition needing repartitioning.
         let mut should_divide: Vec<PartId> = Vec::new();
+        let mut need_reclassify: Vec<PartId> = Vec::new();
         for (id, part) in &self.partitions {
             if self.repo_t.should_divide(*id, part) && part.is_ready() {
                 should_divide.push(*id);
+            }
+            if let Ok(ref state) = part.tip() {
+                if state.meta().ext_flags().flag_reclassify() {
+                    need_reclassify.push(*id);
+                }
             }
         }
         
@@ -212,7 +218,13 @@ impl<C: ClassifierT, R: RepoT<C>> Repository<C, R> {
             // Mark partition as needing reclassification:
             {
                 let old_part = self.partitions.get_mut(&old_id).expect("has old part");
-                // TODO: mark old_part/old_id as needing reclassification
+                let mut tip = try!(old_part.tip()).clone_mut();
+                tip.meta_mut().ext_flags_mut().set_flag_reclassify(true);
+                try!(old_part.push_state(tip, None /*TODO: make meta*/));
+                try!(old_part.write_fast(Some(&mut self.repo_t)));
+                if !need_reclassify.contains(&old_id) {
+                    need_reclassify.push(old_id);
+                }
             }
             
             // Create new partitions:
@@ -240,6 +252,56 @@ impl<C: ClassifierT, R: RepoT<C>> Repository<C, R> {
                     },
                 }
             }
+        }
+        
+        while let Some(old_id) = need_reclassify.pop() {
+            // extract from partitions so as not to block it
+            let mut old_part = self.partitions.remove(&old_id).expect("remove old part");
+            let classifier = self.repo_t.clone_classifier();
+            
+            // Check where elements need to be moved
+            // for each partition, the elements to be moved there (old element ids)
+            let mut target_part_elts = HashMap::<PartId, Vec<EltId>>::new();
+            for (elt_id, ref elt) in try!(old_part.tip()).elts_iter() {
+                if let Some(part_id) = classifier.classify(&*elt) {
+                    target_part_elts.entry(part_id).or_insert(Vec::new())
+                            .push(elt_id);
+                } // else: don't move anything we can't reclassify
+            }
+            
+            for (part_id, old_elt_ids) in target_part_elts.into_iter() {
+                let mut part = match self.partitions.get_mut(&part_id) {
+                    Some(p) => p,
+                    None => {
+                        // TODO: skip, load, ...?
+                        unimplemented!();
+                    }
+                };
+                let mut state = try!(part.tip()).clone_mut();
+                let mut old_state = try!(old_part.tip()).clone_mut();
+                for elt_id in old_elt_ids {
+                    // TODO: if there are a lot of elements/data, we should stop and write a
+                    // checkpoint from time to time.
+                    if let Ok(elt) = old_state.remove(elt_id) {
+                        try!(state.insert_rc_initial(elt_id.elt_num(), elt));
+                    }
+                }
+                try!(part.push_state(state, None /*TODO: MakeMeta*/));
+                try!(part.write_full(Some(&mut self.repo_t)));
+                
+                // Do a fast write now to save removals:
+                try!(old_part.push_state(old_state, None /*TODO: MakeMeta*/));
+                try!(old_part.write_fast(Some(&mut self.repo_t)));
+            }
+            
+            // Finally, remove the 'reclassify' flag on the old partition, write a snapshot and
+            // re-insert it:
+            let mut tip = try!(old_part.tip()).clone_mut();
+            tip.meta_mut().ext_flags_mut().set_flag_reclassify(false);
+            try!(old_part.push_state(tip, None /*TODO: make meta*/));
+            old_part.require_snapshot();
+            try!(old_part.write_full(Some(&mut self.repo_t)));
+            self.partitions.insert(old_id, old_part);
         }
         
         Ok(())
