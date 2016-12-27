@@ -223,7 +223,7 @@ pub fn write_snapshot<T: ElementT>(state: &PartState<T>,
 fn snapshot_writing() {
     use ::MutStateT;
     use readwrite::header::HEAD_VERSIONS;
-    use ::commit::{ExtraMeta, CommitMeta, MakeMeta};
+    use ::commit::{ExtraMeta, MakeMeta};
     
     let part_id = PartId::from_num(1);
     let mut state = PartState::<String>::new(part_id, None).clone_mut();
@@ -250,7 +250,7 @@ fn snapshot_writing() {
     
     struct MyMM {}
     impl MakeMeta for MyMM {
-        fn make_extrameta(&self, _: &Vec<&CommitMeta>) -> ExtraMeta {
+        fn make_extrameta(&self, _number: u32, _parents: &Vec<Sum>) -> ExtraMeta {
             ExtraMeta::Text("text".to_string())
         }
     }

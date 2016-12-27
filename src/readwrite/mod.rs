@@ -25,7 +25,7 @@ use std::iter::repeat;
 
 use byteorder::{ByteOrder, BigEndian, WriteBytesExt};
 
-use commit::{CommitMeta, ExtraMeta};
+use commit::{CommitMeta, ExtraMeta, MetaFlags};
 use error::{Result, ReadError};
 
 // —————  private utility functions  —————
@@ -83,6 +83,7 @@ fn read_meta(mut r: &mut Read, mut buf: &mut [u8], mut pos: &mut usize, format_v
         (*pos) += pad_len;
     }
     
+    let ext_flags = MetaFlags::from_raw(ext_flags);
     Ok(try!(CommitMeta::new_explicit(cnum, secs, ext_flags, ext_data, xm)))
 }
 
@@ -92,7 +93,7 @@ fn write_meta(w: &mut Write, meta: &CommitMeta) -> Result<()> {
     
     try!(w.write(b"F"));
     try!(w.write(&[0u8; 1])); // 0 extension data: we don't use this currently
-    try!(w.write_u16::<BigEndian>(meta.ext_flags()));
+    try!(w.write_u16::<BigEndian>(meta.ext_flags().raw()));
     try!(w.write_u32::<BigEndian>(meta.number()));
     // extension data would go here, but we don't currently have any
     

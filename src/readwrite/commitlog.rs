@@ -265,7 +265,7 @@ pub fn write_commit<E: ElementT>(commit: &Commit<E>, writer: &mut Write) -> Resu
 #[test]
 fn commit_write_read(){
     use readwrite::header::HEAD_VERSIONS;
-    use commit::{CommitMeta, ExtraMeta};
+    use commit::{CommitMeta, ExtraMeta, MetaFlags};
     use PartId;
     
     // Note that we can make up completely nonsense commits here. Element
@@ -285,14 +285,14 @@ fn commit_write_read(){
     changes.insert(p.elt_id(3), EltChange::insertion(Rc::new("three".to_string())));
     changes.insert(p.elt_id(4), EltChange::insertion(Rc::new("four".to_string())));
     changes.insert(p.elt_id(5), EltChange::insertion(Rc::new("five".to_string())));
-    let meta1 = CommitMeta::new_explicit(1, 123456, 0, vec![], ExtraMeta::None).expect("new meta");
+    let meta1 = CommitMeta::new_explicit(1, 123456, MetaFlags::zero(), vec![], ExtraMeta::None).expect("new meta");
     let commit_1 = Commit::new_explicit(seq, vec![squares], changes, meta1);
     
     changes = HashMap::new();
     changes.insert(p.elt_id(1), EltChange::deletion());
     changes.insert(p.elt_id(9), EltChange::replacement(Rc::new("NINE!".to_string())));
     changes.insert(p.elt_id(5), EltChange::insertion(Rc::new("five again?".to_string())));
-    let meta2 = CommitMeta::new_explicit(1, 321654, 0, vec![], ExtraMeta::Text("123".to_string())).expect("new meta");
+    let meta2 = CommitMeta::new_explicit(1, 321654, MetaFlags::zero(), vec![], ExtraMeta::Text("123".to_string())).expect("new meta");
     let commit_2 = Commit::new_explicit(nonsense, vec![quadr], changes, meta2);
     
     let mut obj = Vec::new();

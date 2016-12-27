@@ -24,7 +24,7 @@ use hashindexed::KeyComparator;
 use rand::random;
 
 use {ElementT, Sum, PartId, EltId};
-use commit::{Commit, CommitMeta, MakeMeta};
+use commit::*;
 use error::{ElementOp, PatchOp};
 
 /// Trait abstracting over read operations on the state of a partition or
@@ -173,8 +173,7 @@ pub struct MutPartState<E: ElementT> {
     elt_sum: Sum,
     elts: HashMap<EltId, Rc<E>>,
     moved: HashMap<EltId, EltId>,
-    // Parent's metadata
-    par_meta: CommitMeta,
+    meta: CommitMetaPartial,
 }
 
 impl<E: ElementT> PartState<E> {
@@ -188,7 +187,7 @@ impl<E: ElementT> PartState<E> {
             PartState<E>
     {
         let parents = vec![];
-        let meta = CommitMeta::new_par_mm(vec![], make_meta);
+        let meta = CommitMeta::new_parents(&vec![], vec![], make_meta);
         let metasum = Sum::state_meta_sum(part_id, &parents, &meta);
         PartState {
             part_id: part_id,
@@ -224,15 +223,15 @@ impl<E: ElementT> PartState<E> {
             make_meta: Option<&MakeMeta>) -> PartState<E>
     {
         let parents = vec![mut_state.parent.clone()];
-        let metadata = CommitMeta::new_par_mm(vec![&mut_state.par_meta], make_meta);
-        let metasum = Sum::state_meta_sum(mut_state.part_id, &parents, &metadata);
+        let meta = CommitMeta::from_partial(mut_state.meta, &parents, make_meta);
+        let metasum = Sum::state_meta_sum(mut_state.part_id, &parents, &meta);
         PartState {
             part_id: mut_state.part_id,
             parents: parents,
             statesum: &mut_state.elt_sum ^ &metasum,
             elts: mut_state.elts,
             moved: mut_state.moved,
-            meta: metadata
+            meta: meta
         }
     }
     /// Create a `PartState` from a parent `PartState` and a `Commit`.
@@ -360,7 +359,7 @@ impl<E: ElementT> PartState<E> {
             elt_sum: self.statesum() ^ &self.metasum(),
             elts: self.elts.clone(),
             moved: self.moved.clone(),
-            par_meta: self.meta.clone(),
+            meta: CommitMeta::new_partial(&self.meta),
         }
     }
     
@@ -480,6 +479,11 @@ impl<E: ElementT> MutPartState<E> {
     pub fn set_move(&mut self, id: EltId, new_id: EltId) {
         self.moved.insert(id, new_id);
     }
+    
+    /// Get access to (partial) metadata
+    pub fn meta(&self) -> &CommitMetaPartial { &self.meta }
+    /// Get write access to metadata
+    pub fn meta_mut(&mut self) -> &mut CommitMetaPartial { &mut self.meta }
 }
 
 impl<E: ElementT> StateT<E> for PartState<E> {

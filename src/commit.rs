@@ -9,6 +9,7 @@ use std::clone::Clone;
 use std::rc::Rc;
 use std::u32;
 use std::cmp::max;
+use std::ops::BitOr;
 
 use chrono::{DateTime, NaiveDateTime, UTC};
 
@@ -32,8 +33,57 @@ pub enum ExtraMeta {
 
 const FLAG_RECLASSIFY_BIT: u16 = 0b10;
 const FLAG_RECLASSIFY_MASK: u16 = 0b11;
-// Mask for 'essential' bit of all undefined flags:
-const FLAG_UNDEF_ESSENTIAL_MASK: u16 = 0b01010101_01010100;
+const FLAG_ESSENTIAL: u16 = 0b01010101_01010101;
+const FLAG_UNKNOWN: u16 = 0b11111111_11111100;
+
+/// Abstraction around metadata flags.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub struct MetaFlags {
+    flags: u16,
+}
+impl MetaFlags {
+    /// Get extension flags as a u16. This isn't intended to allow direct
+    /// manipulation, only to allow the bit-field to be saved.
+    pub fn raw(self) -> u16 {
+        self.flags
+    }
+    /// Create from a raw u16.
+    pub fn from_raw(flags: u16) -> MetaFlags {
+        MetaFlags { flags: flags }
+    }
+    
+    /// Get status of "reclassify" flag. If true, reclassification is needed
+    /// and will be done in a maintenance cycle.
+    pub fn flag_reclassify(self) -> bool {
+        (self.flags & FLAG_RECLASSIFY_BIT) != 0
+    }
+    /// Set "reclassify" flag.
+    pub fn set_flag_reclassify(&mut self, state: bool) {
+        if state {
+            // set only flag not 'essential' bit since this feature is not essential to correct reading
+            self.flags |= FLAG_RECLASSIFY_BIT;
+        } else {
+            // mask with inverse of "reclassify" bits mask
+            self.flags &= !FLAG_RECLASSIFY_MASK;
+        }
+    }
+    /// True if the essential bit of an unknown flag is set
+    pub fn unknown_essential(self) -> bool {
+        let mask = FLAG_ESSENTIAL & FLAG_UNKNOWN;
+        (self.flags & mask) != 0
+    }
+    /// Create, with no flags set
+    pub fn zero() -> MetaFlags {
+        MetaFlags { flags: 0 }
+    }
+}
+
+impl BitOr<MetaFlags> for MetaFlags {
+    type Output = MetaFlags;
+    fn bitor(self, rhs: MetaFlags) -> MetaFlags {
+        MetaFlags { flags: self.flags | rhs.flags }
+    }
+}
 
 /// Metadata is attached to every commit. The following is included by the
 /// library:
@@ -58,31 +108,63 @@ pub struct CommitMeta {
     /// In rare cases this may be zero. 
     timestamp: i64,
     /// Extension flags. These are inherited verbatim, so stored in this format.
-    ext_flags: u16,
+    ext_flags: MetaFlags,
     /// User-provided extra metadata
     extra: ExtraMeta,
 }
+/// Partial version of metadata (used by some functions on CommitMeta).
+#[derive(Debug, PartialEq, Clone)]
+pub struct CommitMetaPartial {
+    number: u32,
+    ext_flags: MetaFlags,
+}
+
 
 impl CommitMeta {
     /// Create from parent(s)' metadata and an optional `MakeMeta` trait.
-    pub fn new_par_mm(parents: Vec<&CommitMeta>, mm: Option<&MakeMeta>) -> Self {
-        let number = parents.iter().fold(0, |prev, &m| max(prev, m.next_number()));
-        let ext_flags = parents.iter().fold(0, |prev, &m| prev | m.ext_flags);
+    pub fn new_parents(parents: &Vec<Sum>, par_meta: Vec<&CommitMeta>, mm: Option<&MakeMeta>) -> Self {
+        let number = par_meta.iter().fold(0, |prev, &m| max(prev, m.next_number()));
+        let ext_flags = par_meta.iter().fold(MetaFlags::zero(), |prev, &m| prev | m.ext_flags());
         let timestamp = mm.map_or_else(|| Self::timestamp_now(), |mm| mm.make_timestamp());
         CommitMeta {
             number: number,
             timestamp: timestamp,
             ext_flags: ext_flags,
-            extra: mm.map_or(ExtraMeta::None, |mm| mm.make_extrameta(&parents)),
+            extra: mm.map_or(ExtraMeta::None, |mm| mm.make_extrameta(number, parents)),
         }
     }
     /// Create, explicitly providing all fields.
-    pub fn new_explicit(number: u32, timestamp: i64, ext_flags: u16, _ext_data: Vec<u8>, extra: ExtraMeta) -> Result<Self, OtherError> {
-        if (ext_flags & FLAG_UNDEF_ESSENTIAL_MASK) != 0 {
+    pub fn new_explicit(number: u32, timestamp: i64, ext_flags: MetaFlags,
+            _ext_data: Vec<u8>, extra: ExtraMeta) -> Result<Self, OtherError>
+    {
+        if (ext_flags.unknown_essential()) {
             return Err(OtherError::new("found essential unknown commit meta flag"));
         }
         // ignore ext_data because we can and don't currently store anything there
         Ok(CommitMeta { number: number, timestamp: timestamp, ext_flags: ext_flags, extra: extra })
+    }
+    /// Create a partial new version from a single parent.
+    /// 
+    /// This is for use with `from_partial()`.
+    pub fn new_partial(par_meta: &CommitMeta) -> CommitMetaPartial {
+        CommitMetaPartial {
+            number: par_meta.next_number(),
+            ext_flags: par_meta.ext_flags,
+        }
+    }
+    /// Create, from a partial version (assumes a single parent commit).
+    /// 
+    /// This sets timestamp and user data (extra meta).
+    pub fn from_partial(partial: CommitMetaPartial, parents: &Vec<Sum>,
+            mm: Option<&MakeMeta>) -> CommitMeta
+    {
+        let timestamp = mm.map_or_else(|| Self::timestamp_now(), |mm| mm.make_timestamp());
+        CommitMeta {
+            number: partial.number,
+            timestamp: timestamp,
+            ext_flags: partial.ext_flags,
+            extra: mm.map_or(ExtraMeta::None, |mm| mm.make_extrameta(partial.number, parents)),
+        }
     }
     
     /// Utility method to create a timestamp representing this moment.
@@ -119,30 +201,31 @@ impl CommitMeta {
         self.number = n;
     }
     
-    /// Get extension flags as a u16. This isn't intended to allow direct
-    /// manipulation, only to allow the bit-field to be saved.
-    pub fn ext_flags(&self) -> u16 {
+    /// Get extension flags
+    pub fn ext_flags(&self) -> MetaFlags {
         self.ext_flags
-    }
-    /// Get status of "reclassify" flag. If true, reclassification is needed
-    /// and will be done in a maintenance cycle.
-    pub fn flag_reclassify(&self) -> bool {
-        (self.ext_flags & FLAG_RECLASSIFY_BIT) != 0
-    }
-    /// Set "reclassify" flag.
-    pub fn set_flag_reclassify(&mut self, state: bool) {
-        if state {
-            // set only flag not 'essential' bit since this feature is not essential to correct reading
-            self.ext_flags |= FLAG_RECLASSIFY_BIT;
-        } else {
-            // mask with inverse of "reclassify" bits mask
-            self.ext_flags &= !FLAG_RECLASSIFY_MASK;
-        }
     }
     
     /// Get the commit's extra data.
     pub fn extra(&self) -> &ExtraMeta {
         &self.extra
+    }
+}
+
+impl CommitMetaPartial {
+    /// Get the commit's number
+    pub fn number(&self) -> u32 {
+        self.number
+    }
+    
+    /// Get extension flags
+    pub fn ext_flags(&self) -> MetaFlags {
+        self.ext_flags
+    }
+    
+    /// Get extension flags, mutably
+    pub fn ext_flags_mut(&mut self) -> &mut MetaFlags {
+        &mut self.ext_flags
     }
 }
 
@@ -167,8 +250,8 @@ pub trait MakeMeta {
     /// Make an extra-metadata item. The default implementation simply
     /// returns `ExtraMeta::None`.
     /// 
-    /// Parent metadata is passed in.
-    fn make_extrameta(&self, _par_meta: &Vec<&CommitMeta>) -> ExtraMeta {
+    /// The commit number and the sum of each parent commit is passed.
+    fn make_extrameta(&self, _number: u32, _parents: &Vec<Sum>) -> ExtraMeta {
         ExtraMeta::None
     }
 }
