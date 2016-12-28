@@ -64,9 +64,6 @@
 //! *   Repository (uses a RepoT and holds Partition objects, can yield RepoState objects)
 //! *   RepoState (uses a ClassifierT object)
 
-// Used for error display; not essential
-#![feature(step_by)]
-
 // Nicer syntax. Until there are no other issues preventing Pippin from
 // building with stable code (namely, hashindexed), I see no reason not to use
 // it. I hope Rust adopts this or finds a nice alternative.

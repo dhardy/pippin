@@ -109,7 +109,10 @@ impl<'a> fmt::Display for ReadErrorFormatter<'a> {
         });
         let start = self.err.pos + 8 * (self.err.off_start / 8);
         let end = self.err.pos + 8 * ((self.err.off_end + 7) / 8);
-        for line_start in (start..end).step_by(8) {
+        // #0018: we could use for line_start in (start..end).step_by(8) once
+        // Rust issue #27741 is closed.
+        let mut line_start = start;
+        while line_start < end {
             if line_start + 8 > self.data.len() {
                 try!(writeln!(f, "insufficient data to display!"));
                 break;
@@ -120,6 +123,8 @@ impl<'a> fmt::Display for ReadErrorFormatter<'a> {
             assert!(p0 <= p1 && p1 <= 8);
             try!(write!(f, "{}{}{}", &SPACE[0..(3*p0)], &MARK[(3*p0)..(3*p1-1)], &SPACE[(3*p1-1)..24]));
             try!(writeln!(f, "{}{}", &SPACE[0..p0], &MARK[p0..p1]));
+            
+            line_start += 8;
         }
         Ok(())
     }

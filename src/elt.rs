@@ -69,8 +69,8 @@ impl fmt::Display for PartId {
 
 /// An element identifier
 /// 
-/// This encodes both a partition identifier (`PartId`) and an element number
-/// (unique within the partition).
+/// This encodes both a partition identifier (`PartId`) and a 24-bit element
+/// number (unique within the partition).
 /// 
 /// Supports `From` (`EltId::from(n)`) to convert from a `u64` (this panics if
 /// the value is not a valid identifier). Supports `Into` (`pn.into()`) to
