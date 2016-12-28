@@ -64,11 +64,6 @@
 //! *   Repository (uses a RepoT and holds Partition objects, can yield RepoState objects)
 //! *   RepoState (uses a ClassifierT object)
 
-// Nicer syntax. Until there are no other issues preventing Pippin from
-// building with stable code (namely, hashindexed), I see no reason not to use
-// it. I hope Rust adopts this or finds a nice alternative.
-#![feature(box_syntax)]
-
 // This should probably be enabled by default for libraries.
 #![warn(missing_docs)]
 

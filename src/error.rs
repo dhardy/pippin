@@ -59,7 +59,7 @@ impl ReadError {
     }
     /// New instance, wrapped with `Err` (see `new()`).
     pub fn err<T>(msg: &'static str, pos: usize, offset: (usize, usize)) -> Result<T> {
-        Err(box ReadError::new(msg, pos, offset))
+        Err(Box::new(ReadError::new(msg, pos, offset)))
     }
     /// Create a "read" error wrapping another error
     pub fn new_wrap(e: Error, pos: usize, offset: (usize, usize)) -> ReadError {
@@ -144,7 +144,7 @@ impl ArgError {
     }
     /// New instance, wrapped with `Err`
     pub fn err<T>(msg: &'static str) -> Result<T> {
-        Err(box ArgError::new(msg))
+        Err(Box::new(ArgError::new(msg)))
     }
 }
 impl ErrorTrait for ArgError {
@@ -248,7 +248,7 @@ impl PathError {
     }
     /// New instance, wrapped with `Err`
     pub fn err<T, P: Into<PathBuf>>(msg: &'static str, path: P) -> Result<T> {
-        Err(box PathError::new(msg, path))
+        Err(Box::new(PathError::new(msg, path)))
     }
 }
 impl ErrorTrait for PathError {
@@ -358,7 +358,7 @@ impl ReadOnly {
     pub fn new() -> ReadOnly { ReadOnly{} }
     /// Create, wrapped with `Err`
     pub fn err<T>() -> Result<T> {
-        Err(box ReadOnly::new())
+        Err(Box::new(ReadOnly::new()))
     }
 }
 impl ErrorTrait for ReadOnly {
@@ -386,7 +386,7 @@ impl OtherError {
     }
     /// New instance, wrapped with `Err`
     pub fn err<T>(msg: &'static str) -> Result<T> {
-        Err(box OtherError::new(msg))
+        Err(Box::new(OtherError::new(msg)))
     }
 }
 impl fmt::Display for OtherError {
@@ -401,5 +401,5 @@ impl ErrorTrait for OtherError {
 /// Use io::error::new to make an IO error
 // #0011: replace all usages with Pippin-specific error types?
 pub fn make_io_err<T>(kind: io::ErrorKind, msg: &'static str) -> Result<T> {
-    Err(box io::Error::new(kind, msg))
+    Err(Box::new(io::Error::new(kind, msg)))
 }

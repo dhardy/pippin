@@ -221,7 +221,7 @@ impl RepoDivideError {
     /// Create an `Other(box OtherError::new(msg))`; this is just a convenient
     /// way to create with an error message.
     pub fn msg(msg: &'static str) -> RepoDivideError {
-        RepoDivideError::Other(box OtherError::new(msg))
+        RepoDivideError::Other(Box::new(OtherError::new(msg)))
     }
 }
 impl ErrorTrait for RepoDivideError {

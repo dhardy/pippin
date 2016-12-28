@@ -696,7 +696,7 @@ impl<E: ElementT> Partition<E> {
                         commit.statesum(), commit.num_changes());
                 try!(self.push_commit(commit));
             } else {
-                return Err(box MergeError::NotSolved);
+                return Err(Box::new(MergeError::NotSolved));
             }
         }
         Ok(())
@@ -737,7 +737,7 @@ impl<E: ElementT> Partition<E> {
                     continue;
                 },
                 Err(e) => {
-                    return Err(box e);
+                    return Err(Box::new(e));
                 }
             }
         }
@@ -865,7 +865,7 @@ impl<E: ElementT> Partition<E> {
                 // Log file already exists! So try another number.
                 if cl_num > 1000_000 {
                     // We should give up eventually. When is arbitrary.
-                    return Err(box OtherError::new("Commit log number too high"));
+                    return Err(Box::new(OtherError::new("Commit log number too high")));
                 }
                 cl_num += 1;
             }
@@ -931,7 +931,7 @@ impl<E: ElementT> Partition<E> {
                 // Snapshot file already exists! So try another number.
                 if ss_num > 1000_000 {
                     // We should give up eventually. When is arbitrary.
-                    return Err(box OtherError::new("Snapshot number too high"));
+                    return Err(Box::new(OtherError::new("Snapshot number too high")));
                 }
                 ss_num += 1;
             }
@@ -1178,7 +1178,7 @@ mod tests {
         let commit = Commit::from_diff(&state_c, &state_d).unwrap();
         queue.push(commit);
         
-        let io = box DummyPartIO::new(PartId::from_num(1));
+        let io = Box::new(DummyPartIO::new(PartId::from_num(1)));
         let mut part = Partition::create(io, "replay part", None, None).unwrap();
         part.add_state(state_a, 0);
         for commit in queue {
@@ -1192,7 +1192,7 @@ mod tests {
     
     #[test]
     fn on_new_partition() {
-        let io = box DummyPartIO::new(PartId::from_num(7));
+        let io = Box::new(DummyPartIO::new(PartId::from_num(7)));
         let mut part = Partition::<String>::create(io, "on_new_partition", None, None)
                 .expect("partition creation");
         assert_eq!(part.tips.len(), 1);

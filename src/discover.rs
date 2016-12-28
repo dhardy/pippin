@@ -281,7 +281,7 @@ pub fn find_part_num<P: AsRef<Path>>(name: &str, path: P) -> Result<PartId> {
         return Ok(num);
     }
     let head = try!(read_head(&mut try!(File::open(path))));
-    head.part_id.ok_or(box OtherError::new("file contains no part id"))
+    head.part_id.ok_or(Box::new(OtherError::new("file contains no part id")))
 }
 /// A helper to try matching a file name against standard Pippin file patterns,
 /// and if it fits return the "basename" part.

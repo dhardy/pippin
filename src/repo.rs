@@ -211,7 +211,7 @@ impl<C: ClassifierT, R: RepoT<C>> Repository<C, R> {
                     }
                 },
                 Err(e) => {
-                    return Err(box e);
+                    return Err(Box::new(e));
                 }
             };
             

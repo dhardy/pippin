@@ -196,7 +196,7 @@ impl PartIO for PartFileIO {
             Some(&(ref p, _)) => {
                 if let &Some(ref path) = p {
                     trace!("Reading snapshot file: {}", path.display());
-                    Some(box try!(File::open(path)))
+                    Some(Box::new(try!(File::open(path))))
                 } else {
                     None
                 }
@@ -209,7 +209,7 @@ impl PartIO for PartFileIO {
         Ok(match self.paths.paths.get(ss_num).and_then(|&(_, ref logs)| logs.get(cl_num)) {
             Some(p) => {
                 trace!("Reading log file: {}", p.display());
-                Some(box try!(File::open(p)))
+                Some(Box::new(try!(File::open(p))))
             },
             None => None,
         })
@@ -232,7 +232,7 @@ impl PartIO for PartFileIO {
             Entry::Occupied(mut entry) => { entry.get_mut().0 = Some(p); },
             Entry::Vacant(entry) => { entry.insert((Some(p), VecMap::new())); },
         };
-        Ok(Some(box stream))
+        Ok(Some(Box::new(stream)))
     }
     
     fn append_ss_cl<'a>(&mut self, ss_num: usize, cl_num: usize) -> Result<Option<Box<Write+'a>>> {
@@ -242,7 +242,7 @@ impl PartIO for PartFileIO {
         Ok(match self.paths.paths.get(ss_num).and_then(|&(_, ref logs)| logs.get(cl_num)) {
             Some(p) => {
                 trace!("Appending to log file: {}", p.display());
-                Some(box try!(OpenOptions::new().write(true).append(true).open(p)))
+                Some(Box::new(try!(OpenOptions::new().write(true).append(true).open(p))))
             },
             None => None
         })
@@ -262,7 +262,7 @@ impl PartIO for PartFileIO {
         trace!("Creating log file: {}", p.display());
         let stream = try!(OpenOptions::new().create(true).write(true).append(true).open(&p));
         logs.insert(cl_num, p);
-        Ok(Some(box stream))
+        Ok(Some(Box::new(stream)))
     }
 }
 
@@ -355,7 +355,7 @@ impl RepoIO for RepoFileIO {
     }
     fn make_part_io(&self, num: PartId) -> Result<Box<PartIO>> {
         if let Some(ref io) = self.parts.get(&num) {
-            Ok(box (**io).clone())
+            Ok(Box::new((**io).clone()))
         } else {
             OtherError::err("partition not found")
         }

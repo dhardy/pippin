@@ -3,7 +3,6 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 //! Test Pippin operations on partitions
-#![feature(box_syntax)]
 
 extern crate pippin;
 extern crate vec_map;
@@ -46,12 +45,12 @@ impl PartIO for PartitionStreams {
     fn read_ss<'a>(&'a self, ss_num: usize) -> Result<Option<Box<Read+'a>>> {
         Ok(self.ss.get(ss_num)
                 .and_then(|&(ref ss, _)| 
-                    ss.as_ref().map(|ref data| box &data[..] as Box<Read+'a>)))
+                    ss.as_ref().map(|ref data| Box::new(&data[..]) as Box<Read+'a>)))
     }
     fn read_ss_cl<'a>(&'a self, ss_num: usize, cl_num: usize) -> Result<Option<Box<Read+'a>>> {
         Ok(self.ss.get(ss_num)
             .and_then(|&(_, ref logs)| logs.get(cl_num))
-            .map(|data| box &data[..] as Box<Read+'a>))
+            .map(|data| Box::new(&data[..]) as Box<Read+'a>))
     }
     fn new_ss<'a>(&'a mut self, ss_num: usize) -> Result<Option<Box<Write+'a>>> {
         {
@@ -80,7 +79,7 @@ impl PartIO for PartitionStreams {
             }
             logs.insert(cl_num, Vec::new());
             let data = logs.get_mut(cl_num).unwrap();
-            Ok(Some(box &mut *data))
+            Ok(Some(Box::new(&mut *data)))
         } else {
             make_io_err(ErrorKind::NotFound, "no snapshot corresponding to new commit log")
         }
@@ -94,7 +93,7 @@ fn create_small() {
     let part_streams = PartitionStreams {
             part_id: PartId::from_num(56),
             ss: VecMap::new() };
-    let mut part = Partition::<String>::create(box part_streams,
+    let mut part = Partition::<String>::create(Box::new(part_streams),
         "create_small", None, None).expect("creating partition");
     
     // 2 Add a few elements over multiple commits
