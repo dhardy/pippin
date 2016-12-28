@@ -240,7 +240,7 @@ impl<E: ElementT> PartState<E> {
     {
         if parent.statesum() != commit.first_parent() { return Err(PatchOp::WrongParent); }
         let mut mut_state = parent.clone_mut();
-        try!(commit.apply_mut(&mut mut_state));
+        commit.apply_mut(&mut mut_state)?;
         
         let metasum = Sum::state_meta_sum(mut_state.part_id, &commit.parents(), &commit.meta());
         let statesum = &mut_state.elt_sum ^ &metasum;
@@ -516,7 +516,7 @@ impl<E: ElementT> StateT<E> for MutPartState<E> {
 }
 impl<E: ElementT> MutStateT<E> for MutPartState<E> {
     fn insert_rc_initial(&mut self, initial: u32, elt: Rc<E>) -> Result<EltId, ElementOp> {
-        let id = try!(self.id_from_initial(initial));
+        let id = self.id_from_initial(initial)?;
         self.insert_with_id(id, elt)
     }
     fn replace_rc(&mut self, id: EltId, elt: Rc<E>) -> Result<Rc<E>, ElementOp> {

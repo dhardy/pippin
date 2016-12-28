@@ -70,18 +70,18 @@ pub mod util {
     
     /// Test whether two files are the same. Returns true if they are.
     pub fn files_are_eq<P1: AsRef<Path>, P2: AsRef<Path>>(p1: P1, p2: P2) -> io::Result<bool> {
-        let mut f1 = try!(File::open(p1));
-        let mut f2 = try!(File::open(p2));
+        let mut f1 = File::open(p1)?;
+        let mut f2 = File::open(p2)?;
         
         const BUF_SIZE: usize = 4096;   // common page size on Linux
         let mut buf1 = [0u8; BUF_SIZE];
         let mut buf2 = [0u8; BUF_SIZE];
         
         loop {
-            let len = try!(f1.read(&mut buf1));
+            let len = f1.read(&mut buf1)?;
             if len == 0 {
                 // EOF of f1; is f2 also at EOF?
-                let l2 = try!(f2.read(&mut buf2[0..1]));
+                let l2 = f2.read(&mut buf2[0..1])?;
                 return Ok(l2 == 0);
             }
             match f2.read_exact(&mut buf2[0..len]) {
@@ -116,8 +116,8 @@ pub mod util {
                 Err(io::Error::new(io::ErrorKind::NotFound, "broken symlink or unknown object"))
             }
         };
-        let cat1 = try!(classify(p1.as_ref()));
-        let cat2 = try!(classify(p2.as_ref()));
+        let cat1 = classify(p1.as_ref())?;
+        let cat2 = classify(p2.as_ref())?;
         if cat1 != cat2 {
             return Ok(false);
         }
@@ -128,14 +128,14 @@ pub mod util {
             },
             Cat::Dir => {
                 let mut entries = HashMap::new();
-                for entry in try!(fs::read_dir(p1)) {
-                    let entry = try!(entry);
+                for entry in fs::read_dir(p1)? {
+                    let entry = entry?;
                     let name = entry.file_name();
                     assert!(!entries.contains_key(&name));
                     entries.insert(name, (entry.path(), None));
                 }
-                for dir_entry in try!(fs::read_dir(p2)) {
-                    let dir_entry = try!(dir_entry);
+                for dir_entry in fs::read_dir(p2)? {
+                    let dir_entry = dir_entry?;
                     match entries.entry(dir_entry.file_name()) {
                         Entry::Occupied(mut e) => {
                             assert!(e.get().1 == None); // not already set
@@ -155,7 +155,7 @@ pub mod util {
                 for ref v in entries.values() {
                     let pe1 = &v.0;
                     if let &Some(ref pe2) = &v.1 {
-                        if !try!(paths_are_eq(&pe1, &pe2)) {
+                        if !paths_are_eq(&pe1, &pe2)? {
                             return Ok(false);
                         }
                     } else { assert!(false); }

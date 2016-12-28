@@ -117,22 +117,22 @@ fn run(path: &Path, part_num: Option<u64>,
             // On creation we need a number; 0 here means "default":
             let part_id = PartId::from_num(if pn == 0 { 1 } else { pn });
             let io = Box::new(fileio::PartFileIO::new_empty(part_id, path.join("seqdb")));
-            try!(Partition::<Sequence>::create(io, "sequences db", None, None))
+            Partition::<Sequence>::create(io, "sequences db", None, None)?
         } else {
             // — Open partition —
             let part_id = if pn != 0 { Some(PartId::from_num(pn)) } else { None };
-            let io = Box::new(try!(discover::part_from_path(path, part_id)));
-            let mut part = try!(Partition::<Sequence>::open(io));
-            try!(part.load_latest(None, None));
+            let io = Box::new(discover::part_from_path(path, part_id)?);
+            let mut part = Partition::<Sequence>::open(io)?;
+            part.load_latest(None, None)?;
             part
         };
         
         if part.merge_required() {
-            try!(part.merge(&merge_solver, true, None));
+            part.merge(&merge_solver, true, None)?;
         }
         
         if let Some(num) = list_n {
-            let tip = try!(part.tip());
+            let tip = part.tip()?;
             for (id, ref elt) in tip.elts_iter().take(num) {
                 println!("Element {}: {:?}" , id, *elt);
             }
@@ -140,35 +140,35 @@ fn run(path: &Path, part_num: Option<u64>,
         
         for _ in 0..repetitions {
             let mut state = {
-                let tip = try!(part.tip());
+                let tip = part.tip()?;
                 println!("Found state {}; have {} elements", tip.statesum(), tip.num_avail());
                 tip.clone_mut()
             };
             generate(&mut state);
             println!("Done modifying state");
-            try!(part.push_state(state, None));
-            try!(part.write(false, None));
+            part.push_state(state, None)?;
+            part.write(false, None)?;
         }
         
         if snapshot {
-            try!(part.write_snapshot(None));
+            part.write_snapshot(None)?;
         }
     } else {
-        let discover = try!(discover::repo_from_path(path));
+        let discover = discover::repo_from_path(path)?;
         let rt = SeqRepo::new(discover);
         
         let mut repo = if create {
             // — Create repository —
-            try!(Repository::create(rt, "sequences db", None))
+            Repository::create(rt, "sequences db", None)?
         } else {
             // — Open repository —
-            let mut repo = try!(Repository::open(rt));
-            try!(repo.load_latest(None));
+            let mut repo = Repository::open(rt)?;
+            repo.load_latest(None)?;
             repo
         };
         
         if repo.merge_required() {
-            try!(repo.merge(&merge_solver, true, None));
+            repo.merge(&merge_solver, true, None)?;
         }
         
         if let Some(_num) = list_n {
@@ -177,16 +177,16 @@ fn run(path: &Path, part_num: Option<u64>,
         }
         
         for _ in 0..repetitions {
-            let mut state = try!(repo.clone_state());
+            let mut state = repo.clone_state()?;
             println!("Found {} partitions with {} elements", state.num_parts(), state.num_avail());
             generate(&mut state);
             println!("Done modifying state");
-            try!(repo.merge_in(state, None));
-            try!(repo.write_all(false));
+            repo.merge_in(state, None)?;
+            repo.write_all(false)?;
         }
         
         if snapshot {
-            try!(repo.write_snapshot_all());
+            repo.write_snapshot_all()?;
         }
     }
     

@@ -196,7 +196,7 @@ impl PartIO for PartFileIO {
             Some(&(ref p, _)) => {
                 if let &Some(ref path) = p {
                     trace!("Reading snapshot file: {}", path.display());
-                    Some(Box::new(try!(File::open(path))))
+                    Some(Box::new(File::open(path)?))
                 } else {
                     None
                 }
@@ -209,7 +209,7 @@ impl PartIO for PartFileIO {
         Ok(match self.paths.paths.get(ss_num).and_then(|&(_, ref logs)| logs.get(cl_num)) {
             Some(p) => {
                 trace!("Reading log file: {}", p.display());
-                Some(Box::new(try!(File::open(p))))
+                Some(Box::new(File::open(p)?))
             },
             None => None,
         })
@@ -227,7 +227,7 @@ impl PartIO for PartFileIO {
             return Ok(None);
         }
         trace!("Creating snapshot file: {}", p.display());
-        let stream = try!(File::create(&p));
+        let stream = File::create(&p)?;
         match self.paths.paths.entry(ss_num) {
             Entry::Occupied(mut entry) => { entry.get_mut().0 = Some(p); },
             Entry::Vacant(entry) => { entry.insert((Some(p), VecMap::new())); },
@@ -242,7 +242,7 @@ impl PartIO for PartFileIO {
         Ok(match self.paths.paths.get(ss_num).and_then(|&(_, ref logs)| logs.get(cl_num)) {
             Some(p) => {
                 trace!("Appending to log file: {}", p.display());
-                Some(Box::new(try!(OpenOptions::new().write(true).append(true).open(p))))
+                Some(Box::new(OpenOptions::new().write(true).append(true).open(p)?))
             },
             None => None
         })
@@ -260,7 +260,7 @@ impl PartIO for PartFileIO {
             return Ok(None);
         }
         trace!("Creating log file: {}", p.display());
-        let stream = try!(OpenOptions::new().create(true).write(true).append(true).open(&p));
+        let stream = OpenOptions::new().create(true).write(true).append(true).open(&p)?;
         logs.insert(cl_num, p);
         Ok(Some(Box::new(stream)))
     }

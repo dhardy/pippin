@@ -418,16 +418,16 @@ impl<E: ElementT> Commit<E> {
         for (id, ref change) in self.changes.iter() {
             match *change {
                 &EltChange::Deletion => {
-                    try!(mut_state.remove(*id));
+                    mut_state.remove(*id)?;
                 },
                 &EltChange::Insertion(ref elt) => {
-                    try!(mut_state.insert_with_id(*id, elt.clone()));
+                    mut_state.insert_with_id(*id, elt.clone())?;
                 }
                 &EltChange::Replacement(ref elt) => {
-                    try!(mut_state.replace_rc(*id, elt.clone()));
+                    mut_state.replace_rc(*id, elt.clone())?;
                 }
                 &EltChange::MoveOut(new_id) => {
-                    try!(mut_state.remove(*id));
+                    mut_state.remove(*id)?;
                     mut_state.set_move(*id, new_id);
                 }
                 &EltChange::Moved(new_id) => {

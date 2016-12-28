@@ -13,11 +13,11 @@ fn inner() -> Result<()> {
     match discover::part_from_path(".", None) {
         Ok(io) => {
             // Read the found files:
-            let mut part = try!(Partition::<String>::open(Box::new(io)));
-            try!(part.load_latest(None, None));
+            let mut part = Partition::<String>::open(Box::new(io))?;
+            part.load_latest(None, None)?;
             
             // Get access to the latest state:
-            let tip = try!(part.tip());
+            let tip = part.tip()?;
             println!("Found {} element(s)", tip.num_avail());
             
             // Read the elements (API may change here):
@@ -31,15 +31,15 @@ fn inner() -> Result<()> {
             
             // Create a new partition, using PartFileIO:
             let io = Box::new(fileio::PartFileIO::new_default("hello"));
-            let mut part = try!(Partition::create(io, "hello world", None, None));
+            let mut part = Partition::create(io, "hello world", None, None)?;
             
             // Create a new state derived from the tip:
-            let mut state = try!(part.tip()).clone_mut();
-            try!(state.insert("Hello, world!".to_string()));
-            try!(part.push_state(state, None));
+            let mut state = part.tip()?.clone_mut();
+            state.insert("Hello, world!".to_string())?;
+            part.push_state(state, None)?;
             
             // Write our changes:
-            try!(part.write_full(None));
+            part.write_full(None)?;
         }
     }
     Ok(())

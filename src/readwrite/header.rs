@@ -122,7 +122,7 @@ pub fn read_head(reader: &mut Read) -> Result<FileHeader> {
     let mut pos: usize = 0;
     let mut buf = vec![0; 32];
     
-    try!(r.read_exact(&mut buf[0..16]));
+    r.read_exact(&mut buf[0..16])?;
     let head_version = read_head_version(&buf[8..16]);
     if !HEAD_VERSIONS.contains(&head_version) {
         return ReadError::err("Pippin file of incompatible version", pos, (0, 16));
@@ -136,7 +136,7 @@ pub fn read_head(reader: &mut Read) -> Result<FileHeader> {
     };
     pos += 16;
     
-    try!(r.read_exact(&mut buf[0..16]));
+    r.read_exact(&mut buf[0..16])?;
     let repo_name = match String::from_utf8(rtrim(&buf, 0).to_vec()) {
         Ok(name) => name,
         Err(_) => return ReadError::err("repo name not valid UTF-8", pos, (0, 16))
@@ -146,7 +146,7 @@ pub fn read_head(reader: &mut Read) -> Result<FileHeader> {
     let mut part_id = None;
     let mut user_fields = Vec::new();
     loop {
-        try!(r.read_exact(&mut buf[0..16]));
+        r.read_exact(&mut buf[0..16])?;
         let (block, off): (&[u8], usize) = if buf[0] == b'H' {
             pos += 1;
             (&buf[1..16], 1)
@@ -158,7 +158,7 @@ pub fn read_head(reader: &mut Read) -> Result<FileHeader> {
             } as usize;
             let len = x * 16;
             if buf.len() < len { buf.resize(len, 0); }
-            try!(r.read_exact(&mut buf[16..len]));
+            r.read_exact(&mut buf[16..len])?;
             pos += 2;
             (&buf[2..len], 2)
         } else if buf[0] == b'B' {
@@ -167,7 +167,7 @@ pub fn read_head(reader: &mut Read) -> Result<FileHeader> {
                            +  (buf[3] as usize);
             let padded = ((len + 15) / 16) * 16; // round up
             if buf.len() < padded { buf.resize(padded, 0); }
-            try!(r.read_exact(&mut buf[16..padded]));
+            r.read_exact(&mut buf[16..padded])?;
             pos += 4;
             (&buf[4..len], 4)
         } else {
@@ -190,9 +190,9 @@ pub fn read_head(reader: &mut Read) -> Result<FileHeader> {
                 return ReadError::err("repeat of PARTID", pos, (off, off+7));
             }
             let id = BigEndian::read_u64(&block[7..15]);
-            part_id = Some(try!(PartId::try_from(id)));
+            part_id = Some(PartId::try_from(id)?);
         } else if block[0] == b'R' {
-            user_fields.push(UserData::Text(try!(String::from_utf8(rtrim(&block[1..], 0).to_vec()))));
+            user_fields.push(UserData::Text(String::from_utf8(rtrim(&block[1..], 0).to_vec())?));
         } else if block[0] == b'U' {
             user_fields.push(UserData::Data(block[1..].to_vec()));
         } else if block[0] >= b'A' && block[0] <= b'Z' {
@@ -215,7 +215,7 @@ pub fn read_head(reader: &mut Read) -> Result<FileHeader> {
     // Read checksum:
     let sum = r.sum();
     let mut r = r.into_inner();
-    try!(r.read_exact(&mut buf[0..SUM_BYTES]));
+    r.read_exact(&mut buf[0..SUM_BYTES])?;
     if !sum.eq(&buf[0..SUM_BYTES]) {
         return ReadError::err("header checksum invalid", pos, (0, SUM_BYTES));
     }
@@ -236,19 +236,19 @@ pub fn write_head(header: &FileHeader, writer: &mut Write) -> Result<()> {
     match header.ftype {
         // Note: we always write in the latest version, even if we read from an old one
         FileType::Snapshot(_) => {
-            try!(w.write(&HEAD_SNAPSHOT));
+            w.write(&HEAD_SNAPSHOT)?;
         },
         FileType::CommitLog(_) => {
-            try!(w.write(&HEAD_COMMITLOG));
+            w.write(&HEAD_COMMITLOG)?;
         },
     };
-    try!(validate_repo_name(&header.name));
-    let len = try!(w.write(header.name.as_bytes()));
-    try!(pad(&mut w, 16 - len));
+    validate_repo_name(&header.name)?;
+    let len = w.write(header.name.as_bytes())?;
+    pad(&mut w, 16 - len)?;
     
     if let Some(part_id) = header.part_id {
-        try!(w.write(&PARTID));
-        try!(w.write_u64::<BigEndian>(part_id.into()));
+        w.write(&PARTID)?;
+        w.write_u64::<BigEndian>(part_id.into())?;
     }
     
     for u in &header.user {
@@ -259,41 +259,41 @@ pub fn write_head(header: &FileHeader, writer: &mut Write) -> Result<()> {
         };
         let mut l = [b'B', 0, b'Q', b'H', t];
         if uf.len() <= 14 && (is_text || uf.len() == 14) {
-            try!(w.write(&l[3..5]));
-            try!(w.write(&uf));
-            try!(pad(&mut w, 14 - uf.len()));
+            w.write(&l[3..5])?;
+            w.write(&uf)?;
+            pad(&mut w, 14 - uf.len())?;
         } else if uf.len() + 3 <= 16 * 36 && 
             (is_text || (uf.len() + 3) % 16 == 0)
         {
             let n = (uf.len() + 3 /* QxU */ + 15 /* round up */) / 16;
             l[3] = if n <= 9 { b'0' + n as u8 } else { b'A' - 10 + n as u8 };
-            try!(w.write(&l[2..5]));
-            try!(w.write(&uf));
-            try!(pad(&mut w, n * 16 - uf.len() - 3));
+            w.write(&l[2..5])?;
+            w.write(&uf)?;
+            pad(&mut w, n * 16 - uf.len() - 3)?;
         } else if uf.len() <= (2 << 24) - 5 {
             let len = uf.len() + 5; // length written includes leading `Bbbb` and 'U' or 'R'
             l[1] = ((len >> 16) & 0xFF) as u8;
             l[2] = ((len >> 8) & 0xFF) as u8;
             l[3] = (len & 0xFF) as u8;
-            try!(w.write(&l[0..5]));
-            try!(w.write(&uf));
-            try!(pad(&mut w, ((len + 15) / 16) * 16 - len));
+            w.write(&l[0..5])?;
+            w.write(&uf)?;
+            pad(&mut w, ((len + 15) / 16) * 16 - len)?;
         } else {
             return ArgError::err("user field too long");
         }
     }
     
-    try!(w.write(&SUM_BLAKE2_16));
+    w.write(&SUM_BLAKE2_16)?;
     
     // Write the checksum of everything above:
     let sum = w.sum();
-    try!(sum.write(&mut w.into_inner()));
+    sum.write(&mut w.into_inner())?;
     
     fn pad<W: Write>(w: &mut W, n1: usize) -> Result<()> {
         let zeros = [0u8; 16];
         let mut n = n1;
         while n > 0 {
-            n -= match try!(w.write(&zeros[0..min(n, zeros.len())])) {
+            n -= match w.write(&zeros[0..min(n, zeros.len())])? {
                 0 => return make_io_err(ErrorKind::WriteZero, "write failed"),
                 x => x
             };

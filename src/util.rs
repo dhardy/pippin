@@ -40,15 +40,15 @@ impl<'a> fmt::Display for ByteFormatter<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         for b in self.bytes {
             if *b == b'\\' {
-                try!(write!(f, "\\\\"));
+                write!(f, "\\\\")?;
             } else if *b == b'"' {
-                try!(write!(f, "\\\""));
+                write!(f, "\\\"")?;
             } else if *b == b'\'' {
-                try!(write!(f, "\\\'"));
+                write!(f, "\\\'")?;
             } else if *b >= b' ' && *b <= b'~' {
-                try!(f.write_char(*b as char));
+                f.write_char(*b as char)?;
             } else {
-                try!(write!(f, "\\x{:02x}", b));
+                write!(f, "\\x{:02x}", b)?;
             }
         }
         Ok(())
@@ -72,7 +72,7 @@ impl <'a> fmt::Display for HexFormatter<'a> {
         let line = self.bytes;
         for i in 0..line.len() {
             let (high,low) = (line[i] as usize / 16, line[i] as usize & 0xF);
-            try!(write!(f, "{}{} ", &HEX[high..(high+1)], &HEX[low..(low+1)]));
+            write!(f, "{}{} ", &HEX[high..(high+1)], &HEX[low..(low+1)])?;
         }
         let mut v: Vec<u8> = Vec::from(line);
         for i in 0..v.len() {
@@ -80,7 +80,7 @@ impl <'a> fmt::Display for HexFormatter<'a> {
             // replace spaces, tabs and undisplayable characters:
             if c <= 0x32 || c == 0x7F { v[i] = b'.'; }
         }
-        try!(writeln!(f, "{}", String::from_utf8_lossy(&v)));
+        writeln!(f, "{}", String::from_utf8_lossy(&v))?;
         Ok(())
     }
 }

@@ -46,7 +46,7 @@ impl From<Vec<R>> for Sequence {
 impl ElementT for Sequence {
     fn write_buf(&self, writer: &mut Write) -> Result<()> {
         for x in &self.v {
-            try!(writer.write_f64::<LittleEndian>(*x));
+            writer.write_f64::<LittleEndian>(*x)?;
         }
         Ok(())
     }
@@ -58,7 +58,7 @@ impl ElementT for Sequence {
         let n = buf.len() / size_of::<R>();
         let mut v = Vec::with_capacity(n);
         for _ in 0..n {
-            v.push(try!(r.read_f64::<LittleEndian>()));
+            v.push(r.read_f64::<LittleEndian>()?);
         }
         Ok(Sequence{ v: v })
     }
@@ -347,7 +347,7 @@ impl<IO: RepoIO> RepoT<SeqClassifier> for SeqRepo<IO> {
     fn divide(&mut self, part: &Partition<Sequence>) ->
         Result<(Vec<PartId>, Vec<PartId>), RepoDivideError>
     {
-        let tip = try!(part.tip().map_err(|e| RepoDivideError::Other(Box::new(e))));
+        let tip = part.tip().map_err(|e| RepoDivideError::Other(Box::new(e)))?;
         // 1: choose new lengths to use for partitioning
         // Algorithm: sample up to 999 lengths, find the median
         if tip.num_avail() < 1 { return Err(RepoDivideError::NotSubdivisible); }

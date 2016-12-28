@@ -191,18 +191,18 @@ fn inner(path: PathBuf, op: Operation, args: Rest) -> Result<()>
                 name[0..len].to_string()
             });
             let part_id = PartId::from_num(match part_num {
-                Some(n) => try!(n.parse()),
+                Some(n) => n.parse()?,
                 None => 1,
             });
             
             let prefix = path.join(name);
             let io = fileio::PartFileIO::new_empty(part_id, prefix);
-            try!(Partition::<DataElt>::create(Box::new(io), &repo_name, None, None));
+            Partition::<DataElt>::create(Box::new(io), &repo_name, None, None)?;
             Ok(())
         },
         Operation::Header => {
             println!("Reading header from: {}", path.display());
-            let head = try!(read_head(&mut try!(fs::File::open(path))));
+            let head = read_head(&mut fs::File::open(path)?)?;
             println!("{} file, version: {}",
                 match head.ftype { FileType::Snapshot(_) => "Snapshot", FileType::CommitLog(_) => "Commit log" },
                 head.ftype.ver());
@@ -226,7 +226,7 @@ fn inner(path: PathBuf, op: Operation, args: Rest) -> Result<()>
             assert_eq!(args.commit, None);
             println!("Scanning files ...");
             // #0017: this should print warnings generated in discover::*
-            let repo_files = try!(discover::repo_from_path(&path));
+            let repo_files = discover::repo_from_path(&path)?;
             for part in repo_files.partitions() {
                 println!("Partition {}: {}*", part.part_id(), part.prefix().display());
                 let ss_len = part.ss_len();
@@ -249,8 +249,8 @@ fn inner(path: PathBuf, op: Operation, args: Rest) -> Result<()>
                     }
                 }
                 if list_commits {
-                    let mut part = try!(Partition::<DataElt>::open(Box::new(part.clone())));
-                    try!(part.load_all(None, None));
+                    let mut part = Partition::<DataElt>::open(Box::new(part.clone()))?;
+                    part.load_all(None, None)?;
                     let mut states: Vec<_> = part.states_iter().collect();
                     states.sort_by_key(|s| s.meta().number());
                     for state in states {
@@ -267,17 +267,17 @@ fn inner(path: PathBuf, op: Operation, args: Rest) -> Result<()>
                 panic!("No support for -p / --partition option");
             }
             println!("Scanning files ...");
-             let part_files = try!(discover::part_from_path(&path, None));
+             let part_files = discover::part_from_path(&path, None)?;
             
-            let mut part = try!(Partition::<DataElt>::open(Box::new(part_files)));
+            let mut part = Partition::<DataElt>::open(Box::new(part_files))?;
             {
                 let (is_tip, mut state) = if let Some(ss) = args.commit {
-                    try!(part.load_all(None, None));
-                    let state = try!(part.state_from_string(ss));
+                    part.load_all(None, None)?;
+                    let state = part.state_from_string(ss)?;
                     (part.tip_key().map(|k| k == state.statesum()).unwrap_or(false), state.clone_mut())
                 } else {
-                    try!(part.load_latest(None, None));
-                    (true, try!(part.tip()).clone_mut())
+                    part.load_latest(None, None)?;
+                    (true, part.tip()?.clone_mut())
                 };
                 match part_op {
                     PartitionOp::ListElts => {
@@ -288,7 +288,7 @@ fn inner(path: PathBuf, op: Operation, args: Rest) -> Result<()>
                         }
                     },
                     PartitionOp::EltGet(elt) => {
-                        let id: u64 = try!(elt.parse());
+                        let id: u64 = elt.parse()?;
                         match state.get(id.into()) {
                             Ok(d) => {
                                 println!("Element {}:", id);
@@ -301,9 +301,9 @@ fn inner(path: PathBuf, op: Operation, args: Rest) -> Result<()>
                         if !is_tip && !args.force {
                             panic!("Do you really want to make an edit from a historical state? If so specify '--force'.");
                         }
-                        let output = try!(Command::new("mktemp")
+                        let output = Command::new("mktemp")
                             .arg("--tmpdir")
-                            .arg("pippin-element.XXXXXXXX").output());
+                            .arg("pippin-element.XXXXXXXX").output()?;
                         if !output.status.success() {
                             return CmdFailed::err("mktemp", output.status.code());
                         }
@@ -312,45 +312,45 @@ fn inner(path: PathBuf, op: Operation, args: Rest) -> Result<()>
                             return PathError::err("temporary file created but not found", tmp_path);
                         }
                         
-                        let id: u64 = try!(elt.parse());
+                        let id: u64 = elt.parse()?;
                         {
                             let elt_data: &DataElt = if let Ok(d) = state.get(id.into()) {
                                 &d
                             } else {
                                 panic!("element not found");
                             };
-                            let mut file = try!(fs::OpenOptions::new().write(true).open(&tmp_path));
-                            try!(file.write(elt_data.bytes()));
+                            let mut file = fs::OpenOptions::new().write(true).open(&tmp_path)?;
+                            file.write(elt_data.bytes())?;
                         }
                         println!("Written to temporary file: {}", tmp_path.display());
                         
-                        let editor_cmd = try!(env::var(match editor {
+                        let editor_cmd = env::var(match editor {
                             Editor::Cmd => "EDITOR",
                             Editor::Visual => "VISUAL",
-                        }));
-                        let status = try!(Command::new(&editor_cmd).arg(&tmp_path).status());
+                        })?;
+                        let status = Command::new(&editor_cmd).arg(&tmp_path).status()?;
                         if !status.success() {
                             return CmdFailed::err(editor_cmd, status.code());
                         }
-                        let mut file = try!(fs::File::open(&tmp_path));
+                        let mut file = fs::File::open(&tmp_path)?;
                         let mut buf = Vec::new();
-                        try!(file.read_to_end(&mut buf));
-                        try!(state.replace(id.into(), DataElt::from(buf)));
-                        try!(fs::remove_file(tmp_path));
+                        file.read_to_end(&mut buf)?;
+                        state.replace(id.into(), DataElt::from(buf))?;
+                        fs::remove_file(tmp_path)?;
                     },
                     PartitionOp::EltDelete(elt) => {
                         if !is_tip && !args.force {
                             panic!("Do you really want to make an edit from a historical state? If so specify '--force'.");
                         }
-                        let id: u64 = try!(elt.parse());
-                        try!(state.remove(id.into()));
+                        let id: u64 = elt.parse()?;
+                        state.remove(id.into())?;
                     },
                 }
             }       // destroy reference `state`
             
-            let has_changes = try!(part.write_fast(None));
+            let has_changes = part.write_fast(None)?;
             if has_changes && args.snapshot {
-                try!(part.write_snapshot(None));
+                part.write_snapshot(None)?;
             }
             Ok(())
         },
@@ -385,7 +385,7 @@ impl From<Vec<u8>> for DataElt {
 }
 impl ElementT for DataElt {
     fn write_buf(&self, writer: &mut Write) -> Result<()> {
-        try!(writer.write(self.bytes()));
+        writer.write(self.bytes())?;
         Ok(())
     }
     fn read_buf(buf: &[u8]) -> Result<Self> {

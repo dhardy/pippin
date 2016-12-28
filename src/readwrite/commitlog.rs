@@ -46,7 +46,7 @@ pub fn read_log<E: ElementT>(mut reader: &mut Read,
     let mut pos: usize = 0;
     let mut buf = vec![0; 32];
     
-    try!(reader.read_exact(&mut buf[0..16]));
+    reader.read_exact(&mut buf[0..16])?;
     if buf[0..16] != *b"COMMIT LOG\x00\x00\x00\x00\x00\x00" {
         return ReadError::err("unexpected contents (expected \
             COMMIT LOG\\x00\\x00\\x00\\x00\\x00\\x00)", pos, (0, 16));
@@ -60,9 +60,9 @@ pub fn read_log<E: ElementT>(mut reader: &mut Read,
         // A reader which calculates the checksum of what was read:
         let mut r = sum::HashReader::new(reader);
         
-        let l = try!(r.read(&mut buf[0..16]));
+        let l = r.read(&mut buf[0..16])?;
         if l == 0 { break; /*end of file (EOF)*/ }
-        if l < 16 { try!(r.read_exact(&mut buf[l..16])); /*not EOF, buf haven't filled buffer*/ }
+        if l < 16 { r.read_exact(&mut buf[l..16])?; /*not EOF, buf haven't filled buffer*/ }
         
         let n_parents = if buf[0..6] == *b"COMMIT" {
             1
@@ -76,16 +76,16 @@ pub fn read_log<E: ElementT>(mut reader: &mut Read,
         if buf[6..8] != *b"\x00U" {
             return ReadError::err("unexpected contents (expected \\x00U)", pos, (6, 8));
         }
-        let meta = try!(read_meta(&mut r, &mut buf, &mut pos, format_ver));
+        let meta = read_meta(&mut r, &mut buf, &mut pos, format_ver)?;
         
         let mut parents = Vec::with_capacity(n_parents);
         for _ in 0..n_parents {
-            try!(r.read_exact(&mut buf[0..SUM_BYTES]));
+            r.read_exact(&mut buf[0..SUM_BYTES])?;
             parents.push(Sum::load(&buf[0..SUM_BYTES]));
             pos += SUM_BYTES;
         }
         
-        try!(r.read_exact(&mut buf[0..16]));
+        r.read_exact(&mut buf[0..16])?;
         if buf[0..8] != *b"ELEMENTS" {
             return ReadError::err("unexpected contents (expected ELEMENTS)", pos, (0, 8));
         }
@@ -95,7 +95,7 @@ pub fn read_log<E: ElementT>(mut reader: &mut Read,
         let mut changes = HashMap::new();
         
         for _ in 0..num_elts {
-            try!(r.read_exact(&mut buf[0..16]));
+            r.read_exact(&mut buf[0..16])?;
             if buf[0..4] != *b"ELT " {
                 return ReadError::err("unexpected contents (expected ELT\\x20)", pos, (0, 4));
             }
@@ -116,7 +116,7 @@ pub fn read_log<E: ElementT>(mut reader: &mut Read,
             let change = match change_t {
                 Change::Delete => EltChange::deletion(),
                 Change::Insert | Change::Replace => {
-                    try!(r.read_exact(&mut buf[0..16]));
+                    r.read_exact(&mut buf[0..16])?;
                     if buf[0..8] != *b"ELT DATA" {
                         return ReadError::err("unexpected contents (expected ELT DATA)", pos, (0, 8));
                     }
@@ -124,23 +124,23 @@ pub fn read_log<E: ElementT>(mut reader: &mut Read,
                     pos += 16;
                     
                     let mut data = vec![0; data_len];
-                    try!(r.read_exact(&mut data));
+                    r.read_exact(&mut data)?;
                     pos += data_len;
                     
                     let pad_len = 16 * ((data_len + 15) / 16) - data_len;
                     if pad_len > 0 {
-                        try!(r.read_exact(&mut buf[0..pad_len]));
+                        r.read_exact(&mut buf[0..pad_len])?;
                         pos += pad_len;
                     }
                     
                     let elt_sum = Sum::elt_sum(elt_id, &data);
-                    try!(r.read_exact(&mut buf[0..SUM_BYTES]));
+                    r.read_exact(&mut buf[0..SUM_BYTES])?;
                     if !elt_sum.eq(&buf[0..SUM_BYTES]) {
                         return ReadError::err("element checksum mismatch", pos, (0, SUM_BYTES));
                     }
                     pos += SUM_BYTES;
                     
-                    let elt = Rc::new(try!(E::from_vec_sum(data, elt_sum)));
+                    let elt = Rc::new(E::from_vec_sum(data, elt_sum)?);
                     match change_t {
                         Change::Insert => EltChange::insertion(elt),
                         Change::Replace => EltChange::replacement(elt),
@@ -148,7 +148,7 @@ pub fn read_log<E: ElementT>(mut reader: &mut Read,
                     }
                 },
                 Change::MoveOut | Change::Moved => {
-                    try!(r.read_exact(&mut buf[0..16]));
+                    r.read_exact(&mut buf[0..16])?;
                     if buf[0..8] != *b"NEW ELT\x00" {
                         return ReadError::err("unexpected contents (expected NEW ELT)", pos, (0, 8));
                     }
@@ -159,13 +159,13 @@ pub fn read_log<E: ElementT>(mut reader: &mut Read,
             changes.insert(elt_id, change);
         }
         
-        try!(r.read_exact(&mut buf[0..SUM_BYTES]));
+        r.read_exact(&mut buf[0..SUM_BYTES])?;
         let commit_sum = Sum::load(&buf[0..SUM_BYTES]);
         pos += SUM_BYTES;
         
         let sum = r.sum();
         reader = r.into_inner();
-        try!(reader.read_exact(&mut buf[0..SUM_BYTES]));
+        reader.read_exact(&mut buf[0..SUM_BYTES])?;
         if !sum.eq(&buf[0..SUM_BYTES]) {
             return ReadError::err("checksum invalid", pos, (0, SUM_BYTES));
         }
@@ -186,7 +186,7 @@ pub fn read_log<E: ElementT>(mut reader: &mut Read,
 /// Write the section identifier at the start of a commit log
 // #0016: do we actually need this?
 pub fn start_log(writer: &mut Write) -> Result<()> {
-    try!(writer.write(b"COMMIT LOG\x00\x00\x00\x00\x00\x00"));
+    writer.write(b"COMMIT LOG\x00\x00\x00\x00\x00\x00")?;
     Ok(())
 }
 
@@ -199,24 +199,24 @@ pub fn write_commit<E: ElementT>(commit: &Commit<E>, writer: &mut Write) -> Resu
     let mut w = sum::HashWriter::new(writer);
     
     if commit.parents().len() == 1 {
-        try!(w.write(b"COMMIT\x00U"));
+        w.write(b"COMMIT\x00U")?;
     } else {
         assert!(commit.parents().len() > 1 && commit.parents().len() < 0x100);
-        try!(w.write(b"MERGE"));
+        w.write(b"MERGE")?;
         let n: [u8; 1] = [commit.parents().len() as u8];
-        try!(w.write(&n));
-        try!(w.write(b"\x00U"));
+        w.write(&n)?;
+        w.write(b"\x00U")?;
     }
     
-    try!(write_meta(&mut w, commit.meta()));
+    write_meta(&mut w, commit.meta())?;
     
     // Parent statesums (we wrote the number above already):
     for parent in commit.parents() {
-        try!(parent.write(&mut w));
+        parent.write(&mut w)?;
     }
     
-    try!(w.write(b"ELEMENTS"));
-    try!(w.write_u64::<BigEndian>(commit.num_changes() as u64));       // #0015
+    w.write(b"ELEMENTS")?;
+    w.write_u64::<BigEndian>(commit.num_changes() as u64)?;       // #0015
     
     let mut elt_buf = Vec::new();
     
@@ -231,33 +231,33 @@ pub fn write_commit<E: ElementT>(commit: &Commit<E>, writer: &mut Write) -> Resu
             &EltChange::MoveOut(_) => b"ELT MOVO",
             &EltChange::Moved(_) => b"ELT MOV\x00",
         };
-        try!(w.write(marker));
-        try!(w.write_u64::<BigEndian>((*elt_id).into()));
+        w.write(marker)?;
+        w.write_u64::<BigEndian>((*elt_id).into())?;
         if let Some(elt) = change.element() {
-            try!(w.write(b"ELT DATA"));
+            w.write(b"ELT DATA")?;
             elt_buf.clear();
-            try!(elt.write_buf(&mut &mut elt_buf));
-            try!(w.write_u64::<BigEndian>(elt_buf.len() as u64));      // #0015
+            elt.write_buf(&mut &mut elt_buf)?;
+            w.write_u64::<BigEndian>(elt_buf.len() as u64)?;      // #0015
             
-            try!(w.write(&elt_buf));
+            w.write(&elt_buf)?;
             let pad_len = 16 * ((elt_buf.len() + 15) / 16) - elt_buf.len();
             if pad_len > 0 {
                 let padding = [0u8; 15];
-                try!(w.write(&padding[0..pad_len]));
+                w.write(&padding[0..pad_len])?;
             }
             
-            try!(elt.sum(*elt_id).write(&mut w));
+            elt.sum(*elt_id).write(&mut w)?;
         }
         if let Some(new_id) = change.moved_id() {
-            try!(w.write(b"NEW ELT\x00"));
-            try!(w.write_u64::<BigEndian>(new_id.into()));
+            w.write(b"NEW ELT\x00")?;
+            w.write_u64::<BigEndian>(new_id.into())?;
         }
     }
     
-    try!(commit.statesum().write(&mut w));
+    commit.statesum().write(&mut w)?;
     
     let sum = w.sum();
-    try!(sum.write(&mut w.into_inner()));
+    sum.write(&mut w.into_inner())?;
     
     Ok(())
 }

@@ -83,8 +83,8 @@ impl ErrorTrait for ReadError {
 }
 impl fmt::Display for ReadError {
     fn fmt(&self, f: &mut fmt::Formatter) -> result::Result<(), fmt::Error> {
-        try!(write!(f, "read error at position {}, offset ({}, {}): ", 
-                self.pos, self.off_start, self.off_end));
+        write!(f, "read error at position {}, offset ({}, {}): ", 
+                self.pos, self.off_start, self.off_end)?;
         match &self.detail {
             &Wrapped::Msg(ref msg) => write!(f, "{}", msg),
             &Wrapped::ErrT(ref e) => e.fmt(f),
@@ -101,12 +101,12 @@ impl<'a> fmt::Display for ReadErrorFormatter<'a> {
         const SPACE: &'static str = "                        ";
         const MARK: &'static str = "^^^^^^^^^^^^^^^^^^^^^^^^";
         
-        try!(write!(f, "read error (pos {}, offset ({}, {})): ", self.err.pos,
-            self.err.off_start, self.err.off_end));
-        try!(match &self.err.detail {
+        write!(f, "read error (pos {}, offset ({}, {})): ", self.err.pos,
+            self.err.off_start, self.err.off_end)?;
+        match &self.err.detail {
             &Wrapped::Msg(ref msg) => write!(f, "{}", msg),
             &Wrapped::ErrT(ref e) => e.fmt(f),
-        });
+        }?;
         let start = self.err.pos + 8 * (self.err.off_start / 8);
         let end = self.err.pos + 8 * ((self.err.off_end + 7) / 8);
         // #0018: we could use for line_start in (start..end).step_by(8) once
@@ -114,15 +114,15 @@ impl<'a> fmt::Display for ReadErrorFormatter<'a> {
         let mut line_start = start;
         while line_start < end {
             if line_start + 8 > self.data.len() {
-                try!(writeln!(f, "insufficient data to display!"));
+                writeln!(f, "insufficient data to display!")?;
                 break;
             }
-            try!(HexFormatter::line(&self.data[line_start..line_start+8]).fmt(f));
+            HexFormatter::line(&self.data[line_start..line_start+8]).fmt(f)?;
             let p0 = max(self.err.pos + self.err.off_start, line_start) - line_start;
             let p1 = min(self.err.pos + self.err.off_end, line_start + 8) - line_start;
             assert!(p0 <= p1 && p1 <= 8);
-            try!(write!(f, "{}{}{}", &SPACE[0..(3*p0)], &MARK[(3*p0)..(3*p1-1)], &SPACE[(3*p1-1)..24]));
-            try!(writeln!(f, "{}{}", &SPACE[0..p0], &MARK[p0..p1]));
+            write!(f, "{}{}{}", &SPACE[0..(3*p0)], &MARK[(3*p0)..(3*p1-1)], &SPACE[(3*p1-1)..24])?;
+            writeln!(f, "{}{}", &SPACE[0..p0], &MARK[p0..p1])?;
             
             line_start += 8;
         }

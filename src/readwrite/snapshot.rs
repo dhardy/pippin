@@ -37,20 +37,20 @@ pub fn read_snapshot<T: ElementT>(reader: &mut Read, part_id: PartId,
     let mut buf = vec![0; 32];
     assert!(buf.len() >= SUM_BYTES);
     
-    try!(r.read_exact(&mut buf[0..16]));
+    r.read_exact(&mut buf[0..16])?;
     if buf[0..6] != *b"SNAPSH" || buf[7] != b'U' {
         return ReadError::err("unexpected contents (expected SNAPSH_U where _ is any)", pos, (0, 8));
     }
     let num_parents = buf[6] as usize;
-    let meta = try!(read_meta(&mut r, &mut buf, &mut pos, format_ver));
+    let meta = read_meta(&mut r, &mut buf, &mut pos, format_ver)?;
     
     let mut parents = Vec::with_capacity(num_parents);
     for _ in 0..num_parents {
-        try!(r.read_exact(&mut buf[0..SUM_BYTES]));
+        r.read_exact(&mut buf[0..SUM_BYTES])?;
         parents.push(Sum::load(&buf[0..SUM_BYTES]));
     }
     
-    try!(r.read_exact(&mut buf[0..16]));
+    r.read_exact(&mut buf[0..16])?;
     if buf[0..8] != *b"ELEMENTS" {
         return ReadError::err("unexpected contents (expected ELEMENTS)", pos, (0, 8));
     }
@@ -60,7 +60,7 @@ pub fn read_snapshot<T: ElementT>(reader: &mut Read, part_id: PartId,
     let mut elts = HashMap::new();
     let mut combined_elt_sum = Sum::zero();
     for _ in 0..num_elts {
-        try!(r.read_exact(&mut buf[0..32]));
+        r.read_exact(&mut buf[0..32])?;
         if buf[0..8] != *b"ELEMENT\x00" {
             println!("buf: \"{}\", {:?}", String::from_utf8_lossy(&buf[0..8]), &buf[0..8]);
             return ReadError::err("unexpected contents (expected ELEMENT\\x00)", pos, (0, 8));
@@ -75,17 +75,17 @@ pub fn read_snapshot<T: ElementT>(reader: &mut Read, part_id: PartId,
         pos += 16;
         
         let mut data = vec![0; data_len];
-        try!(r.read_exact(&mut data));
+        r.read_exact(&mut data)?;
         pos += data_len;
         
         let pad_len = 16 * ((data_len + 15) / 16) - data_len;
         if pad_len > 0 {
-            try!(r.read_exact(&mut buf[0..pad_len]));
+            r.read_exact(&mut buf[0..pad_len])?;
             pos += pad_len;
         }
         
         let elt_sum = Sum::elt_sum(ident, &data);
-        try!(r.read_exact(&mut buf[0..SUM_BYTES]));
+        r.read_exact(&mut buf[0..SUM_BYTES])?;
         if !elt_sum.eq(&buf[0..SUM_BYTES]) {
             return ReadError::err("element checksum mismatch", pos, (0, SUM_BYTES));
         }
@@ -93,7 +93,7 @@ pub fn read_snapshot<T: ElementT>(reader: &mut Read, part_id: PartId,
         
         combined_elt_sum.permute(&elt_sum);
         
-        let elt = try!(T::from_vec_sum(data, elt_sum));
+        let elt = T::from_vec_sum(data, elt_sum)?;
         if ident.part_id() != part_id { return Err(Box::new(ElementOp::WrongPartition)); }
         match elts.entry(ident) {
             Entry::Occupied(_) => { return Err(Box::new(ElementOp::IdClash)); },
@@ -102,17 +102,17 @@ pub fn read_snapshot<T: ElementT>(reader: &mut Read, part_id: PartId,
     }
     
     let mut moves = HashMap::new();
-    try!(r.read_exact(&mut buf[0..16]));
+    r.read_exact(&mut buf[0..16])?;
     if buf[0..8] == *b"ELTMOVES" /*versions from 20160201, optional*/ {
         let n_moves = BigEndian::read_u64(&buf[8..16]) as usize;    // #0015
         for _ in 0..n_moves {
-            try!(r.read_exact(&mut buf[0..16]));
+            r.read_exact(&mut buf[0..16])?;
             let id0 = BigEndian::read_u64(&buf[0..8]).into();
             let id1 = BigEndian::read_u64(&buf[8..16]).into();
             moves.insert(id0, id1);
         }
         // re-fill buffer for next section:
-        try!(r.read_exact(&mut buf[0..16]));
+        r.read_exact(&mut buf[0..16])?;
     }
     
     let state = PartState::new_explicit(part_id, parents,
@@ -128,7 +128,7 @@ pub fn read_snapshot<T: ElementT>(reader: &mut Read, part_id: PartId,
     }
     pos += 8;
     
-    try!(r.read_exact(&mut buf[0..SUM_BYTES]));
+    r.read_exact(&mut buf[0..SUM_BYTES])?;
     if !state.statesum().eq(&buf[0..SUM_BYTES]) {
         return ReadError::err("state checksum mismatch", pos, (0, SUM_BYTES));
     }
@@ -136,7 +136,7 @@ pub fn read_snapshot<T: ElementT>(reader: &mut Read, part_id: PartId,
     
     let sum = r.sum();
     let mut r = r.into_inner();
-    try!(r.read_exact(&mut buf[0..SUM_BYTES]));
+    r.read_exact(&mut buf[0..SUM_BYTES])?;
     if !sum.eq(&buf[0..SUM_BYTES]) {
         return ReadError::err("checksum invalid", pos, (0, SUM_BYTES));
     }
@@ -162,59 +162,59 @@ pub fn write_snapshot<T: ElementT>(state: &PartState<T>,
     let mut snapsh_u: [u8; 8] = *b"SNAPSH_U";
     assert!(state.parents().len() <= (u8::MAX as usize));
     snapsh_u[6] = state.parents().len() as u8;
-    try!(w.write(&snapsh_u));
-    try!(write_meta(&mut w, state.meta()));
+    w.write(&snapsh_u)?;
+    write_meta(&mut w, state.meta())?;
     
     for parent in state.parents() {
-        try!(parent.write(&mut w));
+        parent.write(&mut w)?;
     }
     
-    try!(w.write(b"ELEMENTS"));
+    w.write(b"ELEMENTS")?;
     let num_elts = state.elts_len() as u64;  // #0015
-    try!(w.write_u64::<BigEndian>(num_elts));
+    w.write_u64::<BigEndian>(num_elts)?;
     
     let mut elt_buf = Vec::new();
     
     let mut keys: Vec<_> = state.elts_iter().map(|(k,_)| k).collect();
     keys.sort();
     for ident in keys {
-        try!(w.write(b"ELEMENT\x00"));
-        try!(w.write_u64::<BigEndian>(ident.into()));
+        w.write(b"ELEMENT\x00")?;
+        w.write_u64::<BigEndian>(ident.into())?;
         
         let elt = state.get_rc(ident).expect("get elt by key");
-        try!(w.write(b"BYTES\x00\x00\x00"));
+        w.write(b"BYTES\x00\x00\x00")?;
         elt_buf.clear();
-        try!(elt.write_buf(&mut &mut elt_buf));
-        try!(w.write_u64::<BigEndian>(elt_buf.len() as u64 /* #0015 */));
+        elt.write_buf(&mut &mut elt_buf)?;
+        w.write_u64::<BigEndian>(elt_buf.len() as u64 /* #0015 */)?;
         
-        try!(w.write(&elt_buf));
+        w.write(&elt_buf)?;
         let pad_len = 16 * ((elt_buf.len() + 15) / 16) - elt_buf.len();
         if pad_len > 0 {
             let padding = [0u8; 15];
-            try!(w.write(&padding[0..pad_len]));
+            w.write(&padding[0..pad_len])?;
         }
         
-        try!(elt.sum(ident).write(&mut w));
+        elt.sum(ident).write(&mut w)?;
     }
     
     if state.moved_len() > 0 {
-        try!(w.write(b"ELTMOVES"));
-        try!(w.write_u64::<BigEndian>(state.moved_len() as u64 /* #0015 */));
+        w.write(b"ELTMOVES")?;
+        w.write_u64::<BigEndian>(state.moved_len() as u64 /* #0015 */)?;
         for (ident, new_ident) in state.moved_iter() {
-            try!(w.write_u64::<BigEndian>(ident.into()));
-            try!(w.write_u64::<BigEndian>(new_ident.into()));
+            w.write_u64::<BigEndian>(ident.into())?;
+            w.write_u64::<BigEndian>(new_ident.into())?;
         }
     }
     
     // We write the checksum we kept in memory, the idea being that in-memory
     // corruption will be detected on next load.
-    try!(w.write(b"STATESUM"));
-    try!(w.write_u64::<BigEndian>(num_elts));
-    try!(state.statesum().write(&mut w));
+    w.write(b"STATESUM")?;
+    w.write_u64::<BigEndian>(num_elts)?;
+    state.statesum().write(&mut w)?;
     
     // Write the checksum of everything above:
     let sum = w.sum();
-    try!(sum.write(&mut w.into_inner()));
+    sum.write(&mut w.into_inner())?;
     
     Ok(())
 }

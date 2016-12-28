@@ -72,12 +72,12 @@ impl<C: ClassifierT, R: RepoT<C>> Repository<C, R> {
     {
         let name: String = name.into();
         info!("Creating repository: {}", name);
-        let part_id = try!(repo_t.init_first());
+        let part_id = repo_t.init_first()?;
         let suggestion = repo_t.suggest_part_prefix(part_id);
         let prefix = suggestion.unwrap_or_else(|| format!("pn{}", part_id));
-        try!(repo_t.io().new_part(part_id, prefix));
-        let part_io = try!(repo_t.io().make_part_io(part_id));
-        let part = try!(Partition::create(part_io, &name, Some(&mut repo_t), make_meta));
+        repo_t.io().new_part(part_id, prefix)?;
+        let part_io = repo_t.io().make_part_io(part_id)?;
+        let part = Partition::create(part_io, &name, Some(&mut repo_t), make_meta)?;
         let mut partitions = HashMap::new();
         partitions.insert(part.part_id(), part);
         Ok(Repository{
@@ -101,16 +101,16 @@ impl<C: ClassifierT, R: RepoT<C>> Repository<C, R> {
                 return OtherError::err("No repository files found");
             };
             
-            let part_io = try!(io.make_part_io(num0));
-            let mut part0 = try!(Partition::open(part_io));
-            let name = try!(part0.get_repo_name()).to_string();
+            let part_io = io.make_part_io(num0)?;
+            let mut part0 = Partition::open(part_io)?;
+            let name = part0.get_repo_name()?.to_string();
             
             let mut parts = HashMap::new();
             parts.insert(num0, part0);
             for n in part_nums {
-                let part_io = try!(io.make_part_io(n));
-                let mut part = try!(Partition::open(part_io));
-                try!(part.set_repo_name(&name));
+                let part_io = io.make_part_io(n)?;
+                let mut part = Partition::open(part_io)?;
+                part.set_repo_name(&name)?;
                 parts.insert(n, part);
             }
             (name, parts)
@@ -149,7 +149,7 @@ impl<C: ClassifierT, R: RepoT<C>> Repository<C, R> {
     /// Load the latest state of all partitions
     pub fn load_latest(&mut self, make_meta: Option<&MakeMeta>) -> Result<()> {
         for (_, part) in &mut self.partitions {
-            try!(part.load_latest(Some(&mut self.repo_t), make_meta));
+            part.load_latest(Some(&mut self.repo_t), make_meta)?;
         }
         Ok(())
     }
@@ -159,7 +159,7 @@ impl<C: ClassifierT, R: RepoT<C>> Repository<C, R> {
     /// Also see the `write_full()` function.
     pub fn write_fast(&mut self) -> Result<()> {
         for (_, part) in &mut self.partitions {
-            try!(part.write_fast(Some(&mut self.repo_t)));
+            part.write_fast(Some(&mut self.repo_t))?;
         }
         Ok(())
     }
@@ -170,9 +170,9 @@ impl<C: ClassifierT, R: RepoT<C>> Repository<C, R> {
     /// scheduled during less busy periods.
     pub fn write_full(&mut self) -> Result<()> {
         // Write all logs first, in case we crash later
-        try!(self.write_fast());
+        self.write_fast()?;
         for (_, part) in &mut self.partitions {
-            try!(part.write_full(Some(&mut self.repo_t)));
+            part.write_full(Some(&mut self.repo_t))?;
         }
         
         // Maintenance: do any division needed, then do any reclassification needed.
@@ -202,7 +202,7 @@ impl<C: ClassifierT, R: RepoT<C>> Repository<C, R> {
                 },
                 Err(RepoDivideError::LoadPart(pid)) => {
                     if let Some(mut part) = self.partitions.get_mut(&pid) {
-                        try!(part.load_latest(Some(&mut self.repo_t), None /*TODO: MakeMeta*/));
+                        part.load_latest(Some(&mut self.repo_t), None /*TODO: MakeMeta*/)?;
                         should_divide.push(old_id); // try again
                         continue;
                     } else {
@@ -218,10 +218,10 @@ impl<C: ClassifierT, R: RepoT<C>> Repository<C, R> {
             // Mark partition as needing reclassification:
             {
                 let old_part = self.partitions.get_mut(&old_id).expect("has old part");
-                let mut tip = try!(old_part.tip()).clone_mut();
+                let mut tip = old_part.tip()?.clone_mut();
                 tip.meta_mut().ext_flags_mut().set_flag_reclassify(true);
-                try!(old_part.push_state(tip, None /*TODO: make meta*/));
-                try!(old_part.write_fast(Some(&mut self.repo_t)));
+                old_part.push_state(tip, None /*TODO: make meta*/)?;
+                old_part.write_fast(Some(&mut self.repo_t))?;
                 if !need_reclassify.contains(&old_id) {
                     need_reclassify.push(old_id);
                 }
@@ -231,11 +231,11 @@ impl<C: ClassifierT, R: RepoT<C>> Repository<C, R> {
             for new_id in new_parts {
                 let suggestion = self.repo_t.suggest_part_prefix(new_id);
                 let prefix = suggestion.unwrap_or_else(|| format!("pn{}", new_id));
-                try!(self.repo_t.io().new_part(new_id, prefix));
-                let part_io = try!(self.repo_t.io().make_part_io(new_id));
-                let mut part = try!(Partition::create(part_io, &self.name,
-                    Some(&mut self.repo_t), None /*TODO: MakeMeta?*/));
-                try!(part.write_full(Some(&mut self.repo_t)));
+                self.repo_t.io().new_part(new_id, prefix)?;
+                let part_io = self.repo_t.io().make_part_io(new_id)?;
+                let mut part = Partition::create(part_io, &self.name,
+                    Some(&mut self.repo_t), None /*TODO: MakeMeta?*/)?;
+                part.write_full(Some(&mut self.repo_t))?;
                 self.partitions.insert(new_id, part);
             }
             
@@ -245,7 +245,7 @@ impl<C: ClassifierT, R: RepoT<C>> Repository<C, R> {
                     Some(part) => {
                         //TODO: snapshot or log?
                         //TODO: continue on fail (i.e. require write later)?
-                        try!(part.write_snapshot(Some(&mut self.repo_t)));
+                        part.write_snapshot(Some(&mut self.repo_t))?;
                     },
                     None => {
                         warn!("Was notified that partition {} changed, but couldn't find it!", id);
@@ -262,7 +262,7 @@ impl<C: ClassifierT, R: RepoT<C>> Repository<C, R> {
             // Check where elements need to be moved
             // for each partition, the elements to be moved there (old element ids)
             let mut target_part_elts = HashMap::<PartId, Vec<EltId>>::new();
-            for (elt_id, ref elt) in try!(old_part.tip()).elts_iter() {
+            for (elt_id, ref elt) in old_part.tip()?.elts_iter() {
                 if let Some(part_id) = classifier.classify(&*elt) {
                     target_part_elts.entry(part_id).or_insert(Vec::new())
                             .push(elt_id);
@@ -277,30 +277,30 @@ impl<C: ClassifierT, R: RepoT<C>> Repository<C, R> {
                         unimplemented!();
                     }
                 };
-                let mut state = try!(part.tip()).clone_mut();
-                let mut old_state = try!(old_part.tip()).clone_mut();
+                let mut state = part.tip()?.clone_mut();
+                let mut old_state = old_part.tip()?.clone_mut();
                 for elt_id in old_elt_ids {
                     // TODO: if there are a lot of elements/data, we should stop and write a
                     // checkpoint from time to time.
                     if let Ok(elt) = old_state.remove(elt_id) {
-                        try!(state.insert_rc_initial(elt_id.elt_num(), elt));
+                        state.insert_rc_initial(elt_id.elt_num(), elt)?;
                     }
                 }
-                try!(part.push_state(state, None /*TODO: MakeMeta*/));
-                try!(part.write_full(Some(&mut self.repo_t)));
+                part.push_state(state, None /*TODO: MakeMeta*/)?;
+                part.write_full(Some(&mut self.repo_t))?;
                 
                 // Do a fast write now to save removals:
-                try!(old_part.push_state(old_state, None /*TODO: MakeMeta*/));
-                try!(old_part.write_fast(Some(&mut self.repo_t)));
+                old_part.push_state(old_state, None /*TODO: MakeMeta*/)?;
+                old_part.write_fast(Some(&mut self.repo_t))?;
             }
             
             // Finally, remove the 'reclassify' flag on the old partition, write a snapshot and
             // re-insert it:
-            let mut tip = try!(old_part.tip()).clone_mut();
+            let mut tip = old_part.tip()?.clone_mut();
             tip.meta_mut().ext_flags_mut().set_flag_reclassify(false);
-            try!(old_part.push_state(tip, None /*TODO: make meta*/));
+            old_part.push_state(tip, None /*TODO: make meta*/)?;
             old_part.require_snapshot();
-            try!(old_part.write_full(Some(&mut self.repo_t)));
+            old_part.write_full(Some(&mut self.repo_t))?;
             self.partitions.insert(old_id, old_part);
         }
         
@@ -310,7 +310,7 @@ impl<C: ClassifierT, R: RepoT<C>> Repository<C, R> {
     /// Force all loaded partitions to write a snapshot.
     pub fn write_snapshot_all(&mut self) -> Result<()> {
         for (_, part) in &mut self.partitions {
-            try!(part.write_snapshot(Some(&mut self.repo_t)));
+            part.write_snapshot(Some(&mut self.repo_t))?;
         }
         Ok(())
     }
@@ -356,7 +356,7 @@ impl<C: ClassifierT, R: RepoT<C>> Repository<C, R> {
             auto_load: bool, make_meta: Option<&MakeMeta>) -> Result<()>
     {
         for (_, part) in &mut self.partitions {
-            try!(part.merge(solver, auto_load, make_meta));
+            part.merge(solver, auto_load, make_meta)?;
         }
         Ok(())
     }
@@ -378,7 +378,7 @@ impl<C: ClassifierT, R: RepoT<C>> Repository<C, R> {
         let mut rs = RepoState::new(self.repo_t.clone_classifier());
         for (num, part) in &self.partitions {
             if part.is_loaded() {
-                rs.add_part(*num, try!(part.tip()).clone_mut());
+                rs.add_part(*num, part.tip()?.clone_mut());
             }
         }
         Ok(rs)
@@ -400,7 +400,7 @@ impl<C: ClassifierT, R: RepoT<C>> Repository<C, R> {
                 panic!("RepoState has a partition not found in the Repository");
                 //TODO: support for merging after a division/union/change of partitioning
             };
-            if try!(part.push_state(pstate, make_meta)) {
+            if part.push_state(pstate, make_meta)? {
                 if part.merge_required() { merge_required = true; }
             }
         }
@@ -437,18 +437,18 @@ impl<C: ClassifierT, R: RepoT<C>> Repository<C, R> {
                     continue;
                 }
             }*/
-            if try!(part.push_state(pstate, make_meta)) {
+            if part.push_state(pstate, make_meta)? {
                 if part.merge_required() {
                     merge_required = true;
                 } else {
-                    state.add_part(num, try!(part.tip()).clone_mut());
+                    state.add_part(num, part.tip()?.clone_mut());
                 }
             }
         }
         
         for (num, part) in &self.partitions {
             if !state.has_part(*num) {
-                state.add_part(*num, try!(part.tip()).clone_mut());
+                state.add_part(*num, part.tip()?.clone_mut());
             }
         }
         Ok(merge_required)
@@ -602,14 +602,14 @@ impl<C: ClassifierT> MutStateT<C::Element> for RepoState<C> {
             // Different partition; we need to move.
             // 1: Confirm we have the source partition available or abort.
             let source_id = id.part_id();
-            try!(if let Some(mut _source_state) = self.states.get_mut(&source_id) {
+            if let Some(mut _source_state) = self.states.get_mut(&source_id) {
                 // TODO: do we want to notify that `id` is about to be moved?
                 Ok(())
             } else {
                 Err(ElementOp::NotLoaded)
-            });
+            }?;
             // 2: Find target partition and insert element.
-            let new_id = try!(if let Some(mut target_state) = self.states.get_mut(&class_id) {
+            let new_id = if let Some(mut target_state) = self.states.get_mut(&class_id) {
                 match target_state.insert_with_id(class_id.elt_id(id.elt_num()), elt.clone()) {
                     // success with the same element part of the id:
                     Ok(id) => Ok(id),
@@ -618,12 +618,12 @@ impl<C: ClassifierT> MutStateT<C::Element> for RepoState<C> {
                 }
             } else {
                 Err(ElementOp::NotLoaded)
-            });
+            }?;
             // 3: Remove from source partition. We must find `source_state`
             // again because `self.states` does not support simultaneous
             // mutable references to two of its elements.
             if let Some(mut source_state) = self.states.get_mut(&source_id) {
-                let removed = try!(source_state.remove(id));
+                let removed = source_state.remove(id)?;
                 source_state.set_move(id, new_id);
                 Ok(removed)
             } else {

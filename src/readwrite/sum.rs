@@ -110,7 +110,7 @@ impl<R: Read> HashReader<R> {
 
 impl<R: Read> Read for HashReader<R> {
     fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
-        let len = try!(self.inner.read(buf));
+        let len = self.inner.read(buf)?;
         self.hasher.input(&buf[..len]);
         Ok(len)
     }
@@ -149,7 +149,7 @@ impl<W: Write> HashWriter<W> {
 
 impl<W: Write> Write for HashWriter<W> {
     fn write(&mut self, buf: &[u8]) -> Result<usize> {
-        let len = try!(self.inner.write(buf));
+        let len = self.inner.write(buf)?;
         if len > 0 {
             self.hasher.input(&buf[..len]);
         }

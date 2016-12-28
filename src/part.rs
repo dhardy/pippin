@@ -261,7 +261,7 @@ impl<E: ElementT> Partition<E> {
             user: Option<&mut UserFields>, make_meta: Option<&MakeMeta>)
             -> Result<Partition<E>>
     {
-        try!(validate_repo_name(name));
+        validate_repo_name(name)?;
         let ss = 0;
         let part_id = io.part_id();
         info!("Creating partiton {}; writing snapshot {}", part_id, ss);
@@ -273,9 +273,9 @@ impl<E: ElementT> Partition<E> {
             part_id: Some(part_id),
             user: user.map_or(vec![], |u| u.write_user_fields(part_id, false)),
         };
-        if let Some(mut writer) = try!(io.new_ss(ss)) {
-            try!(write_head(&header, &mut writer));
-            try!(write_snapshot(&state, &mut writer));
+        if let Some(mut writer) = io.new_ss(ss)? {
+            write_head(&header, &mut writer)?;
+            write_snapshot(&state, &mut writer)?;
         } else {
             return make_io_err(ErrorKind::AlreadyExists, "snapshot already exists");
         }
@@ -368,9 +368,9 @@ impl<E: ElementT> Partition<E> {
             return Ok(&self.repo_name);
         }
         for ss in (0 .. self.io.ss_len()).rev() {
-            if let Some(mut ssf) = try!(self.io.read_ss(ss)) {
-                let header = try!(read_head(&mut *ssf));
-                try!(Self::verify_head(&header, &mut self.repo_name, self.part_id));
+            if let Some(mut ssf) = self.io.read_ss(ss)? {
+                let header = read_head(&mut *ssf)?;
+                Self::verify_head(&header, &mut self.repo_name, self.part_id)?;
                 return Ok(&self.repo_name);
             }
         }
@@ -448,15 +448,15 @@ impl<E: ElementT> Partition<E> {
             if self.ss0 <= ss && ss < self.ss1 { continue; }
             let at_tip = ss >= self.ss1;
             
-            if let Some(mut r) = try!(self.io.read_ss(ss)) {
-                let head = try!(read_head(&mut r));
-                try!(Self::verify_head(&head, &mut self.repo_name, self.part_id));
+            if let Some(mut r) = self.io.read_ss(ss)? {
+                let head = read_head(&mut r)?;
+                Self::verify_head(&head, &mut self.repo_name, self.part_id)?;
                 let file_ver = head.ftype.ver();
                 if let Some(ref mut u) = user {
                     u.read_user_fields(head.user, self.part_id, false);
                 }
                 
-                let state = try!(read_snapshot(&mut r, self.part_id, file_ver));
+                let state = read_snapshot(&mut r, self.part_id, file_ver)?;
                 
                 if !self.ancestors.contains(state.statesum()) {
                     self.tips.insert(state.statesum().clone());
@@ -480,17 +480,17 @@ impl<E: ElementT> Partition<E> {
             
             let mut queue = vec![];
             for cl in 0..self.io.ss_cl_len(ss) {
-                if let Some(mut r) = try!(self.io.read_ss_cl(ss, cl)) {
-                    let head = try!(read_head(&mut r));
-                    try!(Self::verify_head(&head, &mut self.repo_name, self.part_id));
+                if let Some(mut r) = self.io.read_ss_cl(ss, cl)? {
+                    let head = read_head(&mut r)?;
+                    Self::verify_head(&head, &mut self.repo_name, self.part_id)?;
                     if let Some(ref mut u) = user {
                         u.read_user_fields(head.user, self.part_id, true);
                     }
-                    try!(read_log(&mut r, &mut queue, head.ftype.ver()));
+                    read_log(&mut r, &mut queue, head.ftype.ver())?;
                 }
             }
             for commit in queue {
-                try!(self.add_commit(commit));
+                self.add_commit(commit)?;
             }
             if at_tip {
                 self.ss1 = ss + 1;
@@ -593,7 +593,7 @@ impl<E: ElementT> Partition<E> {
     /// This operation will fail if no data has been loaded yet or if a merge
     /// is required (i.e. it fails if the number of tips is not exactly one).
     pub fn tip(&self) -> result::Result<&PartState<E>, TipError> {
-        Ok(&self.states.get(try!(self.tip_key())).unwrap())
+        Ok(&self.states.get(self.tip_key()?).unwrap())
     }
     
     /// Get the state-sum (key) of the tip. Fails when `tip()` fails.
@@ -689,12 +689,12 @@ impl<E: ElementT> Partition<E> {
                 (tips[0].clone(), tips[1].clone())
             };
             trace!("Partition {}: attempting merge of tips {} and {}", self.part_id, &tip1, &tip2);
-            let c = try!(self.merge_two(&tip1, &tip2, auto_load))
+            let c = self.merge_two(&tip1, &tip2, auto_load)?
                     .solve_inline(solver).make_commit(make_meta);
             if let Some(commit) = c {
                 trace!("Pushing merge commit: {} ({} changes)",
                         commit.statesum(), commit.num_changes());
-                try!(self.push_commit(commit));
+                self.push_commit(commit)?;
             } else {
                 return Err(Box::new(MergeError::NotSolved));
             }
@@ -733,7 +733,7 @@ impl<E: ElementT> Partition<E> {
                 Err(MergeError::NoCommonAncestor) if auto_load && self.ss0 > 0 => {
                     let ss0 = self.ss0;
                     //FIXME: user & make_meta should be specified here! Perhaps there should be two versions of this function for loading and not?
-                    try!(self.load_range(ss0 - 1, ss0, None, None));
+                    self.load_range(ss0 - 1, ss0, None, None)?;
                     continue;
                 },
                 Err(e) => {
@@ -741,9 +741,9 @@ impl<E: ElementT> Partition<E> {
                 }
             }
         }
-        let s1 = try!(self.states.get(tip1).ok_or(MergeError::NoState));
-        let s2 = try!(self.states.get(tip2).ok_or(MergeError::NoState));
-        let s3 = try!(self.states.get(&common).ok_or(MergeError::NoState));
+        let s1 = self.states.get(tip1).ok_or(MergeError::NoState)?;
+        let s2 = self.states.get(tip2).ok_or(MergeError::NoState)?;
+        let s3 = self.states.get(&common).ok_or(MergeError::NoState)?;
         Ok(TwoWayMerge::new(s1, s2, s3))
     }
     
@@ -765,9 +765,9 @@ impl<E: ElementT> Partition<E> {
     /// already known state.
     pub fn push_commit(&mut self, commit: Commit<E>) -> Result<bool, PatchOp> {
         let state = {
-            let parent = try!(self.states.get(commit.first_parent())
-                .ok_or(PatchOp::NoParent));
-            try!(PartState::from_state_commit(parent, &commit))
+            let parent = self.states.get(commit.first_parent())
+                .ok_or(PatchOp::NoParent)?;
+            PartState::from_state_commit(parent, &commit)?
         };  // end borrow on self (from parent)
         Ok(self.add_pair(commit, state))
     }
@@ -794,7 +794,7 @@ impl<E: ElementT> Partition<E> {
         // #0019: Instead, we could record each alteration as it happens.
         Ok(if let Some(commit) =
                 Commit::from_diff(
-                    try!(self.states.get(&parent_sum).ok_or(PatchOp::NoParent)),
+                    self.states.get(&parent_sum).ok_or(PatchOp::NoParent)?,
                     &new_state)
             {
                 self.add_pair(commit, new_state)
@@ -841,7 +841,7 @@ impl<E: ElementT> Partition<E> {
         // #0012: extend existing logs instead of always writing a new log file.
         let mut cl_num = self.io.ss_cl_len(self.ss1 - 1);
         loop {
-            if let Some(mut writer) = try!(self.io.new_ss_cl(self.ss1 - 1, cl_num)) {
+            if let Some(mut writer) = self.io.new_ss_cl(self.ss1 - 1, cl_num)? {
                 // Write a header since this is a new file:
                 let header = FileHeader {
                     ftype: FileType::CommitLog(0),
@@ -849,14 +849,14 @@ impl<E: ElementT> Partition<E> {
                     part_id: Some(part_id),
                     user: user.as_mut().map_or(vec![], |u| u.write_user_fields(part_id, true)),
                 };
-                try!(write_head(&header, &mut writer));
-                try!(start_log(&mut writer));
+                write_head(&header, &mut writer)?;
+                start_log(&mut writer)?;
                 
                 // Now write commits:
                 while !self.unsaved.is_empty() {
                     // We try to write the commit, then when successful remove it
                     // from the list of 'unsaved' commits.
-                    try!(write_commit(&self.unsaved.front().unwrap(), &mut writer));
+                    write_commit(&self.unsaved.front().unwrap(), &mut writer)?;
                     self.unsaved.pop_front().expect("pop_front");
                 }
                 
@@ -884,11 +884,11 @@ impl<E: ElementT> Partition<E> {
     /// Note that writing to disk can fail. In this case it may be worth trying
     /// again.
     pub fn write_full(&mut self, mut user: Option<&mut UserFields>) -> Result<bool> {
-        let has_changes = try!(self.write_fast(user.as_mut().map_or(None, |p| Some(*p))));
+        let has_changes = self.write_fast(user.as_mut().map_or(None, |p| Some(*p)))?;
         
         // Second step: maintenance operations
         if self.is_ready() && self.io.want_snapshot(self.ss_commits, self.ss_edits) {
-            try!(self.write_snapshot(user));
+            self.write_snapshot(user)?;
         }
         
         Ok(has_changes)
@@ -904,13 +904,13 @@ impl<E: ElementT> Partition<E> {
     /// `user` allows extra data to be written to file headers.
     pub fn write_snapshot(&mut self, user: Option<&mut UserFields>) -> Result<()> {
         // fail early if not ready:
-        let tip_key = try!(self.tip_key()).clone();
+        let tip_key = self.tip_key()?.clone();
         let part_id = self.part_id;
         
         let mut ss_num = self.ss1;
         loop {
             // Try to get a writer for this snapshot number:
-            if let Some(mut writer) = try!(self.io.new_ss(ss_num)) {
+            if let Some(mut writer) = self.io.new_ss(ss_num)? {
                 info!("Partition {}: writing snapshot {}: {}",
                     part_id, ss_num, tip_key);
                 
@@ -920,8 +920,8 @@ impl<E: ElementT> Partition<E> {
                     part_id: Some(part_id),
                     user: user.map_or(vec![], |u| u.write_user_fields(part_id, false)),
                 };
-                try!(write_head(&header, &mut writer));
-                try!(write_snapshot(self.states.get(&tip_key).unwrap(), &mut writer));
+                write_head(&header, &mut writer)?;
+                write_snapshot(self.states.get(&tip_key).unwrap(), &mut writer)?;
                 self.ss1 = ss_num + 1;
                 // reset snapshot policy:
                 self.ss_commits = 0;
@@ -1031,9 +1031,9 @@ impl<E: ElementT> Partition<E> {
         if self.states.contains(commit.statesum()) { return Ok(()); }
         
         let state = {
-            let parent = try!(self.states.get(commit.first_parent())
-                .ok_or(PatchOp::NoParent));
-            try!(PartState::from_state_commit(parent, &commit))
+            let parent = self.states.get(commit.first_parent())
+                .ok_or(PatchOp::NoParent)?;
+            PartState::from_state_commit(parent, &commit)?
         };  // end borrow on self (from parent)
         self.add_state(state, commit.num_changes());
         Ok(())

@@ -236,14 +236,14 @@ pub trait ElementT where Self: Sized+PartialEq+Debug {
 
 impl ElementT for String {
     fn write_buf(&self, writer: &mut Write) -> Result<()> {
-        try!(writer.write(self.as_bytes()));
+        writer.write(self.as_bytes())?;
         Ok(())
     }
     fn read_buf(buf: &[u8]) -> Result<Self> {
-        let s = try!(from_utf8(buf));
+        let s = from_utf8(buf)?;
         Ok(s.to_string())
     }
     fn from_vec(vec: Vec<u8>) -> Result<Self>{
-        Ok(try!(String::from_utf8(vec)))
+        Ok(String::from_utf8(vec)?)
     }
 }

@@ -41,7 +41,7 @@ fn read_meta(mut r: &mut Read, mut buf: &mut [u8], mut pos: &mut usize, format_v
     let secs = BigEndian::read_i64(&buf[8..16]);
     (*pos) += 16;
     
-    try!(r.read_exact(&mut buf[0..16]));
+    r.read_exact(&mut buf[0..16])?;
     let (ext_len, ext_flags) = if format_ver < 2016_08_15 {
         if buf[0..4] != *b"CNUM" {
             return ReadError::err("unexpected contents (expected CNUM)", *pos, (0, 4));
@@ -57,7 +57,7 @@ fn read_meta(mut r: &mut Read, mut buf: &mut [u8], mut pos: &mut usize, format_v
     };
     let cnum = BigEndian::read_u32(&buf[4..8]);
     let mut ext_data: Vec<u8> = repeat(0).take(ext_len).collect();
-    try!(r.read_exact(&mut ext_data));
+    r.read_exact(&mut ext_data)?;
     
     if buf[8..10] != *b"XM" {
         return ReadError::err("unexpected contents (expected XM)", *pos, (8, 10));
@@ -67,10 +67,10 @@ fn read_meta(mut r: &mut Read, mut buf: &mut [u8], mut pos: &mut usize, format_v
     (*pos) += 16;
     
     let mut xm_data = vec![0; xm_len];
-    try!(r.read_exact(&mut xm_data));
+    r.read_exact(&mut xm_data)?;
     let xm = if xm_type_txt {
-        ExtraMeta::Text(try!(String::from_utf8(xm_data)
-            .map_err(|_| ReadError::new("content not valid UTF-8", *pos, (0, xm_len)))))
+        ExtraMeta::Text(String::from_utf8(xm_data)
+            .map_err(|_| ReadError::new("content not valid UTF-8", *pos, (0, xm_len)))?)
     } else {
         // even if xm_len > 0 we ignore it
         ExtraMeta::None
@@ -79,38 +79,38 @@ fn read_meta(mut r: &mut Read, mut buf: &mut [u8], mut pos: &mut usize, format_v
     (*pos) += xm_len;
     let pad_len = 16 * ((xm_len + 15) / 16) - xm_len;
     if pad_len > 0 {
-        try!(r.read_exact(&mut buf[0..pad_len]));
+        r.read_exact(&mut buf[0..pad_len])?;
         (*pos) += pad_len;
     }
     
     let ext_flags = MetaFlags::from_raw(ext_flags);
-    Ok(try!(CommitMeta::new_explicit(cnum, secs, ext_flags, ext_data, xm)))
+    Ok(CommitMeta::new_explicit(cnum, secs, ext_flags, ext_data, xm)?)
 }
 
 /// Write commit metadata
 fn write_meta(w: &mut Write, meta: &CommitMeta) -> Result<()> {
-    try!(w.write_i64::<BigEndian>(meta.timestamp()));
+    w.write_i64::<BigEndian>(meta.timestamp())?;
     
-    try!(w.write(b"F"));
-    try!(w.write(&[0u8; 1])); // 0 extension data: we don't use this currently
-    try!(w.write_u16::<BigEndian>(meta.ext_flags().raw()));
-    try!(w.write_u32::<BigEndian>(meta.number()));
+    w.write(b"F")?;
+    w.write(&[0u8; 1])?; // 0 extension data: we don't use this currently
+    w.write_u16::<BigEndian>(meta.ext_flags().raw())?;
+    w.write_u32::<BigEndian>(meta.number())?;
     // extension data would go here, but we don't currently have any
     
     match meta.extra() {
         &ExtraMeta::None => {
             // last four zeros is 0u32 encoded in bytes
-            try!(w.write(b"XM\x00\x00\x00\x00\x00\x00"));
+            w.write(b"XM\x00\x00\x00\x00\x00\x00")?;
         },
         &ExtraMeta::Text(ref txt) => {
-            try!(w.write(b"XMTT"));
+            w.write(b"XMTT")?;
             assert!(txt.len() <= u32::MAX as usize);
-            try!(w.write_u32::<BigEndian>(txt.len() as u32));
-            try!(w.write(txt.as_bytes()));
+            w.write_u32::<BigEndian>(txt.len() as u32)?;
+            w.write(txt.as_bytes())?;
             let pad_len = 16 * ((txt.len() + 15) / 16) - txt.len();
             if pad_len > 0 {
                 let padding = [0u8; 15];
-                try!(w.write(&padding[0..pad_len]));
+                w.write(&padding[0..pad_len])?;
             }
         },
     }
