@@ -7,7 +7,6 @@
 extern crate pippin;
 extern crate rustc_serialize;
 extern crate docopt;
-#[macro_use]
 extern crate log;
 extern crate env_logger;
 

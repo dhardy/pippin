@@ -6,7 +6,6 @@
 
 extern crate pippin;
 extern crate vec_map;
-#[macro_use]
 extern crate log;
 extern crate env_logger;
 
