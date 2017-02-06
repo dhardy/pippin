@@ -190,7 +190,7 @@ impl PartIO for PartFileIO {
         self.paths.paths.get(ss_num).map(|&(ref p, _)| p.is_some()).unwrap_or(false)
     }
     
-    fn read_ss<'a>(&self, ss_num: usize) -> Result<Option<Box<Read+'a>>> {
+    fn read_ss<'a>(&'a self, ss_num: usize) -> Result<Option<Box<Read+'a>>> {
         // Cannot replace `match` with `map` since `try!()` cannot be used in a closure
         Ok(match self.paths.paths.get(ss_num) {
             Some(&(ref p, _)) => {
@@ -205,7 +205,7 @@ impl PartIO for PartFileIO {
         })
     }
     
-    fn read_ss_cl<'a>(&self, ss_num: usize, cl_num: usize) -> Result<Option<Box<Read+'a>>> {
+    fn read_ss_cl<'a>(&'a self, ss_num: usize, cl_num: usize) -> Result<Option<Box<Read+'a>>> {
         Ok(match self.paths.paths.get(ss_num).and_then(|&(_, ref logs)| logs.get(cl_num)) {
             Some(p) => {
                 trace!("Reading log file: {}", p.display());
@@ -215,7 +215,7 @@ impl PartIO for PartFileIO {
         })
     }
     
-    fn new_ss<'a>(&mut self, ss_num: usize) -> Result<Option<Box<Write+'a>>> {
+    fn new_ss<'a>(&'a mut self, ss_num: usize) -> Result<Option<Box<Write+'a>>> {
         if self.readonly {
             return ReadOnly::err();
         }
@@ -235,7 +235,7 @@ impl PartIO for PartFileIO {
         Ok(Some(Box::new(stream)))
     }
     
-    fn append_ss_cl<'a>(&mut self, ss_num: usize, cl_num: usize) -> Result<Option<Box<Write+'a>>> {
+    fn append_ss_cl<'a>(&'a mut self, ss_num: usize, cl_num: usize) -> Result<Option<Box<Write+'a>>> {
         if self.readonly {
             return ReadOnly::err();
         }
@@ -247,7 +247,7 @@ impl PartIO for PartFileIO {
             None => None
         })
     }
-    fn new_ss_cl<'a>(&mut self, ss_num: usize, cl_num: usize) -> Result<Option<Box<Write+'a>>> {
+    fn new_ss_cl<'a>(&'a mut self, ss_num: usize, cl_num: usize) -> Result<Option<Box<Write+'a>>> {
         if self.readonly {
             return ReadOnly::err();
         }
