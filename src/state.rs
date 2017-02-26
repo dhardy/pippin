@@ -182,16 +182,13 @@ impl<E: ElementT> PartState<E> {
     /// The partition's identifier must be given; this is used to assign new
     /// element identifiers. Panics if the partition identifier is invalid.
     /// 
-    /// Meta-data may be specified via `make_meta` or `None` can be passed.
-    pub fn new(part_id: PartId, make_meta: Option<&MakeMeta>) ->
-            PartState<E>
-    {
-        let parents = vec![];
-        let meta = CommitMeta::new_parents(&vec![], vec![], make_meta);
-        let metasum = Sum::state_meta_sum(part_id, &parents, &meta);
+    /// Metadata can be customised via `mcm`.
+    pub fn new(part_id: PartId, mcm: &mut MakeCommitMeta) -> PartState<E> {
+        let meta = CommitMeta::new_parents(vec![], mcm);
+        let metasum = Sum::state_meta_sum(part_id, &vec![], &meta);
         PartState {
             part_id: part_id,
-            parents: parents,
+            parents: vec![],
             statesum: metasum /* no elts, so statesum = metasum */,
             elts: HashMap::new(),
             moved: HashMap::new(),
@@ -217,13 +214,10 @@ impl<E: ElementT> PartState<E> {
         }
     }
     
-    /// Create a `PartState` from a `MutPartState` and an optional
-    /// `MakeMeta` trait.
-    pub fn from_mut(mut_state: MutPartState<E>,
-            make_meta: Option<&MakeMeta>) -> PartState<E>
-    {
+    /// Create a `PartState` from a `MutPartState` and `MakeCommitMeta` trait.
+    pub fn from_mut(mut_state: MutPartState<E>, mcm: &mut MakeCommitMeta) -> PartState<E> {
+        let meta = CommitMeta::from_partial(mut_state.meta, mcm);
         let parents = vec![mut_state.parent.clone()];
-        let meta = CommitMeta::from_partial(mut_state.meta, &parents, make_meta);
         let metasum = Sum::state_meta_sum(mut_state.part_id, &parents, &meta);
         PartState {
             part_id: mut_state.part_id,
@@ -359,7 +353,7 @@ impl<E: ElementT> PartState<E> {
             elt_sum: self.statesum() ^ &self.metasum(),
             elts: self.elts.clone(),
             moved: self.moved.clone(),
-            meta: CommitMeta::new_partial(&self.meta),
+            meta: CommitMeta::new_partial(self.statesum.clone(), self.meta.clone()),
         }
     }
     

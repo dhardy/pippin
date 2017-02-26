@@ -9,7 +9,7 @@ use std::io::{Read, Write};
 use std::fs::{File, OpenOptions};
 use std::any::Any;
 use std::ops::Add;
-use std::collections::hash_map::{HashMap, Values};
+use std::collections::hash_map::{self, HashMap};
 
 use vec_map::{VecMap, Entry};
 
@@ -96,8 +96,6 @@ impl PartPaths {
 #[derive(Debug, Clone)]
 pub struct PartFileIO {
     readonly: bool,
-    // Partition identifier (required)
-    part_id: PartId,
     // Appended with snapshot/log number and extension to get a file path
     prefix: PathBuf,
     paths: PartPaths,
@@ -109,32 +107,29 @@ impl PartFileIO {
     /// *   `prefix` is a dir + partial-file-name; it is appended with
     ///     something like `-ss1.pip` or `-ss2-cl3.piplog` to get a file name
     pub fn new_default<P: Into<PathBuf>>(prefix: P) -> PartFileIO {
-        Self::new(PartId::from_num(1), prefix, PartPaths::new())
+        Self::new(prefix, PartPaths::new())
     }
     
     /// Create an empty partition IO. This is equivalent to calling `new` with
     /// `VecMap::new()` as the third argument.
     /// 
-    /// *   `part_id` is the partition identifier
     /// *   `prefix` is a dir + partial-file-name; it is appended with
     ///     something like `-ss1.pip` or `-ss2-lf3.piplog` to get a file name
-    pub fn new_empty<P: Into<PathBuf>>(part_id: PartId, prefix: P) -> PartFileIO {
-        Self::new(part_id, prefix, PartPaths::new())
+    pub fn new_empty<P: Into<PathBuf>>(prefix: P) -> PartFileIO {
+        Self::new(prefix, PartPaths::new())
     }
     
     /// Create a partition IO with paths to some existing files.
     /// 
-    /// *   `part_id` is the partition identifier
     /// *   `prefix` is a dir + partial-file-name; it is appended with
     ///     something like `-ss1.pip` or `-ss2-lf3.piplog` to get a file name
     /// *   `paths` is a list of paths of all known partition files
-    pub fn new<P: Into<PathBuf>>(part_id: PartId, prefix: P, paths: PartPaths) -> PartFileIO
+    pub fn new<P: Into<PathBuf>>(prefix: P, paths: PartPaths) -> PartFileIO
     {
         let prefix = prefix.into();
-        trace!("New PartFileIO; part_id: {}, prefix: {}, ss_len: {}", part_id, prefix.display(), paths.ss_len());
+        trace!("New PartFileIO; prefix: {}, ss_len: {}", prefix.display(), paths.ss_len());
         PartFileIO {
             readonly: false,
-            part_id: part_id,
             prefix: prefix,
             paths: paths,
         }
@@ -176,8 +171,6 @@ impl PartFileIO {
 
 impl PartIO for PartFileIO {
     fn as_any(&self) -> &Any { self }
-    
-    fn part_id(&self) -> PartId { self.part_id }
     
     fn ss_len(&self) -> usize {
         self.paths.ss_len()
@@ -277,8 +270,7 @@ pub struct RepoFileIO {
     readonly: bool,
     // Top directory of partition (which paths are relative to)
     dir: PathBuf,
-    // PartFileIO for each partition. We duplicate PartId here, but accepting
-    // the overhead seems the easiest approach.
+    // PartFileIO for each partition.
     parts: HashMap<PartId, PartFileIO>,
 }
 impl RepoFileIO {
@@ -325,13 +317,13 @@ impl RepoFileIO {
     /// 
     /// Returns true if there was not already a partition with this number
     /// present, or false if a partition with this number just got replaced.
-    pub fn insert_part(&mut self, mut part: PartFileIO) -> bool {
+    pub fn insert_part(&mut self, part_id: PartId, mut part: PartFileIO) -> bool {
         part.set_readonly(self.readonly);
-        self.parts.insert(part.part_id, part).is_none()
+        self.parts.insert(part_id, part).is_none()
     }
     /// Iterate over partitions
     pub fn partitions(&self) -> RepoPartIter {
-        RepoPartIter { iter: self.parts.values() }
+        RepoPartIter { iter: self.parts.iter() }
     }
 }
 impl RepoIO for RepoFileIO {
@@ -350,10 +342,10 @@ impl RepoIO for RepoFileIO {
             return ReadOnly::err();
         }
         let path = self.dir.join(prefix);
-        self.parts.insert(num, PartFileIO::new_empty(num, path));
+        self.parts.insert(num, PartFileIO::new_empty(path));
         Ok(())
     }
-    fn make_part_io(&self, num: PartId) -> Result<Box<PartIO>> {
+    fn make_part_io(&mut self, num: PartId) -> Result<Box<PartIO>> {
         if let Some(ref io) = self.parts.get(&num) {
             Ok(Box::new((**io).clone()))
         } else {
@@ -364,10 +356,10 @@ impl RepoIO for RepoFileIO {
 
 /// Iterator over the partitions in a `RepoFileIO`.
 pub struct RepoPartIter<'a> {
-    iter: Values<'a, PartId, PartFileIO>
+    iter: hash_map::Iter<'a, PartId, PartFileIO>
 }
 impl<'a> Iterator for RepoPartIter<'a> {
-    type Item = &'a PartFileIO;
+    type Item = (&'a PartId, &'a PartFileIO);
     fn next(&mut self) -> Option<Self::Item> {
         self.iter.next()
     }

@@ -17,7 +17,7 @@ use std::io::{Read, Write};
 use std::ffi::OsStr;
 use std::os::unix::ffi::OsStrExt;
 use docopt::Docopt;
-use pippin::{Partition, PartIO, ElementT, StateT, MutStateT, UserData, PartId};
+use pippin::{Partition, PartIO, ElementT, StateT, MutStateT, UserData, PartId, DefaultUserPartT};
 use pippin::{discover, fileio};
 use pippin::error::{Result, PathError, ErrorTrait};
 use pippin::util::rtrim;
@@ -195,8 +195,9 @@ fn inner(path: PathBuf, op: Operation, args: Rest) -> Result<()>
             });
             
             let prefix = path.join(name);
-            let io = fileio::PartFileIO::new_empty(part_id, prefix);
-            Partition::<DataElt>::create(Box::new(io), &repo_name, None, None)?;
+            let io = fileio::PartFileIO::new_empty(prefix);
+            let part_t = Box::new(DefaultUserPartT::new(io));
+            Partition::<DataElt>::create(part_id, part_t, &repo_name)?;
             Ok(())
         },
         Operation::Header => {
@@ -226,8 +227,8 @@ fn inner(path: PathBuf, op: Operation, args: Rest) -> Result<()>
             println!("Scanning files ...");
             // #0017: this should print warnings generated in discover::*
             let repo_files = discover::repo_from_path(&path)?;
-            for part in repo_files.partitions() {
-                println!("Partition {}: {}*", part.part_id(), part.prefix().display());
+            for (part_id, part) in repo_files.partitions() {
+                println!("Partition {}: {}*", part_id, part.prefix().display());
                 let ss_len = part.ss_len();
                 if list_snapshots || list_logs {
                     for i in 0..ss_len {
@@ -248,8 +249,9 @@ fn inner(path: PathBuf, op: Operation, args: Rest) -> Result<()>
                     }
                 }
                 if list_commits {
-                    let mut part = Partition::<DataElt>::open(Box::new(part.clone()))?;
-                    part.load_all(None, None)?;
+                    let part_t = Box::new(DefaultUserPartT::new(part.clone()));
+                    let mut part = Partition::<DataElt>::open(*part_id, part_t)?;
+                    part.load_all()?;
                     let mut states: Vec<_> = part.states_iter().collect();
                     states.sort_by_key(|s| s.meta().number());
                     for state in states {
@@ -266,16 +268,17 @@ fn inner(path: PathBuf, op: Operation, args: Rest) -> Result<()>
                 panic!("No support for -p / --partition option");
             }
             println!("Scanning files ...");
-             let part_files = discover::part_from_path(&path, None)?;
+            let (part_id, part_files) = discover::part_from_path(&path, None)?;
             
-            let mut part = Partition::<DataElt>::open(Box::new(part_files))?;
+            let part_t = Box::new(DefaultUserPartT::new(part_files));
+            let mut part = Partition::<DataElt>::open(part_id, part_t)?;
             {
                 let (is_tip, mut state) = if let Some(ss) = args.commit {
-                    part.load_all(None, None)?;
+                    part.load_all()?;
                     let state = part.state_from_string(ss)?;
                     (part.tip_key().map(|k| k == state.statesum()).unwrap_or(false), state.clone_mut())
                 } else {
-                    part.load_latest(None, None)?;
+                    part.load_latest()?;
                     (true, part.tip()?.clone_mut())
                 };
                 match part_op {
@@ -347,9 +350,9 @@ fn inner(path: PathBuf, op: Operation, args: Rest) -> Result<()>
                 }
             }       // destroy reference `state`
             
-            let has_changes = part.write_fast(None)?;
+            let has_changes = part.write_fast()?;
             if has_changes && args.snapshot {
-                part.write_snapshot(None)?;
+                part.write_snapshot()?;
             }
             Ok(())
         },

@@ -8,7 +8,7 @@ use std::marker::PhantomData;
 use std::any::Any;
 use std::{fmt, result};
 
-use {PartIO, UserFields};
+use {PartIO, UserPartT};
 use {ElementT, PartId, Partition};
 use error::{Error, Result, OtherError, ErrorTrait};
 
@@ -39,11 +39,11 @@ pub trait RepoIO {
     /// other partitions.
     fn new_part(&mut self, num: PartId, prefix: String) -> Result<()>;
     
-    /// Construct and return a new PartIO for partition `num`.
+    /// Get a `PartIO` for existing partition `num`.
     /// 
     /// Fails if construction of the PartIO fails (file-system or regex
     /// errors) or if the partition isn't found.
-    fn make_part_io(&self, num: PartId) -> Result<Box<PartIO>>;
+    fn make_part_io(&mut self, num: PartId) -> Result<Box<PartIO>>;
 }
 
 /// A classifier assigns each element to a partition. A repository may have
@@ -52,8 +52,7 @@ pub trait RepoIO {
 /// 
 /// Expected usage is that the `RepoT` type will determine classification and
 /// yield an object implementing this trait when `RepoT::clone_classifier()` is
-/// called. The `RepoT` must implement `UserFields`, which it can use to store
-/// and reconstruct the current partitioning.
+/// called.
 pub trait ClassifierT {
     /// The user-specified element type.
     type Element: ElementT;
@@ -110,10 +109,17 @@ pub enum ClassifyFallback {
 /// is versioned independently for *each partition* so that when metadata is
 /// recovered from headers, a correct version is built even if multiple
 /// partitions had been modified independently.
-pub trait RepoT<C: ClassifierT+Sized>: UserFields {
+pub trait RepoT<C: ClassifierT+Sized> {
     /// Get access to the I/O provider. This could be an instance of
     /// `DiscoverRepoFiles` or could be self (among other possibilities).
-    fn io<'a>(&'a mut self) -> &'a mut RepoIO;
+    fn io<'a>(&'a self) -> &'a RepoIO;
+    
+    /// Get mutable access to the I/O provider. This could be an instance of
+    /// `DiscoverRepoFiles` or could be self (among other possibilities).
+    fn io_mut<'a>(&'a mut self) -> &'a mut RepoIO;
+    
+    /// Get a `UserPartT` object for existing partition `num`.
+    fn make_user_part_t(&mut self, num: PartId) -> Result<Box<UserPartT>>;
     
     /// Make a copy of the classifier. This should be independent (for use with
     /// `Repository::clone_state()`) and be unaffected by repartitioning (e.g.

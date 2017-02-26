@@ -36,7 +36,7 @@ use error::{Result, PathError, OtherError};
 /// confirmation; when files from multiple partitions are found, they are
 /// filtered. Either way this fails if no files are found for the right
 /// partition.
-pub fn part_from_path<P: AsRef<Path>>(path: P, opt_part_num: Option<PartId>) -> Result<PartFileIO> {
+pub fn part_from_path<P: AsRef<Path>>(path: P, opt_part_num: Option<PartId>) -> Result<(PartId, PartFileIO)> {
     let path = path.as_ref();
     let ss_pat = Regex::new("^((?:.*)-)?ss(0|[1-9][0-9]*)\\.pip$").expect("valid regex");
     let cl_pat = Regex::new("^((?:.*)-)?ss(0|[1-9][0-9]*)-cl(0|[1-9][0-9]*)\\.piplog$").expect("valid regex");
@@ -144,14 +144,12 @@ pub fn part_from_path<P: AsRef<Path>>(path: P, opt_part_num: Option<PartId>) -> 
             // PartFileIO does not expect '-' separator in prefix
             bname.pop();
         }
-        Ok(PartFileIO::new(part_id, dir.join(bname), part_paths))
+        Ok((part_id, PartFileIO::new(dir.join(bname), part_paths)))
     } else {
         Err(Box::new(if opt_part_num.is_some() {
             PathError::new("discover::part_from_path: no files found matching part num in", path)
         } else {
-            // Input path is either a dir or a file; when a file part_id is
-            // found (or fn aborts earlier), hence path is a dir
-            PathError::new("discover::part_from_path: no Pippin files found in dir", path)
+            PathError::new("discover::part_from_path: no Pippin files found in", path)
         }))
     }
 }
@@ -245,7 +243,7 @@ pub fn repo_from_path<P: AsRef<Path>>(path: P) -> Result<RepoFileIO> {
                 // PartFileIO does not expect '-' separator in prefix
                 prefix.pop();
             }
-            repo.insert_part(PartFileIO::new(pn, dir.join(prefix), part_files));
+            repo.insert_part(pn, PartFileIO::new(dir.join(prefix), part_files));
         } else {
             // It is possible that multiple prefixes exist for the same
             // partition number, thus the part_files were already used

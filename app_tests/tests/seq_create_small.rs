@@ -10,7 +10,7 @@ use rand::Rng;
 use rand::distributions::{IndependentSample, LogNormal};
 use pippin::{StateT, MutStateT, Repository};
 use pippin::fileio::RepoFileIO;
-use pippin::commit::MakeMeta;
+use pippin::commit::MakeCommitMeta;
 use pippin_app_tests::util;
 use pippin_app_tests::seq::*;
 
@@ -26,9 +26,9 @@ impl RepeatableMeta {
         RepeatableMeta { time: Cell::new(946684800) }
     }
 }
-impl MakeMeta for RepeatableMeta {
+impl MakeCommitMeta for RepeatableMeta {
     // add one hour
-    fn make_timestamp(&self) -> i64 {
+    fn make_commit_timestamp(&self) -> i64 {
         let time = self.time.get();
         self.time.set(time + 3600);
         time

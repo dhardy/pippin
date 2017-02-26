@@ -223,10 +223,17 @@ pub fn write_snapshot<T: ElementT>(state: &PartState<T>,
 fn snapshot_writing() {
     use ::MutStateT;
     use readwrite::header::HEAD_VERSIONS;
-    use ::commit::{ExtraMeta, MakeMeta};
+    use ::commit::{CommitMeta, ExtraMeta, MakeCommitMeta};
+    
+    struct MMNone {}
+    impl MakeCommitMeta for MMNone {
+        fn make_commit_extra(&self, _number: u32, _parents: Vec<(&Sum, &CommitMeta)>) -> ExtraMeta {
+            ExtraMeta::Text("text".to_string())
+        }
+    }
     
     let part_id = PartId::from_num(1);
-    let mut state = PartState::<String>::new(part_id, None).clone_mut();
+    let mut state = PartState::<String>::new(part_id, &mut MMNone {}).clone_mut();
     let data = "But I must explain to you how all this \
         mistaken idea of denouncing pleasure and praising pain was born and I \
         will give you a complete account of the system, and expound the \
@@ -248,13 +255,13 @@ fn snapshot_writing() {
         zxcvm,./ZXCVM;:?`\"ç$0,./ζχψωμ~·÷";
     state.insert(data.to_string()).unwrap();
     
-    struct MyMM {}
-    impl MakeMeta for MyMM {
-        fn make_extrameta(&self, _number: u32, _parents: &Vec<Sum>) -> ExtraMeta {
+    struct MMTT {}
+    impl MakeCommitMeta for MMTT {
+        fn make_commit_extra(&self, _number: u32, _parents: Vec<(&Sum, &CommitMeta)>) -> ExtraMeta {
             ExtraMeta::Text("text".to_string())
         }
     }
-    let state = PartState::from_mut(state, Some(&MyMM {}));
+    let state = PartState::from_mut(state, &mut MMTT {});
     
     let mut result = Vec::new();
     assert!(write_snapshot(&state, &mut result).is_ok());

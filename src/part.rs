@@ -4,201 +4,26 @@
 
 //! Pippin: partition
 
-use std::io::{Read, Write, ErrorKind};
+use std::io::ErrorKind;
 use std::collections::{HashSet, VecDeque};
 use std::collections::hash_set as hs;
 use std::result;
-use std::any::Any;
 use std::ops::Deref;
 use std::usize;
 use std::cmp::min;
 use hashindexed::{HashIndexed, Iter};
 
-use readwrite::{FileHeader, UserData, FileType, read_head, write_head, validate_repo_name};
+use readwrite::{FileHeader, FileType, read_head, write_head, validate_repo_name};
 use readwrite::{read_snapshot, write_snapshot};
 use readwrite::{read_log, start_log, write_commit};
 use state::{PartState, MutPartState, PartStateSumComparator};
-use commit::{Commit, MakeMeta};
+use commit::{Commit};
 use merge::{TwoWayMerge, TwoWaySolver};
 use {ElementT, Sum, PartId};
 use error::{Result, TipError, PatchOp, MatchError, MergeError, OtherError, make_io_err};
 
-/// An interface providing read and/or write access to a suitable location.
-/// 
-/// Note: lifetimes on some functions are more restrictive than might seem
-/// necessary; this is to allow an implementation which reads and writes to
-/// internal streams.
-pub trait PartIO {
-    /// Convert self to a `&Any`
-    fn as_any(&self) -> &Any;
-    
-    /// Return the partition identifier.
-    fn part_id(&self) -> PartId;
-    
-    /// Defines our snapshot policy: this should return true when a new
-    /// snapshot is required. Parameters: `commits` is the number of commits
-    /// since the last snapshot and `edits` is the number of element changes
-    /// counted since the last snapshot (the true number of edits may be
-    /// slightly higher).
-    /// 
-    /// In unusual cases, the partition is marked as "definitely needing a
-    /// snapshot". This is done by setting commits to a large number
-    /// (between 0x10_0000 and 0x100_0000).
-    /// 
-    /// The default implementation is
-    /// ```rust
-    /// commits * 5 + edits > 150
-    /// ```
-    fn want_snapshot(&self, commits: usize, edits: usize) -> bool {
-        commits * 5 + edits > 150
-    }
-    
-    /// Return one greater than the snapshot number of the latest snapshot file
-    /// or log file found.
-    /// 
-    /// The idea is that each snapshot and each set of log files can be put
-    /// into a sparse vector with this length (sparse because entries may be
-    /// missing; especially old entries may have been deleted).
-    /// 
-    /// Snapshots and commit logs with a number greater than or equal to this
-    /// number probably won't exist and may in any case be ignored.
-    /// 
-    /// Convention: snapshot "zero" may not be an actual snapshot but
-    /// either way the snapshot should be empty (no elements and the state-sum
-    /// should be zero).
-    /// 
-    /// This number must not change except to increase when write_snapshot()
-    /// is called.
-    fn ss_len(&self) -> usize;
-    
-    /// One greater than the number of the last log file available for some snapshot
-    fn ss_cl_len(&self, ss_num: usize) -> usize;
-    
-    /// Tells whether a snapshot file with this number is available. If true,
-    /// `read_ss(ss_num)` *should* succeed (assuming no I/O failure).
-    fn has_ss(&self, ss_num: usize) -> bool;
-    
-    /// Get a snapshot with the given number. If no snapshot is present or if
-    /// ss_num is too large, None will be returned.
-    /// 
-    /// Returns a heap-allocated read stream, either on some external resource
-    /// (such as a file) or on an internal data-structure.
-    /// 
-    /// This can fail due to IO operations failing.
-    fn read_ss<'a>(&'a self, ss_num: usize) -> Result<Option<Box<Read+'a>>>;
-    
-    /// Get a commit log (numbered `cl_num`) file for a snapshot (numbered
-    /// `ss_num`). If none is found, return Ok(None).
-    /// 
-    /// Returns a heap-allocated read stream, either on some external resource
-    /// (such as a file) or on an internal data-structure.
-    /// 
-    /// This can fail due to IO operations failing.
-    fn read_ss_cl<'a>(&'a self, ss_num: usize, cl_num: usize) -> Result<Option<Box<Read+'a>>>;
-    
-    /// Open a write stream on a new snapshot file, numbered ss_num.
-    /// This will increase the number returned by ss_len().
-    /// 
-    /// Returns None if a snapshot with number ss_num already exists.
-    /// 
-    /// Returns a heap-allocated write stream, either to some external resource
-    /// (such as a file) or to an internal data-structure.
-    /// 
-    /// This can fail due to IO operations failing.
-    fn new_ss<'a>(&'a mut self, ss_num: usize) -> Result<Option<Box<Write+'a>>>;
-    
-    /// Open an append-write stream on an existing commit file. Writes may be
-    /// atomic. Each commit should be written via a single write operation.
-    /// 
-    /// Returns None if no commit file with this `ss_num` and `cl_num` exists.
-    /// 
-    /// Returns a heap-allocated write stream, either to some external resource
-    /// (such as a file) or to an internal data-structure.
-    /// 
-    /// This can fail due to IO operations failing.
-    // #0012: verify atomicity of writes
-    fn append_ss_cl<'a>(&'a mut self, ss_num: usize, cl_num: usize) -> Result<Option<Box<Write+'a>>>;
-    
-    /// Open a write-stream on a new commit file. As with the append version,
-    /// the file will be opened in append mode, thus writes may be atomic.
-    /// Each commit (and the header, including commit section marker) should be
-    /// written via a single write operation.
-    /// 
-    /// Returns None if a commit log with number `cl_num` for snapshot `ss_num`
-    /// already exists.
-    /// 
-    /// Returns a heap-allocated write stream, either to some external resource
-    /// (such as a file) or to an internal data-structure.
-    /// 
-    /// This can fail due to IO operations failing.
-    // #0012: verify atomicity of writes
-    fn new_ss_cl<'a>(&'a mut self, ss_num: usize, cl_num: usize) -> Result<Option<Box<Write+'a>>>;
-}
-
-/// Provide access to user fields of header
-pub trait UserFields {
-    /// Generate user fields to be included in a header. If you don't wish to
-    /// add extra fields, just return `vec![]` or `Vec::new()`.
-    /// 
-    /// `part_id`: the partition identifier. Given so that the same interface
-    ///     can be used within repositories.
-    /// 
-    /// `is_log`: false if this is to be written to a snapshot file, true if
-    /// this is to be written to a log file. Users may choose not to write to
-    /// both.
-    fn write_user_fields(&mut self, part_id: PartId, is_log: bool) -> Vec<UserData>;
-    /// Take user fields found in a header and read or discard them.
-    /// 
-    /// `part_id`: the partition identifier. Given so that the same interface
-    ///     can be used within repositories.
-    /// 
-    /// `is_log`: false if this is read from a snapshot file, true if this is
-    /// read from a log file. Users may choose not to write to both.
-    fn read_user_fields(&mut self, user: Vec<UserData>, part_id: PartId, is_log: bool);
-}
-
-/// Doesn't provide any IO.
-/// 
-/// Can be used for testing but big fat warning: this does not provide any
-/// method to save your data. Write operations fail with `ErrorKind::InvalidInput`.
-pub struct DummyPartIO {
-    part_id: PartId,
-    // The internal buffer allows us to accept write operations. Data gets
-    // written over on the next write.
-    buf: Vec<u8>
-}
-impl DummyPartIO {
-    /// Create a new instance
-    pub fn new(part_id: PartId) -> DummyPartIO {
-        DummyPartIO { part_id: part_id, buf: Vec::new() }
-    }
-}
-
-impl PartIO for DummyPartIO {
-    fn as_any(&self) -> &Any { self }
-    fn part_id(&self) -> PartId { self.part_id }
-    fn ss_len(&self) -> usize { 0 }
-    fn ss_cl_len(&self, _ss_num: usize) -> usize { 0 }
-    fn has_ss(&self, _ss_num: usize) -> bool { false }
-    fn read_ss(&self, _ss_num: usize) -> Result<Option<Box<Read+'static>>> {
-        Ok(None)
-    }
-    fn read_ss_cl(&self, _ss_num: usize, _cl_num: usize) -> Result<Option<Box<Read+'static>>> {
-        Ok(None)
-    }
-    fn new_ss<'a>(&'a mut self, _ss_num: usize) -> Result<Option<Box<Write+'a>>> {
-        self.buf.clear();
-        Ok(Some(Box::new(&mut self.buf)))
-    }
-    fn append_ss_cl<'a>(&'a mut self, _ss_num: usize, _cl_num: usize) -> Result<Option<Box<Write+'a>>> {
-        self.buf.clear();
-        Ok(Some(Box::new(&mut self.buf)))
-    }
-    fn new_ss_cl<'a>(&'a mut self, _ss_num: usize, _cl_num: usize) -> Result<Option<Box<Write+'a>>> {
-        self.buf.clear();
-        Ok(Some(Box::new(&mut self.buf)))
-    }
-}
+pub use part_traits::{DefaultSnapshot, DefaultUserPartT, DummyPartIO, PartIO, UserPartT,
+        SnapshotPolicy};
 
 /// A *partition* is a sub-set of the entire set such that (a) each element is
 /// in exactly one partition, (b) a partition is small enough to be loaded into
@@ -217,8 +42,8 @@ impl PartIO for DummyPartIO {
 /// successor. Normally there is exactly one tip, but see `is_ready`,
 /// `is_loaded` and `merge_required`.
 pub struct Partition<E: ElementT> {
-    // IO provider
-    io: Box<PartIO>,
+    // User control trait
+    user: Box<UserPartT>,
     // Partition name. Used to identify loaded files.
     repo_name: String,
     // Partition identifier
@@ -227,9 +52,6 @@ pub struct Partition<E: ElementT> {
     ss0: usize,
     // Number of latest snapshot file loaded + 1; 0 if nothing loaded and never less than ss0
     ss1: usize,
-    // Determines when to write new snapshots
-    ss_commits: usize,
-    ss_edits: usize,
     // Known committed states indexed by statesum 
     states: HashIndexed<PartState<E>, Sum, PartStateSumComparator>,
     // All states not in `states` which are known to be superceded
@@ -250,49 +72,39 @@ impl<E: ElementT> Partition<E> {
     /// Example:
     /// 
     /// ```
-    /// use pippin::{Partition, PartId};
-    /// use pippin::part::DummyPartIO;
+    /// use pippin::{Partition, PartId, PartIO, DefaultUserPartT, DummyPartIO};
     /// 
-    /// let io = Box::new(DummyPartIO::new(PartId::from_num(1)));
-    /// let partition = Partition::<String>::create(io, "example repo", None, None);
+    /// let part_id = PartId::from_num(1);
+    /// let part_t = Box::new(DefaultUserPartT::new(DummyPartIO::new()));
+    /// let partition = Partition::<String>::create(part_id, part_t, "example repo");
     /// ```
-    // #0040: are we passing too many optional parameters: user & make_meta?
-    pub fn create<'a>(mut io: Box<PartIO>, name: &str,
-            user: Option<&mut UserFields>, make_meta: Option<&MakeMeta>)
-            -> Result<Partition<E>>
-    {
+    pub fn create<'a>(part_id: PartId, user: Box<UserPartT>, name: &str) -> Result<Partition<E>> {
         validate_repo_name(name)?;
         let ss = 0;
-        let part_id = io.part_id();
         info!("Creating partiton {}; writing snapshot {}", part_id, ss);
         
-        let state = PartState::new(part_id, make_meta);
-        let header = FileHeader {
-            ftype: FileType::Snapshot(0),
-            name: name.to_string(),
-            part_id: Some(part_id),
-            user: user.map_or(vec![], |u| u.write_user_fields(part_id, false)),
+        let mut part = Partition {
+            user: user,
+            repo_name: name.into(),
+            part_id: part_id,
+            ss0: ss,
+            ss1: ss + 1,
+            states: HashIndexed::new(),
+            ancestors: HashSet::new(),
+            tips: HashSet::new(),
+            unsaved: VecDeque::new(),
         };
-        if let Some(mut writer) = io.new_ss(ss)? {
+        
+        let state = PartState::new(part_id, part.user.as_mcm_ref_mut());
+        let header = part.make_header(FileType::Snapshot(0))?;
+        
+         if let Some(mut writer) = part.user.io_mut().new_ss(ss)? {
             write_head(&header, &mut writer)?;
             write_snapshot(&state, &mut writer)?;
         } else {
             return make_io_err(ErrorKind::AlreadyExists, "snapshot already exists");
         }
         
-        let mut part = Partition {
-            io: io,
-            repo_name: header.name,
-            part_id: part_id,
-            ss0: ss,
-            ss1: ss + 1,
-            ss_commits: 0,
-            ss_edits: 0,
-            states: HashIndexed::new(),
-            ancestors: HashSet::new(),
-            tips: HashSet::new(),
-            unsaved: VecDeque::new(),
-        };
         part.tips.insert(state.statesum().clone());
         part.states.insert(state);
         
@@ -313,24 +125,21 @@ impl<E: ElementT> Partition<E> {
     /// 
     /// ```no_run
     /// use std::path::Path;
-    /// use pippin::Partition;
-    /// use pippin::discover;
+    /// use pippin::{Partition, PartId, DefaultUserPartT, discover};
     /// 
     /// let path = Path::new("./my-partition");
-    /// let io = discover::part_from_path(path, None).unwrap();
-    /// let partition = Partition::<String>::open(Box::new(io));
+    /// let (part_id, io) = discover::part_from_path(path, None).unwrap();
+    /// let part_t = Box::new(DefaultUserPartT::new(io));
+    /// let partition = Partition::<String>::open(part_id, part_t);
     /// ```
-    pub fn open(io: Box<PartIO>) -> Result<Partition<E>> {
-        let part_id = io.part_id();
+    pub fn open(part_id: PartId, user: Box<UserPartT>) -> Result<Partition<E>> {
         trace!("Opening partition {}", part_id);
         Ok(Partition {
-            io: io,
+            user: user,
             repo_name: "".to_string() /*temporary value; checked before usage elsewhere*/,
             part_id: part_id,
             ss0: 0,
             ss1: 0,
-            ss_commits: 0,
-            ss_edits: 0,
             states: HashIndexed::new(),
             ancestors: HashSet::new(),
             tips: HashSet::new(),
@@ -367,10 +176,14 @@ impl<E: ElementT> Partition<E> {
         if self.repo_name.len() > 0 {
             return Ok(&self.repo_name);
         }
-        for ss in (0 .. self.io.ss_len()).rev() {
-            if let Some(mut ssf) = self.io.read_ss(ss)? {
-                let header = read_head(&mut *ssf)?;
-                Self::verify_head(&header, &mut self.repo_name, self.part_id)?;
+        for ss in (0 .. self.user.io().ss_len()).rev() {
+            let opt_header = if let Some(mut ssf) = self.user.io().read_ss(ss)? {
+                Some(read_head(&mut *ssf)?)
+            } else {
+                None
+            };
+            if let Some(header) = opt_header {
+                self.read_head(header)?;
                 return Ok(&self.repo_name);
             }
         }
@@ -378,19 +191,13 @@ impl<E: ElementT> Partition<E> {
     }
     
     /// Load all history. Shortcut for `load_range(0, usize::MAX, user)`.
-    // #0040: are we passing too many optional parameters: user & make_meta?
-    pub fn load_all(&mut self, user: Option<&mut UserFields>,
-            make_meta: Option<&MakeMeta>) -> Result<()>
-    {
-        self.load_range(0, usize::MAX, user, make_meta)
+    pub fn load_all(&mut self) -> Result<()> {
+        self.load_range(0, usize::MAX)
     }
     /// Load latest state from history (usually including some historical
     /// data). Shortcut for `load_range(usize::MAX, usize::MAX, user)`.
-    // #0040: are we passing too many optional parameters: user & make_meta?
-    pub fn load_latest(&mut self, user: Option<&mut UserFields>,
-            make_meta: Option<&MakeMeta>) -> Result<()>
-    {
-        self.load_range(usize::MAX, usize::MAX, user, make_meta)
+    pub fn load_latest(&mut self) -> Result<()> {
+        self.load_range(usize::MAX, usize::MAX)
     }
     
     /// Load snapshots `ss` where `ss0 <= ss < ss1`, and all log files for each
@@ -402,14 +209,7 @@ impl<E: ElementT> Partition<E> {
     /// Special behaviour: if some snapshots are already loaded and the range
     /// does not overlap with this range, all snapshots in between will be
     /// loaded.
-    /// 
-    /// The `user` parameter allows any headers read to be examined. If `None`
-    /// is passed, these fields are simply ignored.
-    // #0040: are we passing too many optional parameters: user & make_meta?
-    pub fn load_range(&mut self, ss0: usize, ss1: usize,
-            mut user: Option<&mut UserFields>, make_meta: Option<&MakeMeta>)
-            -> Result<()>
-    {
+    pub fn load_range(&mut self, ss0: usize, ss1: usize) -> Result<()> {
         // We have to consider several cases: nothing previously loaded, that
         // we're loading data older than what was previously loaded, or newer,
         // or even overlapping. The algorithm we use is:
@@ -422,7 +222,7 @@ impl<E: ElementT> Partition<E> {
         //      load all logs found and rebuild states, aborting if parents are missing
         
         // Input arguments may be greater than the available snapshot numbers. Clamp:
-        let ss_len = self.io.ss_len();
+        let ss_len = self.user.io().ss_len();
         let mut ss0 = min(ss0, if ss_len > 0 { ss_len - 1 } else { ss_len });
         let mut ss1 = min(ss1, ss_len);
         // If data is already loaded, we must load snapshots between it and the new range too:
@@ -431,13 +231,13 @@ impl<E: ElementT> Partition<E> {
             if ss1 < self.ss0 { ss1 = self.ss0; }
         }
         // If snapshot files are missing, we need to load older files:
-        while ss0 > 0 && !self.io.has_ss(ss0) { ss0 -= 1; }
-        info!("Loading partition {} data with snapshot range ({}, {})", self.part_id, ss0, ss1);
+        while ss0 > 0 && !self.user.io().has_ss(ss0) { ss0 -= 1; }
+        debug!("Loading partition {} data with snapshot range ({}, {})", self.part_id, ss0, ss1);
         
-        if ss0 == 0 && !self.io.has_ss(ss0) {
+        if ss0 == 0 && !self.user.io().has_ss(ss0) {
             assert!(self.states.is_empty());
             // No initial snapshot; assume a blank state
-            let state = PartState::new(self.part_id, make_meta);
+            let state = PartState::new(self.part_id, self.user.as_mcm_ref_mut());
             self.tips.insert(state.statesum().clone());
             self.states.insert(state);
         }
@@ -448,15 +248,16 @@ impl<E: ElementT> Partition<E> {
             if self.ss0 <= ss && ss < self.ss1 { continue; }
             let at_tip = ss >= self.ss1;
             
-            if let Some(mut r) = self.io.read_ss(ss)? {
+            let opt_result = if let Some(mut r) = self.user.io().read_ss(ss)? {
                 let head = read_head(&mut r)?;
-                Self::verify_head(&head, &mut self.repo_name, self.part_id)?;
-                let file_ver = head.ftype.ver();
-                if let Some(ref mut u) = user {
-                    u.read_user_fields(head.user, self.part_id, false);
-                }
-                
-                let state = read_snapshot(&mut r, self.part_id, file_ver)?;
+                let state = read_snapshot(&mut r, self.part_id, head.ftype.ver())?;
+                Some((head, state))
+            } else {
+                None
+            };
+            
+            if let Some((header, state)) = opt_result {
+                self.read_head(header)?;
                 
                 if !self.ancestors.contains(state.statesum()) {
                     self.tips.insert(state.statesum().clone());
@@ -467,11 +268,10 @@ impl<E: ElementT> Partition<E> {
                     }
                 }
                 self.states.insert(state);
+                
                 require_ss = false;
                 if at_tip {
-                    // reset snapshot policy
-                    self.ss_commits = 0;
-                    self.ss_edits = 0;
+                    self.user.snapshot_policy().reset();
                 }
             } else {
                 // Missing snapshot; if at head require a new one
@@ -479,14 +279,16 @@ impl<E: ElementT> Partition<E> {
             }
             
             let mut queue = vec![];
-            for cl in 0..self.io.ss_cl_len(ss) {
-                if let Some(mut r) = self.io.read_ss_cl(ss, cl)? {
-                    let head = read_head(&mut r)?;
-                    Self::verify_head(&head, &mut self.repo_name, self.part_id)?;
-                    if let Some(ref mut u) = user {
-                        u.read_user_fields(head.user, self.part_id, true);
-                    }
-                    read_log(&mut r, &mut queue, head.ftype.ver())?;
+            for cl in 0..self.user.io().ss_cl_len(ss) {
+                let opt_header = if let Some(mut r) = self.user.io().read_ss_cl(ss, cl)? {
+                    let header = read_head(&mut r)?;
+                    read_log(&mut r, &mut queue, header.ftype.ver())?;
+                    Some(header)
+                } else {
+                    None
+                };
+                if let Some(header) = opt_header {
+                    self.read_head(header)?;
                 }
             }
             for commit in queue {
@@ -506,9 +308,14 @@ impl<E: ElementT> Partition<E> {
         assert!(self.ss0 <= ss1 && ss1 <= self.ss1);
         
         if require_ss {
-            self.require_snapshot();
+            self.user.snapshot_policy().force_snapshot();
         }
         Ok(())
+    }
+    
+    /// The oldest snapshot number loaded
+    pub fn oldest_ss_loaded(&self) -> usize {
+        self.ss0
     }
     
     /// Returns true when elements have been loaded (i.e. there is at least one
@@ -533,24 +340,37 @@ impl<E: ElementT> Partition<E> {
         self.tips.len() > 1
     }
     
-    /// Verify values in a header match those we expect.
+    /// Read and verify values in a header.
     /// 
-    /// This function is called for every file loaded. It does not take self as
-    /// an argument, since it is called in situations where self.io is in use.
-    fn verify_head(head: &FileHeader, self_name: &mut String,
-        self_partid: PartId) -> Result<()>
-    {
-        if self_name.len() == 0 {
-            *self_name = head.name.clone();
-        } else if *self_name != head.name{
+    /// This function is called for every file loaded.
+    fn read_head(&mut self, header: FileHeader) -> Result<()> {
+        if self.repo_name.len() > 0 && self.repo_name != header.name {
             return OtherError::err("repository name does not match when loading (wrong repo?)");
         }
-        if let Some(h_pid) = head.part_id {
-            if self_partid != h_pid {
-                return OtherError::err("partition identifier differs from previous value");
-            }
+        
+        if header.part_id.map_or(false, |h_pid| self.part_id != h_pid) {
+            return OtherError::err("partition identifier differs from previous value");
+        }
+        
+        self.user.read_header(&header)?;
+        
+        if self.repo_name.len() == 0 {
+            self.repo_name = header.name;
         }
         Ok(())
+    }
+    
+    /// Create a header
+    fn make_header(&mut self, file_type: FileType) -> Result<FileHeader> {
+        let mut header = FileHeader {
+            ftype: file_type,
+            name: self.repo_name.clone(),
+            part_id: Some(self.part_id),
+            user: vec![],
+        };
+        let user_fields = self.user.make_user_data(&header)?;
+        header.user = user_fields;
+        Ok(header)
     }
     
     /// Unload data from memory. Note that unless `force == true` the operation
@@ -575,8 +395,8 @@ impl<E: ElementT> Partition<E> {
     /// This destroys all states held internally, but states may be cloned
     /// before unwrapping. Since `Element`s are copy-on-write, cloning
     /// shouldn't be too expensive.
-    pub fn unwrap_io(self) -> Box<PartIO> {
-        self.io
+    pub fn unwrap_user(self) -> Box<UserPartT> {
+        self.user
     }
     
     /// Get the partition's number
@@ -678,10 +498,14 @@ impl<E: ElementT> Partition<E> {
     /// 
     /// If `auto_load` is true, additional history will be loaded as necessary
     /// to find a common ancestor.
-    pub fn merge<S: TwoWaySolver<E>>(&mut self, solver: &S, auto_load: bool,
-        make_meta: Option<&MakeMeta>) -> Result<()>
-    {
+    pub fn merge<S: TwoWaySolver<E>>(&mut self, solver: &S, auto_load: bool) -> Result<()> {
+        let mut start_ss = self.ss0;
         while self.tips.len() > 1 {
+            if start_ss < self.ss0 {
+                let ss0 = self.ss0;
+                self.load_range(start_ss, ss0)?;
+            }
+            
             let (tip1, tip2): (Sum, Sum) = {
                 // We sort tips in order to make the operation deterministic.
                 let mut tips: Vec<_> = self.tips.iter().collect();
@@ -689,8 +513,15 @@ impl<E: ElementT> Partition<E> {
                 (tips[0].clone(), tips[1].clone())
             };
             trace!("Partition {}: attempting merge of tips {} and {}", self.part_id, &tip1, &tip2);
-            let c = self.merge_two(&tip1, &tip2, auto_load)?
-                    .solve_inline(solver).make_commit(make_meta);
+            let c = match self.merge_two(&tip1, &tip2) {
+                Ok(merge) => merge.solve_inline(solver).make_commit(self.user.as_mcm_ref()),
+                Err(MergeError::NoCommonAncestor) if auto_load && self.ss0 > 0 => {
+                    // Iteratively load previous history and retry until success or error.
+                    start_ss = self.ss0 - 1;
+                    continue;
+                },
+                Err(e) => return Err(Box::new(e)),
+            };
             if let Some(commit) = c {
                 trace!("Pushing merge commit: {} ({} changes)",
                         commit.statesum(), commit.num_changes());
@@ -718,29 +549,14 @@ impl<E: ElementT> Partition<E> {
     /// This is not eligant, but provides the user full control over the merge.
     /// Alternatively, use `self.merge(solver)`.
     /// 
-    /// If `auto_load` is true, additional history will be loaded as necessary
-    /// to find a common ancestor.
-    pub fn merge_two(&mut self, tip1: &Sum, tip2: &Sum, auto_load: bool) ->
-            Result<TwoWayMerge<E>>
-    {
-        let common;
-        loop {
-            match self.latest_common_ancestor(tip1, tip2) {
-                Ok(sum) => {
-                    common = sum;
-                    break;
-                },
-                Err(MergeError::NoCommonAncestor) if auto_load && self.ss0 > 0 => {
-                    let ss0 = self.ss0;
-                    //FIXME: user & make_meta should be specified here! Perhaps there should be two versions of this function for loading and not?
-                    self.load_range(ss0 - 1, ss0, None, None)?;
-                    continue;
-                },
-                Err(e) => {
-                    return Err(Box::new(e));
-                }
-            }
-        }
+    /// Note that this can fail with `MergeError::NoCommonAncestor` if not enough history is
+    /// available. In this case you might try calling `part.load_all()?;` or
+    /// `let ss0 = part.oldest_ss_loaded(); part.load_range(ss0 - 1, ss0);`, then retrying.
+    pub fn merge_two(&self, tip1: &Sum, tip2: &Sum) -> Result<TwoWayMerge<E>, MergeError> {
+        let common = match self.latest_common_ancestor(tip1, tip2) {
+            Ok(sum) => sum,
+            Err(e) => return Err(e),
+        };
         let s1 = self.states.get(tip1).ok_or(MergeError::NoState)?;
         let s2 = self.states.get(tip2).ok_or(MergeError::NoState)?;
         let s3 = self.states.get(&common).ok_or(MergeError::NoState)?;
@@ -784,11 +600,9 @@ impl<E: ElementT> Partition<E> {
     /// 
     /// Returns `Ok(true)` on success, or `Ok(false)` if the state matches its
     /// parent (i.e. hasn't been changed) or another already known state.
-    pub fn push_state(&mut self, state: MutPartState<E>,
-            make_meta: Option<&MakeMeta>) -> Result<bool, PatchOp>
-    {
+    pub fn push_state(&mut self, state: MutPartState<E>) -> Result<bool, PatchOp> {
         let parent_sum = state.parent().clone();
-        let new_state = PartState::from_mut(state, make_meta);
+        let new_state = PartState::from_mut(state, self.user.as_mcm_ref_mut());
         
         // #0019: Commit::from_diff compares old and new states and code be slow.
         // #0019: Instead, we could record each alteration as it happens.
@@ -813,7 +627,7 @@ impl<E: ElementT> Partition<E> {
     /// Require that a snapshot be written the next time `write_full` is called.
     /// (This property is not persisted across save/load.)
     pub fn require_snapshot(&mut self) {
-        self.ss_commits = 0x10_0000;
+        self.user.snapshot_policy().force_snapshot()
     }
     
     /// This will write all unsaved commits to a log on the disk. Does nothing
@@ -821,34 +635,25 @@ impl<E: ElementT> Partition<E> {
     /// 
     /// Also see `write_full()`.
     /// 
-    /// `user` allows extra data to be written to file headers.
-    /// 
     /// Returns true if any commits were written (i.e. unsaved commits
     /// were found). Returns false if nothing needed doing.
     /// 
     /// Note that writing to disk can fail. In this case it may be worth trying
     /// again.
-    pub fn write_fast(&mut self, mut user: Option<&mut UserFields>) -> Result<bool> {
+    pub fn write_fast(&mut self) -> Result<bool> {
         // First step: write commits
         if self.unsaved.is_empty() {
             return Ok(false);
         }
         
-        let part_id = self.part_id;
-        trace!("Partition {}: writing {} commits to log",
-            part_id, self.unsaved.len());
+        trace!("Partition {}: writing {} commits to log", self.part_id, self.unsaved.len());
+        let header = self.make_header(FileType::CommitLog(0))?;
         
         // #0012: extend existing logs instead of always writing a new log file.
-        let mut cl_num = self.io.ss_cl_len(self.ss1 - 1);
+        let mut cl_num = self.user.io().ss_cl_len(self.ss1 - 1);
         loop {
-            if let Some(mut writer) = self.io.new_ss_cl(self.ss1 - 1, cl_num)? {
+            if let Some(mut writer) = self.user.io_mut().new_ss_cl(self.ss1 - 1, cl_num)? {
                 // Write a header since this is a new file:
-                let header = FileHeader {
-                    ftype: FileType::CommitLog(0),
-                    name: self.repo_name.clone(),
-                    part_id: Some(part_id),
-                    user: user.as_mut().map_or(vec![], |u| u.write_user_fields(part_id, true)),
-                };
                 write_head(&header, &mut writer)?;
                 start_log(&mut writer)?;
                 
@@ -875,20 +680,18 @@ impl<E: ElementT> Partition<E> {
     /// This will write all unsaved commits to a log on the disk, then write a
     /// snapshot if needed.
     /// 
-    /// `user` allows extra data to be written to file headers.
-    /// 
     /// Returns true if any commits were written (i.e. unsaved commits
     /// were found). Returns false if no unsaved commits were present. This
     /// value implies nothing about whether a snapshot was made.
     /// 
     /// Note that writing to disk can fail. In this case it may be worth trying
     /// again.
-    pub fn write_full(&mut self, mut user: Option<&mut UserFields>) -> Result<bool> {
-        let has_changes = self.write_fast(user.as_mut().map_or(None, |p| Some(*p)))?;
+    pub fn write_full(&mut self) -> Result<bool> {
+        let has_changes = self.write_fast()?;
         
         // Second step: maintenance operations
-        if self.is_ready() && self.io.want_snapshot(self.ss_commits, self.ss_edits) {
-            self.write_snapshot(user)?;
+        if self.is_ready() && self.user.snapshot_policy().want_snapshot() {
+            self.write_snapshot()?;
         }
         
         Ok(has_changes)
@@ -900,33 +703,22 @@ impl<E: ElementT> Partition<E> {
     /// when to write a new snapshot, though you can also call this directly.
     /// 
     /// Does nothing when `tip()` fails (returning `Ok(())`).
-    /// 
-    /// `user` allows extra data to be written to file headers.
-    pub fn write_snapshot(&mut self, user: Option<&mut UserFields>) -> Result<()> {
+    pub fn write_snapshot(&mut self) -> Result<()> {
         // fail early if not ready:
         let tip_key = self.tip_key()?.clone();
         let part_id = self.part_id;
+        let header = self.make_header(FileType::Snapshot(0))?;
         
         let mut ss_num = self.ss1;
         loop {
+            
             // Try to get a writer for this snapshot number:
-            if let Some(mut writer) = self.io.new_ss(ss_num)? {
+            if let Some(mut writer) = self.user.io_mut().new_ss(ss_num)? {
                 info!("Partition {}: writing snapshot {}: {}",
                     part_id, ss_num, tip_key);
                 
-                let header = FileHeader {
-                    ftype: FileType::Snapshot(0),
-                    name: self.repo_name.clone(),
-                    part_id: Some(part_id),
-                    user: user.map_or(vec![], |u| u.write_user_fields(part_id, false)),
-                };
                 write_head(&header, &mut writer)?;
                 write_snapshot(self.states.get(&tip_key).unwrap(), &mut writer)?;
-                self.ss1 = ss_num + 1;
-                // reset snapshot policy:
-                self.ss_commits = 0;
-                self.ss_edits = 0;
-                return Ok(())
             } else {
                 // Snapshot file already exists! So try another number.
                 if ss_num > 1000_000 {
@@ -934,7 +726,13 @@ impl<E: ElementT> Partition<E> {
                     return Err(Box::new(OtherError::new("Snapshot number too high")));
                 }
                 ss_num += 1;
+                continue;
             }
+            
+            // After borrow on self.user expires:
+            self.ss1 = ss_num + 1;
+            self.user.snapshot_policy().reset();
+            return Ok(())
         }
     }
 }
@@ -1018,8 +816,7 @@ impl<E: ElementT> Partition<E> {
         // We know from above 'state' is not in 'self.states'; if it's not in
         // 'self.ancestors' either then it must be a tip:
         if !self.ancestors.contains(state.statesum()) {
-            self.ss_commits += 1;
-            self.ss_edits += n_edits;
+            self.user.snapshot_policy().count(1, n_edits);
             self.tips.insert(state.statesum().clone());
         }
         self.states.insert(state);
@@ -1135,30 +932,34 @@ impl<'a, E: ElementT+'a> Iterator for StateIter<'a, E> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use commit::{Commit};
+    use commit::{Commit, MakeCommitMeta};
     use PartId;
     use state::*;
     use std::rc::Rc;
+    
+    struct MCM;
+    impl MakeCommitMeta for MCM {}
     
     #[test]
     fn commit_creation_and_replay(){
         let p = PartId::from_num(1);
         let mut queue = vec![];
+        let mut mcm = MCM;
         
         let insert = |state: &mut MutPartState<_>, num, string: &str| -> Result<_, _> {
             state.insert_with_id(p.elt_id(num), Rc::new(string.to_string()))
         };
         
-        let mut state = PartState::new(p, None).clone_mut();
+        let mut state = PartState::new(p, &mut mcm).clone_mut();
         insert(&mut state, 1, "one").unwrap();
         insert(&mut state, 2, "two").unwrap();
-        let state_a = PartState::from_mut(state, None);
+        let state_a = PartState::from_mut(state, &mut mcm);
         
         let mut state = state_a.clone_mut();
         insert(&mut state, 3, "three").unwrap();
         insert(&mut state, 4, "four").unwrap();
         insert(&mut state, 5, "five").unwrap();
-        let state_b = PartState::from_mut(state, None);
+        let state_b = PartState::from_mut(state, &mut mcm);
         let commit = Commit::from_diff(&state_a, &state_b).unwrap();
         queue.push(commit);
         
@@ -1167,19 +968,20 @@ mod tests {
         insert(&mut state, 7, "seven").unwrap();
         state.remove(p.elt_id(4)).unwrap();
         state.replace(p.elt_id(3), "half six".to_string()).unwrap();
-        let state_c = PartState::from_mut(state, None);
+        let state_c = PartState::from_mut(state, &mut mcm);
         let commit = Commit::from_diff(&state_b, &state_c).unwrap();
         queue.push(commit);
         
         let mut state = state_c.clone_mut();
         insert(&mut state, 8, "eight").unwrap();
         insert(&mut state, 4, "half eight").unwrap();
-        let state_d = PartState::from_mut(state, None);
+        let state_d = PartState::from_mut(state, &mut mcm);
         let commit = Commit::from_diff(&state_c, &state_d).unwrap();
         queue.push(commit);
         
-        let io = Box::new(DummyPartIO::new(PartId::from_num(1)));
-        let mut part = Partition::create(io, "replay part", None, None).unwrap();
+        let part_id = PartId::from_num(1);
+        let part_t = Box::new(DefaultUserPartT::new(DummyPartIO::new()));
+        let mut part = Partition::create(part_id, part_t, "replay part").unwrap();
         part.add_state(state_a, 0);
         for commit in queue {
             part.push_commit(commit).unwrap();
@@ -1192,13 +994,14 @@ mod tests {
     
     #[test]
     fn on_new_partition() {
-        let io = Box::new(DummyPartIO::new(PartId::from_num(7)));
-        let mut part = Partition::<String>::create(io, "on_new_partition", None, None)
+        let part_id = PartId::from_num(7);
+        let part_t = Box::new(DefaultUserPartT::new(DummyPartIO::new()));
+        let mut part = Partition::<String>::create(part_id, part_t, "on_new_partition")
                 .expect("partition creation");
         assert_eq!(part.tips.len(), 1);
         
         let state = part.tip().expect("getting tip").clone_mut();
-        assert_eq!(part.push_state(state, None).expect("committing"), false);
+        assert_eq!(part.push_state(state).expect("committing"), false);
         
         let mut state = part.tip().expect("getting tip").clone_mut();
         assert!(!state.any_avail());
@@ -1208,7 +1011,7 @@ mod tests {
         let e1id = state.insert(elt1).expect("inserting elt");
         let e2id = state.insert(elt2).expect("inserting elt");
         
-        assert_eq!(part.push_state(state, None).expect("comitting"), true);
+        assert_eq!(part.push_state(state).expect("comitting"), true);
         assert_eq!(part.unsaved.len(), 1);
         assert_eq!(part.states.len(), 2);
         let key = part.tip().expect("tip").statesum().clone();
@@ -1221,6 +1024,6 @@ mod tests {
         let state = part.tip().expect("getting tip").clone_mut();
         assert_eq!(*state.parent(), key);
         
-        assert_eq!(part.push_state(state, None).expect("committing"), false);
+        assert_eq!(part.push_state(state).expect("committing"), false);
     }
 }

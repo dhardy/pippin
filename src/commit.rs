@@ -112,25 +112,25 @@ pub struct CommitMeta {
     /// User-provided extra metadata
     extra: ExtraMeta,
 }
+
 /// Partial version of metadata (used by some functions on CommitMeta).
 #[derive(Debug, PartialEq, Clone)]
 pub struct CommitMetaPartial {
-    number: u32,
+    parent: (Sum, CommitMeta),
     ext_flags: MetaFlags,
 }
 
 
 impl CommitMeta {
-    /// Create from parent(s)' metadata and an optional `MakeMeta` trait.
-    pub fn new_parents(parents: &Vec<Sum>, par_meta: Vec<&CommitMeta>, mm: Option<&MakeMeta>) -> Self {
-        let number = par_meta.iter().fold(0, |prev, &m| max(prev, m.next_number()));
-        let ext_flags = par_meta.iter().fold(MetaFlags::zero(), |prev, &m| prev | m.ext_flags());
-        let timestamp = mm.map_or_else(|| Self::timestamp_now(), |mm| mm.make_timestamp());
+    /// Create from parent(s)' data and a `MakeCommitMeta` trait.
+    pub fn new_parents(parents: Vec<(&Sum, &CommitMeta)>, mcm: &MakeCommitMeta) -> Self {
+        let number = parents.iter().fold(0, |prev, &p| max(prev, p.1.next_number()));
+        let ext_flags = parents.iter().fold(MetaFlags::zero(), |prev, &p| prev | p.1.ext_flags());
         CommitMeta {
             number: number,
-            timestamp: timestamp,
+            timestamp: mcm.make_commit_timestamp(),
             ext_flags: ext_flags,
-            extra: mm.map_or(ExtraMeta::None, |mm| mm.make_extrameta(number, parents)),
+            extra: mcm.make_commit_extra(number, parents),
         }
     }
     /// Create, explicitly providing all fields.
@@ -146,24 +146,25 @@ impl CommitMeta {
     /// Create a partial new version from a single parent.
     /// 
     /// This is for use with `from_partial()`.
-    pub fn new_partial(par_meta: &CommitMeta) -> CommitMetaPartial {
+    pub fn new_partial(par_sum: Sum, par_meta: CommitMeta) -> CommitMetaPartial {
+        let ext_flags = par_meta.ext_flags();   // copied to allow modification
         CommitMetaPartial {
-            number: par_meta.next_number(),
-            ext_flags: par_meta.ext_flags,
+            parent: (par_sum, par_meta),
+            ext_flags: ext_flags,
         }
     }
     /// Create, from a partial version (assumes a single parent commit).
     /// 
     /// This sets timestamp and user data (extra meta).
-    pub fn from_partial(partial: CommitMetaPartial, parents: &Vec<Sum>,
-            mm: Option<&MakeMeta>) -> CommitMeta
-    {
-        let timestamp = mm.map_or_else(|| Self::timestamp_now(), |mm| mm.make_timestamp());
+    pub fn from_partial(partial: CommitMetaPartial, mcm: &MakeCommitMeta) -> CommitMeta {
+        let number = partial.parent.1.next_number();
+        let parent = (&partial.parent.0, &partial.parent.1);
+        
         CommitMeta {
-            number: partial.number,
-            timestamp: timestamp,
+            number: number,
+            timestamp: mcm.make_commit_timestamp(),
             ext_flags: partial.ext_flags,
-            extra: mm.map_or(ExtraMeta::None, |mm| mm.make_extrameta(partial.number, parents)),
+            extra: mcm.make_commit_extra(number, vec![parent]),
         }
     }
     
@@ -213,9 +214,14 @@ impl CommitMeta {
 }
 
 impl CommitMetaPartial {
+    /// Get the parent's metadata
+    pub fn parent_meta(&self) -> &CommitMeta {
+        &self.parent.1
+    }
+    
     /// Get the commit's number
     pub fn number(&self) -> u32 {
-        self.number
+        self.parent.1.next_number()
     }
     
     /// Get extension flags
@@ -229,29 +235,25 @@ impl CommitMetaPartial {
     }
 }
 
-/// Interface used to assign user-specific metadata.
-/// 
-/// This mostly exists to allow users to specify the contents of the "extra
-/// metadata" field, which otherwise remains empty.
-/// 
-/// It is also possible to change the way timestamps are assigned with this
-/// trait, but it is up to the user to avoid causing confusion when this
-/// happens. Timestamps are not acutally used for anything by the library.
-/// 
-/// Note that instances of this are passed as "ref" not "ref mut" for
-/// simplicity, but `Cell` and `RefCell` can be used for interior mutability.
-pub trait MakeMeta {
-    /// Make a timestamp for a commit (usually the time now). The default
-    /// implementation simply wraps `CommitMeta::timestamp_now()`.
-    fn make_timestamp(&self) -> i64 {
+
+/// Interface used to customise commit metadata
+pub trait MakeCommitMeta {
+    /// Controls creation of commit timestamps. The default implementation simply wraps
+    /// `CommitMeta::timestamp_now()`.
+    /// 
+    /// The library itself does not depend on the value of these timestamps, it simply provides
+    /// them as a convenience.
+    fn make_commit_timestamp(&self) -> i64 {
         CommitMeta::timestamp_now()
     }
     
     /// Make an extra-metadata item. The default implementation simply
     /// returns `ExtraMeta::None`.
     /// 
+    /// Arguments: this commit's number, and the commit identifier and metadata for each parent
+    /// commit.
     /// The commit number and the sum of each parent commit is passed.
-    fn make_extrameta(&self, _number: u32, _parents: &Vec<Sum>) -> ExtraMeta {
+    fn make_commit_extra(&self, _number: u32, _parents: Vec<(&Sum, &CommitMeta)>) -> ExtraMeta {
         ExtraMeta::None
     }
 }

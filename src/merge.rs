@@ -34,7 +34,7 @@ use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::rc::Rc;
 
-use commit::{Commit, CommitMeta, MakeMeta, EltChange};
+use commit::{Commit, CommitMeta, EltChange, MakeCommitMeta};
 use {PartState, StateT};
 use {EltId, ElementT, Sum};
 
@@ -150,10 +150,7 @@ impl<'a, E: ElementT> TwoWayMerge<'a, E> {
     /// This succeeds if and only if `is_solved()` returns true.
     /// 
     /// Operation is `O(X)`.
-    pub fn make_commit(self,
-            make_meta: Option<&MakeMeta>) ->
-            Option<Commit<E>>
-    {
+    pub fn make_commit(self, mcm: &MakeCommitMeta) -> Option<Commit<E>> {
         // We build change-lists from the perspective of state1 and state2, then
         // pick whichever is smaller.
         let mut c1 = HashMap::new();
@@ -264,16 +261,21 @@ impl<'a, E: ElementT> TwoWayMerge<'a, E> {
         }
         assert_eq!(sum1, sum2); // sums must be equal
         
-        let (sum, parents, changes) = if c1.len() < c2.len() {
+        let (first, second, changes) = if c1.len() < c2.len() {
             trace!("Created merge from first parent: {}", self.a.statesum());
-            (sum1, vec![self.a.statesum().clone(), self.b.statesum().clone()], c1)
+            (self.a, self.b, c1)
         } else {
             trace!("Created merge from second parent: {}", self.b.statesum());
-            (sum2, vec![self.b.statesum().clone(), self.a.statesum().clone()], c2)
+            (self.b, self.a, c2)
         };
+        
+        let parents = vec![(first.statesum(), first.meta()), (second.statesum(), second.meta())];
+        let meta = CommitMeta::new_parents(parents, mcm);
+        
         let part_id = self.a.part_id(); // all states have same part_id
-        let meta = CommitMeta::new_parents(&parents, vec![&self.a.meta(), &self.b.meta()], make_meta);
-        let statesum = &sum ^ &Sum::state_meta_sum(part_id, &parents, &meta);
+        let parents = vec![first.statesum().clone(), second.statesum().clone()];
+        let statesum = &sum1 ^ &Sum::state_meta_sum(part_id, &parents, &meta);
+        
         Some(Commit::new_explicit(statesum, parents, changes, meta))
     }
     

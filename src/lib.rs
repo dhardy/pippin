@@ -84,12 +84,13 @@ extern crate log;
 // Redundantly re-export some of the main types here:
 pub use error::{Result};
 pub use elt::{EltId, PartId, ElementT};
-pub use part::{Partition, PartIO, UserFields};
+pub use part::Partition;
+pub use part::{DefaultSnapshot, DefaultUserPartT, DummyPartIO, PartIO, UserPartT, SnapshotPolicy};
 pub use repo::{Repository, RepoIO, RepoT, ClassifierT, RepoState};
 pub use state::{PartState, MutPartState, StateT, MutStateT};
 pub use sum::Sum;
 // Export some items not otherwise available here:
-pub use readwrite::{FileType, read_head, UserData};
+pub use readwrite::{FileHeader, FileType, read_head, UserData};
 
 pub mod commit;
 pub mod discover;
@@ -98,6 +99,7 @@ pub mod error;
 pub mod fileio;
 pub mod merge;
 pub mod part;
+mod part_traits;
 mod readwrite;
 pub mod repo;
 mod repo_traits;

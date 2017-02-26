@@ -2,7 +2,7 @@
 
 // The obligatory hello-world example.
 
-use pippin::{Result, Partition, StateT, MutStateT, discover, fileio};
+use pippin::{Result, Partition, PartId, StateT, MutStateT, DefaultUserPartT, discover, fileio};
 
 extern crate pippin;
 
@@ -11,10 +11,11 @@ fn inner() -> Result<()> {
     // We try to find Pippin files in '.':
     println!("Looking for Pippin files in the current directory ...");
     match discover::part_from_path(".", None) {
-        Ok(io) => {
+        Ok((part_id, io)) => {
             // Read the found files:
-            let mut part = Partition::<String>::open(Box::new(io))?;
-            part.load_latest(None, None)?;
+            let part_t = Box::new(DefaultUserPartT::new(io));
+            let mut part = Partition::<String>::open(part_id, part_t)?;
+            part.load_latest()?;
             
             // Get access to the latest state:
             let tip = part.tip()?;
@@ -30,16 +31,17 @@ fn inner() -> Result<()> {
             println!("Creating a new partition instead (run again to see contents)");
             
             // Create a new partition, using PartFileIO:
-            let io = Box::new(fileio::PartFileIO::new_default("hello"));
-            let mut part = Partition::create(io, "hello world", None, None)?;
+            let io = fileio::PartFileIO::new_default("hello");
+            let part_t = Box::new(DefaultUserPartT::new(io));
+            let mut part = Partition::create(PartId::from_num(1), part_t, "hello world")?;
             
             // Create a new state derived from the tip:
             let mut state = part.tip()?.clone_mut();
             state.insert("Hello, world!".to_string())?;
-            part.push_state(state, None)?;
+            part.push_state(state)?;
             
             // Write our changes:
-            part.write_full(None)?;
+            part.write_full()?;
         }
     }
     Ok(())

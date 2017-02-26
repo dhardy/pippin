@@ -373,6 +373,31 @@ impl fmt::Display for ReadOnly {
 }
 
 
+// —————  UserError  —————
+/// An error the user may return
+#[derive(PartialEq, Eq, Debug)]
+pub struct UserError {
+    /// Arbitrary code a user may set
+    pub code: u64,
+    /// Message to display
+    pub msg: &'static str,
+}
+impl UserError {
+    /// Create
+    pub fn new(code: u64, msg: &'static str) -> UserError {
+        UserError { code: code, msg: msg }
+    }
+}
+impl fmt::Display for UserError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> result::Result<(), fmt::Error> {
+        write!(f, "UserError (code {}): {}", self.code, self.msg)
+    }
+}
+impl ErrorTrait for UserError {
+    fn description(&self) -> &str { self.msg }
+}
+
+
 // —————  OtherError  —————
 /// Unclassified, generally not recoverable errors
 #[derive(PartialEq, Eq, Debug)]

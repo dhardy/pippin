@@ -15,20 +15,18 @@ use std::any::Any;
 use vec_map::VecMap;
 
 use pippin::PartId;
-use pippin::{Partition, PartIO, MutStateT};
+use pippin::{Partition, PartIO, MutStateT, DefaultUserPartT, UserPartT};
 use pippin::error::{make_io_err, Result};
 
 /// Allows writing to in-memory streams. Refers to external data so that it
 /// can be recovered after the `Partition` is destroyed in the tests.
 struct PartitionStreams {
-    part_id: PartId,
     // Map of snapshot-number to pair (snapshot, map of log number to log)
     ss: VecMap<(Option<Vec<u8>>, VecMap<Vec<u8>>)>,
 }
 
 impl PartIO for PartitionStreams {
     fn as_any(&self) -> &Any { self }
-    fn part_id(&self) -> PartId { self.part_id }
     fn ss_len(&self) -> usize {
         self.ss.keys().next_back().map(|x| x+1).unwrap_or(0)
     }
@@ -87,13 +85,15 @@ impl PartIO for PartitionStreams {
 
 #[test]
 fn create_small() {
+    type PartT = DefaultUserPartT<PartitionStreams>;
+    
     env_logger::init().unwrap();
     
-    let part_streams = PartitionStreams {
-            part_id: PartId::from_num(56),
-            ss: VecMap::new() };
-    let mut part = Partition::<String>::create(Box::new(part_streams),
-        "create_small", None, None).expect("creating partition");
+    let part_id = PartId::from_num(56);
+    let part_streams = PartitionStreams { ss: VecMap::new() };
+    let part_t = Box::new(PartT::new(part_streams));
+    let mut part = Partition::<String>::create(part_id, part_t, "create_small")
+            .expect("creating partition");
     
     // 2 Add a few elements over multiple commits
     let mut state = part.tip().expect("has tip").clone_mut();
@@ -103,27 +103,29 @@ fn create_small() {
     state.insert("five million, six hundred and ninety eight \
             thousand, one hundred and thirty one".to_string())
             .expect("inserting elt 5698131");
-    part.push_state(state, None).expect("committing");
+    part.push_state(state).expect("committing");
     let state1 = part.tip().expect("has tip").clone_exact();
     
     let mut state = part.tip().expect("getting tip").clone_mut();
     state.insert("sixty eight thousand, one hundred and sixty eight"
             .to_string()).expect("inserting elt 68168");
-    part.push_state(state, None).expect("committing");
+    part.push_state(state).expect("committing");
     
     let mut state = part.tip().expect("getting tip").clone_mut();
     state.insert("eighty nine".to_string()).expect("inserting elt 89");
     state.insert("one thousand and sixty three".to_string())
             .expect("inserting elt 1063");
-    part.push_state(state, None).expect("committing");
+    part.push_state(state).expect("committing");
     let state3 = part.tip().expect("has tip").clone_exact();
     
     // 3 Write to streams in memory
-    part.write_fast(None).expect("writing");
-    let boxed_io = part.unwrap_io();
+    part.write_fast().expect("writing");
+    let boxed_user = part.unwrap_user();
     
     // 4 Check the generated streams
     {
+        let user = boxed_user.as_any().downcast_ref::<PartT>().expect("downcasting user");
+        let boxed_io = user.io();
         let io = boxed_io.as_any().downcast_ref::<PartitionStreams>().expect("downcasting io");
         assert_eq!(io.ss.len(), 1);
         assert!(io.ss.contains_key(0));
@@ -162,8 +164,8 @@ fn create_small() {
     }
     
     // 5 Read streams back again and compare
-    let mut part2 = Partition::open(boxed_io).expect("opening partition");
-    part2.load_all(None, None).expect("part2.load");
+    let mut part2 = Partition::open(part_id, boxed_user).expect("opening partition");
+    part2.load_all().expect("part2.load");
     assert_eq!(state1,
         *part2.state(state1.statesum()).expect("get state1 by sum"));
     assert_eq!(state3, *part2.tip().expect("part2 tip"));
