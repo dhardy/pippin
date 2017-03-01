@@ -348,7 +348,7 @@ impl<E: ElementT> Partition<E> {
             return OtherError::err("repository name does not match when loading (wrong repo?)");
         }
         
-        if header.part_id.map_or(false, |h_pid| self.part_id != h_pid) {
+        if self.part_id != header.part_id {
             return OtherError::err("partition identifier differs from previous value");
         }
         
@@ -365,7 +365,7 @@ impl<E: ElementT> Partition<E> {
         let mut header = FileHeader {
             ftype: file_type,
             name: self.repo_name.clone(),
-            part_id: Some(self.part_id),
+            part_id: self.part_id,
             user: vec![],
         };
         let user_fields = self.user.make_user_data(&header)?;

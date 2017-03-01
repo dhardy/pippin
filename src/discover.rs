@@ -14,7 +14,7 @@ use walkdir::WalkDir;
 use {RepoIO, PartId};
 use fileio::{PartFileIO, RepoFileIO, PartPaths};
 use readwrite::read_head;
-use error::{Result, PathError, OtherError};
+use error::{Result, PathError};
 
 
 /// Will attempt to discover files belonging to a single partition from a path.
@@ -279,7 +279,7 @@ pub fn find_part_num<P: AsRef<Path>>(name: &str, path: P) -> Result<PartId> {
         return Ok(num);
     }
     let head = read_head(&mut File::open(path)?)?;
-    head.part_id.ok_or(Box::new(OtherError::new("file contains no part id")))
+    Ok(head.part_id)
 }
 /// A helper to try matching a file name against standard Pippin file patterns,
 /// and if it fits return the "basename" part.

@@ -207,11 +207,8 @@ fn inner(path: PathBuf, op: Operation, args: Rest) -> Result<()>
                 match head.ftype { FileType::Snapshot(_) => "Snapshot", FileType::CommitLog(_) => "Commit log" },
                 head.ftype.ver());
             println!("Repository name: {}", head.name);
-            print!("Partition number: ");
-            match head.part_id {
-                Some(id) => println!("{}", id.into_num()),
-                None => println!("not specified"),
-            };
+            print!("Partition number: {}", head.part_id.into_num());
+            
             for ud in &*head.user {
                 match ud {
                     &UserData::Data(ref d) =>
