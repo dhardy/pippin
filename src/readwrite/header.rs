@@ -10,10 +10,10 @@ use std::result::Result as stdResult;
 
 use byteorder::{ByteOrder, BigEndian, WriteBytesExt};
 
-use PartId;
+use elt::PartId;
 use readwrite::sum;
 use error::{Result, ArgError, ReadError, make_io_err};
-use sum::BYTES as SUM_BYTES;
+use sum::SUM_BYTES;
 use util::rtrim;
 
 // Snapshot header. This is the latest version.
@@ -319,7 +319,7 @@ fn read_header() {
                 HSUM BLAKE2 16\x00\x00\
                 }f\xcb!\xbe\xa0\x9b\xdf\xa9\x03\x8c\x84+a\xe2\x8eMG!\xe0\xf6,^t0!\xeb\xc04\xff\\\xe5";
     
-    use ::Sum;
+    use sum::Sum;
     let sum = Sum::calculate(&head[0..head.len() - SUM_BYTES]);
     println!("Checksum: '{}'", sum.byte_string());
     let header = match read_head(&mut &head[..]) {

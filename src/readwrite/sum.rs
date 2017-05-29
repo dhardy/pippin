@@ -11,9 +11,9 @@ use crypto::digest::Digest;
 use crypto::blake2b::Blake2b;
 use byteorder::{ByteOrder, BigEndian};
 
-use {EltId, PartId};
+use elt::{EltId, PartId};
 use commit::{CommitMeta, ExtraMeta};
-use sum::{Sum, BYTES};
+use sum::{Sum, SUM_BYTES};
 
 
 // Internal type / constructor for easy configuration.
@@ -21,7 +21,7 @@ use sum::{Sum, BYTES};
 type Hasher = Blake2b;
 fn mk_hasher() -> Hasher {
 //     Hasher::new()
-    Hasher::new(BYTES)
+    Hasher::new(SUM_BYTES)
 }
 
 impl Sum {
@@ -38,9 +38,9 @@ impl Sum {
     pub fn state_meta_sum(part_id: PartId, parents: &[Sum], meta: &CommitMeta) -> Sum {
         let mut hasher = mk_hasher();
         let mut buf = Vec::from("PpppPpppCNUMNnnnTtttTttt");
-        if BYTES > buf.len() {
+        if SUM_BYTES > buf.len() {
             // for second use of buf below
-            buf.resize(BYTES, 0);
+            buf.resize(SUM_BYTES, 0);
         }
         BigEndian::write_u64(&mut buf[0..8], part_id.into());
         assert!(buf[8..12] == *b"CNUM");
@@ -68,7 +68,7 @@ impl Sum {
     }
     /// Load from a hasher
     fn load_hasher(mut hasher: Hasher) -> Sum {
-        let mut buf = [0u8; BYTES];
+        let mut buf = [0u8; SUM_BYTES];
         assert_eq!(hasher.output_bytes(), buf.len());
         hasher.result(&mut buf);
         Sum::load(&buf)
@@ -96,7 +96,7 @@ impl<R: Read> HashReader<R> {
     pub fn digest(&mut self) -> &mut Digest { &mut self.hasher }
     /// Make a Sum from the digest
     pub fn sum(&mut self) -> Sum {
-        let mut buf = [0u8; BYTES];
+        let mut buf = [0u8; SUM_BYTES];
         assert_eq!(self.hasher.output_bytes(), buf.len());
         self.hasher.result(&mut buf);
         Sum::load(&buf)
@@ -135,7 +135,7 @@ impl<W: Write> HashWriter<W> {
     pub fn digest(&mut self) -> &mut Digest { &mut self.hasher }
     /// Make a Sum from the digest
     pub fn sum(&mut self) -> Sum {
-        let mut buf = [0u8; BYTES];
+        let mut buf = [0u8; SUM_BYTES];
         assert_eq!(self.hasher.output_bytes(), buf.len());
         self.hasher.result(&mut buf);
         Sum::load(&buf)

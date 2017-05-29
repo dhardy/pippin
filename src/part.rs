@@ -19,11 +19,11 @@ use readwrite::{read_log, start_log, write_commit};
 use state::{PartState, MutPartState, PartStateSumComparator};
 use commit::{Commit};
 use merge::{TwoWayMerge, TwoWaySolver};
-use {ElementT, Sum, PartId};
+use elt::{ElementT, PartId};
+use sum::Sum;
 use error::{Result, TipError, PatchOp, MatchError, MergeError, OtherError, make_io_err};
 
-pub use part_traits::{DefaultSnapshot, DefaultUserPartT, DummyPartIO, PartIO, UserPartT,
-        SnapshotPolicy};
+pub use part_traits::{DefaultSnapshot, DefaultUserPartT, UserPartT, SnapshotPolicy};
 
 /// A *partition* is a sub-set of the entire set such that (a) each element is
 /// in exactly one partition, (b) a partition is small enough to be loaded into
@@ -72,7 +72,7 @@ impl<E: ElementT> Partition<E> {
     /// Example:
     /// 
     /// ```
-    /// use pippin::{Partition, PartId, PartIO, DefaultUserPartT, DummyPartIO};
+    /// use pippin::pip::{Partition, PartId, PartIO, DefaultUserPartT, DummyPartIO};
     /// 
     /// let part_id = PartId::from_num(1);
     /// let part_t = Box::new(DefaultUserPartT::new(DummyPartIO::new()));
@@ -125,10 +125,10 @@ impl<E: ElementT> Partition<E> {
     /// 
     /// ```no_run
     /// use std::path::Path;
-    /// use pippin::{Partition, PartId, DefaultUserPartT, discover};
+    /// use pippin::pip::{Partition, PartId, DefaultUserPartT, part_from_path};
     /// 
     /// let path = Path::new("./my-partition");
-    /// let (part_id, io) = discover::part_from_path(path, None).unwrap();
+    /// let (part_id, io) = part_from_path(path, None).unwrap();
     /// let part_t = Box::new(DefaultUserPartT::new(io));
     /// let partition = Partition::<String>::open(part_id, part_t);
     /// ```
@@ -933,7 +933,8 @@ impl<'a, E: ElementT+'a> Iterator for StateIter<'a, E> {
 mod tests {
     use super::*;
     use commit::{Commit, MakeCommitMeta};
-    use PartId;
+    use elt::PartId;
+    use io::DummyPartIO;
     use state::*;
     use std::rc::Rc;
     

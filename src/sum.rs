@@ -13,8 +13,8 @@ use ::util::ByteFormatter;
 
 /// Number of bytes in a Sum.
 // #0018: it might be possible to move this inside Sum in future versions of Rust
-pub const BYTES: usize = 32;
-const BYTES_U8: u8 = BYTES as u8;
+pub const SUM_BYTES: usize = 32;
+const BYTES_U8: u8 = SUM_BYTES as u8;
 
 
 // #0031: when simd is stable, it could be used
@@ -25,20 +25,20 @@ const BYTES_U8: u8 = BYTES as u8;
 #[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Sum {
 //     s1: u8x16, s2: u8x16
-    s: [u8; BYTES]
+    s: [u8; SUM_BYTES]
 }
 
 impl Sum {
     /// A "sum" containing all zeros
     pub fn zero() -> Sum {
 //         Sum { s1: u8x16::splat(0), s2: u8x16::splat(0) }
-        Sum { s: [0u8; BYTES] }
+        Sum { s: [0u8; SUM_BYTES] }
     }
     
     /// True if sum equals that in a buffer
     pub fn eq(&self, arr: &[u8]) -> bool {
-        assert_eq!(arr.len(), BYTES);
-        for i in 0..BYTES {
+        assert_eq!(arr.len(), SUM_BYTES);
+        for i in 0..SUM_BYTES {
             if self.s[i] != arr[i] { return false; }
         }
         return true;
@@ -46,9 +46,9 @@ impl Sum {
     
     /// Load from a u8 array
     pub fn load(arr: &[u8]) -> Sum {
-        assert_eq!(arr.len(), BYTES);
+        assert_eq!(arr.len(), SUM_BYTES);
 //         Sum { s1: u8x16::load(&arr, 0), s2: u8x16::load(&arr, 16) }
-        let mut s = [0u8; BYTES];
+        let mut s = [0u8; SUM_BYTES];
         s.clone_from_slice(arr);
         Sum{ s: s }
     }
@@ -74,8 +74,8 @@ impl Sum {
     /// of chars (i.e. between every byte).
     pub fn as_string(&self, separate_pairs: bool) -> String {
         let step = if separate_pairs { 3 } else { 2 };
-        let mut buf = vec![b' '; BYTES * step];
-        for i in 0..BYTES {
+        let mut buf = vec![b' '; SUM_BYTES * step];
+        for i in 0..SUM_BYTES {
             let byte = self.s[i];
             buf[i*step] = HEX_CHARS[(byte >> 4) as usize];
             buf[i*step + 1] = HEX_CHARS[(byte & 0xF) as usize];
@@ -96,7 +96,7 @@ impl Sum {
     /// all letters of the string before calling this function.
     // #0019: I'm sure this function could be faster (in particular, by not using write!())
     pub fn matches_string(&self, string: &[u8]) -> bool {
-        if string.len() > 2 * BYTES {
+        if string.len() > 2 * SUM_BYTES {
             return false;
         }
         let mut buf = [0u8; 2];
@@ -134,7 +134,7 @@ impl<'a> ops::BitXor for &'a Sum {
     fn bitxor(self, rhs: &'a Sum) -> Sum {
         // #0031: optimise XOR operation
         let mut result = Sum::zero();
-        for i in 0..BYTES {
+        for i in 0..SUM_BYTES {
             result.s[i] = self.s[i] ^ rhs.s[i];
         }
         result

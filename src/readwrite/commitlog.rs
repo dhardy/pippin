@@ -15,8 +15,8 @@ use byteorder::{ByteOrder, BigEndian, WriteBytesExt};
 
 use readwrite::{sum, read_meta, write_meta};
 use commit::{Commit, EltChange};
-use {ElementT, Sum};
-use sum::BYTES as SUM_BYTES;
+use elt::ElementT;
+use sum::{Sum, SUM_BYTES};
 use error::{Result, ReadError};
 
 /// Implement this to use read_log().
@@ -266,7 +266,7 @@ pub fn write_commit<E: ElementT>(commit: &Commit<E>, writer: &mut Write) -> Resu
 fn commit_write_read(){
     use readwrite::header::HEAD_VERSIONS;
     use commit::{CommitMeta, ExtraMeta, MetaFlags};
-    use PartId;
+    use elt::PartId;
     
     // Note that we can make up completely nonsense commits here. Element
     // checksums must still match but state sums don't need to since we won't

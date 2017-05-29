@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-//! Pippin utility functions
+//! Pippin utility functions. These are not inherently related to Pippin, but are used by Pippin.
 
 use std::cmp;
 use std::fmt::{self, Write};

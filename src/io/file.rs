@@ -13,7 +13,7 @@ use std::collections::hash_map::{self, HashMap};
 
 use vec_map::{VecMap, Entry};
 
-use {PartIO, PartId, RepoIO};
+use io::{PartIO, PartId, RepoIO};
 use error::{Result, ReadOnly, OtherError};
 
 

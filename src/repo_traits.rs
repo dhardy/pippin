@@ -5,46 +5,12 @@
 //! Traits for Pippin's `Repository` type
 
 use std::marker::PhantomData;
-use std::any::Any;
-use std::{fmt, result};
 
-use {PartIO, UserPartT};
-use {ElementT, PartId, Partition};
-use error::{Error, Result, OtherError, ErrorTrait};
+use io::RepoIO;
+use part::{Partition, UserPartT};
+use elt::{ElementT, PartId};
+use error::{Result, RepoDivideError};
 
-
-/// Provides file discovery and creation for a repository.
-pub trait RepoIO {
-    /// Convert self to a `&Any`
-    fn as_any(&self) -> &Any;
-    
-    /// Get the number of partitions found.
-    fn num_parts(&self) -> usize;
-    
-    /// Get a list of all partition numbers. These are the numbers which can be
-    /// passed to `make_partition_io`, and conversely the numbers which should
-    /// not be passed to `add_partition`.
-    /// 
-    /// Note: we cannot 'simply iterate' over elements without allocating
-    /// unless we make more restrictions on implementations or switch to
-    /// compile-time polymorphism over type `RepoIO`.
-    fn parts(&self) -> Vec<PartId>;
-    
-    /// True if there is a partition with this number
-    fn has_part(&self, pn: PartId) -> bool;
-    
-    /// Add a new partition. `num` is the partition number to use; this function
-    /// fails if it is already taken. `prefix` is the common part of the
-    /// path/name of files for this partition; it must be unique from that of
-    /// other partitions.
-    fn new_part(&mut self, num: PartId, prefix: String) -> Result<()>;
-    
-    /// Get a `PartIO` for existing partition `num`.
-    /// 
-    /// Fails if construction of the PartIO fails (file-system or regex
-    /// errors) or if the partition isn't found.
-    fn make_part_io(&mut self, num: PartId) -> Result<Box<PartIO>>;
-}
 
 /// A classifier assigns each element to a partition. A repository may have
 /// only a single partition, or it may have some fixed partitioning, or it may
@@ -210,46 +176,6 @@ pub trait RepoT<C: ClassifierT+Sized> {
     /// versioning to determine which information is up-to-date.
     fn divide(&mut self, part: &Partition<C::Element>) ->
         Result<(Vec<PartId>, Vec<PartId>), RepoDivideError>;
-}
-
-/// Failures allowed for `ClassifierT::divide`.
-#[derive(Debug)]
-pub enum RepoDivideError {
-    /// No logic is available allowing subdivision of the category.
-    NotSubdivisible,
-    /// Used when another partition needs to be loaded before division, e.g.
-    /// to steal allocated numbers.
-    LoadPart(PartId),
-    /// Any other error.
-    Other(Error),
-}
-impl RepoDivideError {
-    /// Create an `Other(box OtherError::new(msg))`; this is just a convenient
-    /// way to create with an error message.
-    pub fn msg(msg: &'static str) -> RepoDivideError {
-        RepoDivideError::Other(Box::new(OtherError::new(msg)))
-    }
-}
-impl ErrorTrait for RepoDivideError {
-    fn description(&self) -> &str {
-        match self {
-            &RepoDivideError::NotSubdivisible => "divide: partition is not divisible",
-            &RepoDivideError::LoadPart(_) => "divide: another partition needs loading",
-            &RepoDivideError::Other(ref e) => e.description(),
-        }
-    }
-}
-impl fmt::Display for RepoDivideError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> result::Result<(), fmt::Error> {
-        match self {
-            &RepoDivideError::NotSubdivisible =>
-                write!(f, "divide: partition is not divisible"),
-            &RepoDivideError::LoadPart(id) =>
-                write!(f, "divide: another partition, {}, needs loading", id),
-            &RepoDivideError::Other(ref e) =>
-                write!(f, "divide: other error: {}", e.description()),
-        }
-    }
 }
 
 /// Trivial implementation for testing purposes. Always returns the same value,

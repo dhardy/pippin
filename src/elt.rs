@@ -10,7 +10,7 @@ use std::io::{/*Read,*/ Write};
 use std::str::from_utf8;
 // use vec_map::VecMap;
 
-use Sum;
+use sum::Sum;
 use error::{Result, OtherError};
 
 

@@ -35,8 +35,9 @@ use std::marker::PhantomData;
 use std::rc::Rc;
 
 use commit::{Commit, CommitMeta, EltChange, MakeCommitMeta};
-use {PartState, StateT};
-use {EltId, ElementT, Sum};
+use state::{PartState, StateT};
+use elt::{EltId, ElementT};
+use sum::Sum;
 
 /// This struct controls the merging of two states into one.
 /// 
@@ -73,16 +74,16 @@ impl<'a, E: ElementT> TwoWayMerge<'a, E> {
             if let Some(elt2) = map_b.remove(&id) {
                 // Have elt in states 1 and 2
                 if elt1 != elt2 {
-                    v.push((id, EltMerge::NoResult));
+                    v.push((id, EltMerge::Fail));
                 }
             } else {
                 // Have elt in state 1 but not 2
-                v.push((id, EltMerge::NoResult));
+                v.push((id, EltMerge::Fail));
             }
         }
         for (id, _) in map_b.into_iter() {
             // Have elt in state 2 but not 1
-            v.push((id, EltMerge::NoResult));
+            v.push((id, EltMerge::Fail));
         }
         TwoWayMerge { a: a, b: b, c: c, v: v }
     }
@@ -93,7 +94,7 @@ impl<'a, E: ElementT> TwoWayMerge<'a, E> {
     /// Operation is `O(X)`.
     pub fn solve<S>(&mut self, s: &S) where S: TwoWaySolver<E> {
         for &mut (id, ref mut result) in self.v.iter_mut() {
-            if *result == EltMerge::NoResult {
+            if *result == EltMerge::Fail {
                 *result = s.solve(self.a.get_rc(id).ok(), self.b.get_rc(id).ok(), self.c.get_rc(id).ok());
             }
         }
@@ -112,7 +113,7 @@ impl<'a, E: ElementT> TwoWayMerge<'a, E> {
     pub fn len(&self) -> usize { self.v.len() }
     
     /// Get the current resolution for conflict `i` (where `0 <= i < len()`).
-    /// `EltMerge::NoResult` means not-yet-solved. The element identifier is
+    /// `EltMerge::Fail` means not-yet-solved. The element identifier is
     /// also given, though these are expected to be meaningless to the user.
     /// 
     /// Operation is `O(1)`.
@@ -135,14 +136,14 @@ impl<'a, E: ElementT> TwoWayMerge<'a, E> {
     /// 
     /// Operation is `O(X)`.
     pub fn num_unsolved(&self) -> usize {
-        self.v.iter().filter(|&&(_, ref result)| *result != EltMerge::NoResult).count()
+        self.v.iter().filter(|&&(_, ref result)| *result != EltMerge::Fail).count()
     }
     
     /// Check whether all conflicts have been resolved.
     /// 
     /// Operation is `O(X)`.
     pub fn is_solved(&self) -> bool {
-        self.v.iter().all(|&(_, ref result)| *result != EltMerge::NoResult)
+        self.v.iter().all(|&(_, ref result)| *result != EltMerge::Fail)
     }
     
     /// Create a merge commit.
@@ -197,7 +198,7 @@ impl<'a, E: ElementT> TwoWayMerge<'a, E> {
                         }
                     }
                 },
-                EltMerge::Elt(elt) => {
+                EltMerge::Value(elt) => {
                     if let Ok(elt1) = a {
                         if *elt1 != elt {
                             sum1.permute(&elt1.sum(id));
@@ -219,7 +220,7 @@ impl<'a, E: ElementT> TwoWayMerge<'a, E> {
                         c2.insert(id, EltChange::insertion(elt));
                     }
                 },
-                EltMerge::NoElt => {
+                EltMerge::Delete => {
                     if let Ok(elt1) = a {
                         c1.insert(id, EltChange::deletion());
                         sum1.permute(&elt1.sum(id));
@@ -254,7 +255,7 @@ impl<'a, E: ElementT> TwoWayMerge<'a, E> {
                         }
                     }
                 },
-                EltMerge::NoResult => {
+                EltMerge::Fail => {
                     return None;
                 }
             }
@@ -283,7 +284,7 @@ impl<'a, E: ElementT> TwoWayMerge<'a, E> {
      * more efficient, but less flexible.
     /// Try to merge using the provided solver.
     /// 
-    /// Should the solver return `NoResult` in any case, the merge fails and this
+    /// Should the solver return `EltMerge::Fail` in any case, the merge fails and this
     /// function returns `None`. Otherwise, this function returns a new commit.
     /// 
     /// This goes through all elements in states `a` and/or `b`, and refers to
@@ -315,7 +316,7 @@ impl<'a, E: ElementT> TwoWayMerge<'a, E> {
                                 c2.insert(id, EltChange::replacement(elt));
                             }
                         },
-                        EltMerge::NoElt {
+                        EltMerge::Delete {
                             c1.insert(id, EltChange::deletion());
                             c2.insert(id, EltChange::deletion());
                         },
@@ -325,7 +326,7 @@ impl<'a, E: ElementT> TwoWayMerge<'a, E> {
                             c2.insert(new_id, EltChange::change_id(new_id));
                             c2.insert(id, EltChange::insertion(elt1));
                         },
-                        EltMerge::NoResult {
+                        EltMerge::Fail {
                             return None;
                         }
                     };
@@ -337,7 +338,7 @@ impl<'a, E: ElementT> TwoWayMerge<'a, E> {
                     EltMerge::A | EltMerge::Rename => {
                         c2.insert(id, EltChange::insertion(elt1));
                     },
-                    EltMerge::B | EltMerge::NoElt => {
+                    EltMerge::B | EltMerge::Delete => {
                         c1.insert(id, EltChange::deletion());
                     },
                     EltMerge::Other(elt) {
@@ -346,7 +347,7 @@ impl<'a, E: ElementT> TwoWayMerge<'a, E> {
                         }
                         c2.insert(id, EltChange::insertion(elt));
                     },
-                    EltMerge::NoResult {
+                    EltMerge::Fail {
                         return None;
                     }
                 };
@@ -356,7 +357,7 @@ impl<'a, E: ElementT> TwoWayMerge<'a, E> {
             // Have elt in state 2 but not 1
             let elt3 = common.get_elt(id);
             match s.solve(None, Some(elt2), elt3) {
-                EltMerge::A | EltMerge::NoElt => {
+                EltMerge::A | EltMerge::Delete => {
                     c2.insert(id, EltChange::deletion());
                 },
                 EltMerge::B EltMerge::Rename => {
@@ -368,7 +369,7 @@ impl<'a, E: ElementT> TwoWayMerge<'a, E> {
                         c2.insert(id, EltChange::replacement(elt));
                     }
                 },
-                EltMerge::NoResult {
+                EltMerge::Fail {
                     return None;
                 }
             };
@@ -387,8 +388,8 @@ impl<'a, E: ElementT> TwoWayMerge<'a, E> {
 /// Return type of a by-element merge solver.
 /// 
 /// Note that there is no direct way to specify the ancestor value, but this
-/// can be replicated via `Elt(...)` and `NoElt`. This significantly simplifies
-/// code in `TwoWayMerge::merge()`.
+/// can be replicated via `EltMerge::Value(...)` and `EltMerge::Delete`. This
+/// significantly simplifies code in `TwoWayMerge::merge()`.
 #[derive(PartialEq)]
 pub enum EltMerge<E: ElementT> {
     /// Use the value from first state
@@ -396,14 +397,14 @@ pub enum EltMerge<E: ElementT> {
     /// Use the value from the second state
     B,
     /// Use a custom value (specified in full)
-    Elt(Rc<E>),
+    Value(Rc<E>),
     /// Remove the element
-    NoElt,
+    Delete,
     /// Rename one element and include both; where only one element is present
     /// that element is used in both.
     Rename,
     /// Give up
-    NoResult,
+    Fail,
 }
 
 /// Implementations solve two-way merges on an element-by-element basis.
@@ -464,31 +465,31 @@ impl<E: ElementT> TwoWaySolver<E> for TwoWaySolveUseC<E> {
         c: Option<&Rc<E>>) -> EltMerge<E>
     {
         match c {
-            Some(ref elt) => EltMerge::Elt((*elt).clone()),
-            None => EltMerge::NoElt,
+            Some(ref elt) => EltMerge::Value((*elt).clone()),
+            None => EltMerge::Delete,
         }
     }
 }
 /// Implementation of TwoWaySolver which always gives up.
-pub struct TwoWaySolveNoResult<E: ElementT>{
+pub struct TwoWaySolveFail<E: ElementT>{
     p: PhantomData<E>
 }
-impl<E: ElementT> TwoWaySolveNoResult<E> {
+impl<E: ElementT> TwoWaySolveFail<E> {
     /// Create an instance (requires no parameters)
     pub fn new() -> Self {
-        TwoWaySolveNoResult { p: PhantomData }
+        TwoWaySolveFail { p: PhantomData }
     }
 }
-impl<E: ElementT> TwoWaySolver<E> for TwoWaySolveNoResult<E> {
+impl<E: ElementT> TwoWaySolver<E> for TwoWaySolveFail<E> {
     fn solve(&self, _: Option<&Rc<E>>, _: Option<&Rc<E>>,
         _: Option<&Rc<E>>) -> EltMerge<E>
     {
-        EltMerge::NoResult
+        EltMerge::Fail
     }
 }
 
 /// Chains two solvers. Calls the second if and only if the first returns
-/// `NoResult`.
+/// `EltMerge::Fail`.
 pub struct TwoWaySolverChain<'a, E: ElementT,
     S: TwoWaySolver<E>+'a, T: TwoWaySolver<E>+'a>
 {
@@ -510,7 +511,7 @@ impl<'a, E: ElementT, S: TwoWaySolver<E>+'a, T: TwoWaySolver<E>+'a> TwoWaySolver
         c: Option<&Rc<E>>) -> EltMerge<E>
     {
         let result = self.s.solve(a, b, c);
-        if result != EltMerge::NoResult {
+        if result != EltMerge::Fail {
             result
         } else {
             self.t.solve(a, b, c)
@@ -521,7 +522,7 @@ impl<'a, E: ElementT, S: TwoWaySolver<E>+'a, T: TwoWaySolver<E>+'a> TwoWaySolver
 /// Solver which tries to make sensible choices by comparing to the common
 /// ancestor. In brief, if one state has element equal to that in the ancestor
 /// (or neither has the element in question), the element from the other state
-/// (or its absense) will be used. In other cases, this returns `EltMerge::NoResult`.
+/// (or its absense) will be used. In other cases, this returns `EltMerge::Fail`.
 /// 
 /// (This isn't quite right, e.g. if two branches perform the same change
 /// independently, then one reverts, and then a merge is carried out, the
@@ -547,7 +548,7 @@ impl<E: ElementT> TwoWaySolver<E> for AncestorSolver2W<E> {
         if b == c {
             return EltMerge::A;
         }
-        EltMerge::NoResult
+        EltMerge::Fail
     }
 }
 
@@ -570,7 +571,7 @@ impl<E: ElementT> TwoWaySolver<E> for RenamingSolver2W<E> {
         if c == None {
             EltMerge::Rename
         } else {
-            EltMerge::NoResult
+            EltMerge::Fail
         }
     }
 }

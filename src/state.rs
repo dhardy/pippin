@@ -23,7 +23,8 @@ use std::rc::Rc;
 use hashindexed::KeyComparator;
 use rand::random;
 
-use {ElementT, Sum, PartId, EltId};
+use elt::{ElementT, PartId, EltId};
+use sum::Sum;
 use commit::*;
 use error::{ElementOp, PatchOp};
 

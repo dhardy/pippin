@@ -2,19 +2,19 @@
 
 // The obligatory hello-world example.
 
-use pippin::{Result, Partition, PartId, StateT, MutStateT, DefaultUserPartT, discover, fileio};
+use pippin::pip::{self, StateT, MutStateT};
 
 extern crate pippin;
 
 // Main function — for error handling
-fn inner() -> Result<()> {
+fn inner() -> pip::Result<()> {
     // We try to find Pippin files in '.':
     println!("Looking for Pippin files in the current directory ...");
-    match discover::part_from_path(".", None) {
+    match pip::part_from_path(".", None) {
         Ok((part_id, io)) => {
             // Read the found files:
-            let part_t = Box::new(DefaultUserPartT::new(io));
-            let mut part = Partition::<String>::open(part_id, part_t)?;
+            let part_t = Box::new(pip::DefaultUserPartT::new(io));
+            let mut part = pip::Partition::<String>::open(part_id, part_t)?;
             part.load_latest()?;
             
             // Get access to the latest state:
@@ -31,9 +31,9 @@ fn inner() -> Result<()> {
             println!("Creating a new partition instead (run again to see contents)");
             
             // Create a new partition, using PartFileIO:
-            let io = fileio::PartFileIO::new_default("hello");
-            let part_t = Box::new(DefaultUserPartT::new(io));
-            let mut part = Partition::create(PartId::from_num(1), part_t, "hello world")?;
+            let io = pip::PartFileIO::new_default("hello");
+            let part_t = Box::new(pip::DefaultUserPartT::new(io));
+            let mut part = pip::Partition::create(pip::PartId::from_num(1), part_t, "hello world")?;
             
             // Create a new state derived from the tip:
             let mut state = part.tip()?.clone_mut();

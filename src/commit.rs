@@ -13,8 +13,9 @@ use std::ops::BitOr;
 
 use chrono::{DateTime, NaiveDateTime, UTC};
 
-use {PartState, MutPartState, MutStateT};
-use {ElementT, EltId, Sum};
+use state::{PartState, MutPartState, MutStateT};
+use elt::{ElementT, EltId};
+use sum::Sum;
 use error::{Result, ElementOp, OtherError};
 
 

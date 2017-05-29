@@ -12,9 +12,9 @@ use std::collections::hash_map::{HashMap, Entry};
 use byteorder::{ByteOrder, BigEndian, WriteBytesExt};
 
 use readwrite::{sum, read_meta, write_meta};
-use {PartState, StateT};
-use {ElementT, PartId, Sum};
-use sum::BYTES as SUM_BYTES;
+use state::{PartState, StateT};
+use elt::{ElementT, PartId};
+use sum::{Sum, SUM_BYTES};
 use error::{Result, ReadError, ElementOp};
 
 /// Read a snapshot of a set of elements from a stream.
@@ -221,9 +221,9 @@ pub fn write_snapshot<T: ElementT>(state: &PartState<T>,
 
 #[test]
 fn snapshot_writing() {
-    use ::MutStateT;
+    use state::MutStateT;
     use readwrite::header::HEAD_VERSIONS;
-    use ::commit::{CommitMeta, ExtraMeta, MakeCommitMeta};
+    use commit::{CommitMeta, ExtraMeta, MakeCommitMeta};
     
     struct MMNone {}
     impl MakeCommitMeta for MMNone {

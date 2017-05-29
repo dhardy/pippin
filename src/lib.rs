@@ -81,31 +81,21 @@ extern crate walkdir;
 #[macro_use]
 extern crate log;
 
-// Redundantly re-export some of the main types here:
-pub use error::{Result};
-pub use elt::{EltId, PartId, ElementT};
-pub use part::Partition;
-pub use part::{DefaultSnapshot, DefaultUserPartT, DummyPartIO, PartIO, UserPartT, SnapshotPolicy};
-pub use repo::{Repository, RepoIO, RepoT, ClassifierT, RepoState};
-pub use state::{PartState, MutPartState, StateT, MutStateT};
-pub use sum::Sum;
-// Export some items not otherwise available here:
-pub use readwrite::{FileHeader, FileType, read_head, UserData};
-
 pub mod commit;
-pub mod discover;
 pub mod elt;
 pub mod error;
-pub mod fileio;
+pub mod io;
 pub mod merge;
 pub mod part;
-mod part_traits;
-mod readwrite;
+pub mod pip;
 pub mod repo;
-mod repo_traits;
 pub mod state;
 pub mod sum;
 pub mod util;
+
+mod part_traits;
+mod readwrite;
+mod repo_traits;
 
 /// Version. The low 16 bits are patch number, next 16 are the minor version
 /// number, the next are the major version number. The top 16 are zero.

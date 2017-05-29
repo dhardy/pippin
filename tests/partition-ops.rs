@@ -14,9 +14,7 @@ use std::any::Any;
 
 use vec_map::VecMap;
 
-use pippin::PartId;
-use pippin::{Partition, PartIO, MutStateT, DefaultUserPartT, UserPartT};
-use pippin::error::{make_io_err, Result};
+use pippin::pip::*;
 
 /// Allows writing to in-memory streams. Refers to external data so that it
 /// can be recovered after the `Partition` is destroyed in the tests.

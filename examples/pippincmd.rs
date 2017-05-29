@@ -16,12 +16,10 @@ use std::path::PathBuf;
 use std::io::{Read, Write};
 use std::ffi::OsStr;
 use std::os::unix::ffi::OsStrExt;
+use std::error::Error;
+
 use docopt::Docopt;
-use pippin::{Partition, PartIO, ElementT, StateT, MutStateT, UserData, PartId, DefaultUserPartT};
-use pippin::{discover, fileio};
-use pippin::error::{Result, PathError, ErrorTrait};
-use pippin::util::rtrim;
-use pippin::{read_head, FileType};
+use pippin::pip::*;
 
 const USAGE: &'static str = "
 Pippin command-line UI. This program is designed to demonstrate Pippin's
@@ -195,7 +193,7 @@ fn inner(path: PathBuf, op: Operation, args: Rest) -> Result<()>
             });
             
             let prefix = path.join(name);
-            let io = fileio::PartFileIO::new_empty(prefix);
+            let io = PartFileIO::new_empty(prefix);
             let part_t = Box::new(DefaultUserPartT::new(io));
             Partition::<DataElt>::create(part_id, part_t, &repo_name)?;
             Ok(())
@@ -223,7 +221,7 @@ fn inner(path: PathBuf, op: Operation, args: Rest) -> Result<()>
             assert_eq!(args.commit, None);
             println!("Scanning files ...");
             // #0017: this should print warnings generated in discover::*
-            let repo_files = discover::repo_from_path(&path)?;
+            let repo_files = repo_from_path(&path)?;
             for (part_id, part) in repo_files.partitions() {
                 println!("Partition {}: {}*", part_id, part.prefix().display());
                 let ss_len = part.ss_len();
@@ -265,7 +263,7 @@ fn inner(path: PathBuf, op: Operation, args: Rest) -> Result<()>
                 panic!("No support for -p / --partition option");
             }
             println!("Scanning files ...");
-            let (part_id, part_files) = discover::part_from_path(&path, None)?;
+            let (part_id, part_files) = part_from_path(&path, None)?;
             
             let part_t = Box::new(DefaultUserPartT::new(part_files));
             let mut part = Partition::<DataElt>::open(part_id, part_t)?;

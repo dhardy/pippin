@@ -23,12 +23,12 @@ use std::rc::Rc;
 use std::mem::swap;
 
 // Re-export these. We pretend these are part of the same module while keeping files smaller.
-pub use repo_traits::{RepoIO, ClassifierT, ClassifyFallback, RepoT,
-    RepoDivideError, DummyClassifier};
-use {Partition, StateT, MutStateT, MutPartState};
+pub use repo_traits::{ClassifierT, ClassifyFallback, RepoT, DummyClassifier};
+use part::Partition;
+use state::{StateT, MutStateT, MutPartState};
 use merge::TwoWaySolver;
-use {EltId, PartId, ElementT};
-use error::{Result, OtherError, TipError, ElementOp};
+use elt::{EltId, PartId, ElementT};
+use error::{Result, OtherError, TipError, ElementOp, RepoDivideError};
 
 /// Handle on a repository.
 /// 
