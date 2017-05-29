@@ -67,10 +67,10 @@ Representation of `L` depends on (subsets of) `C` and `D`. These could be specif
 other identifier, and computation aborted if relevant `Ci`, `Di` or members of `Di` are unknown.
 Each `Li` could be specified via:
 
-- a multidimensional matrix of booleans over `D` [fully flexible, may be large]
-- a range, subset or other set of rules for each applicable `Di` [has limitations on interaction
+*   a multidimensional matrix of booleans over `D` [fully flexible, may be large]
+*   a range, subset or other set of rules for each applicable `Di` [has limitations on interaction
     between `Di`]
-- a single composed rule over `D`, using AND, OR, equality, inequality and/or membership rules
+*   a single composed rule over `D`, using AND, OR, equality, inequality and/or membership rules
     [fully flexible, more complex to use]
 
 ## Bootstrap / discovery / limited-knowledge operation
@@ -78,23 +78,23 @@ Each `Li` could be specified via:
 ### Discovering `P`, `C` and `L`
 
 Simplest option: read metadata from each partition available.  
-+ Simple  
-− Finding elements of unknown location is `O(n)` in number of unknown partitions  
-− `Li` for distinct `i` could overlap; union of `Li` over `i` may not cover `D`
+→ Simple  
+← Finding elements of unknown location is `O(n)` in number of unknown partitions  
+← `Li` for distinct `i` could overlap; union of `Li` over `i` may not cover `D`
 
 Another option: store description of known subset of `P` in each partition's metadata.  
-+ Not very complex  
-− May result in large headers with lots of redundency  
-− Allows multiple different specifications of `Li` for some `i` [versioning helps, but fundamentally
+→ Not very complex  
+← May result in large headers with lots of redundency  
+← Allows multiple different specifications of `Li` for some `i` [versioning helps, but fundamentally
     still allows disagreements]  
-× Finding elements of unknown location is faster but still worst-case `O(n)`
+← Finding elements of unknown location is faster but still worst-case `O(n)`
 
 User is responsible for specifying `C`, `L` and `P`. Library can discover available partitions and inform
 of missing or unused partitions but no more.  
-+ Simple from library perspective; no issues with conflicting definitions of `L`  
-+ More flexible for user  
-− More work for user implementation  
-− Tricky for user to store configuration data within the repository?
+→ Simple from library perspective; no issues with conflicting definitions of `L`  
+→ More flexible for user  
+← More work for user implementation  
+← Tricky for user to store configuration data within the repository?
 
 ### Operation without knowing full `P`, `C` and `L`
 
@@ -125,10 +125,10 @@ user must take responsibility for this.
 
 ### User assignment of partitions
 
-- User may desire to create some partitions immediately, even when sizes are small
-- Large partitions are an indicator that splitting may be useful, but not a requirement
-- Memory, disk & CPU performance is complex: optimal partitioning may not be obvious
-- Should the library take *any* responsibility for deciding partitioning or when to partition?
+*   User may desire to create some partitions immediately, even when sizes are small
+*   Large partitions are an indicator that splitting may be useful, but not a requirement
+*   Memory, disk & CPU performance is complex: optimal partitioning may not be obvious
+*   Should the library take *any* responsibility for deciding partitioning or when to partition?
 
 ### Data source
 
