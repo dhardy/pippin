@@ -20,12 +20,14 @@ each request slower.
 
 Another would be to allow read access to multiple parties and copy-on-write
 with some synchronisation system. This makes each element insertion/deletion
-slow and requires frequent synchronisation.
+expesive and requires frequent synchronisation. It might be possible to reuse
+old copies of the map (after synchronisation) once they no longer have read
+locks; otherwise each batch of non-concurrent accesses requires a new copy.
 
 Another would be to allow each user to make a copy of the current state and
 only allow modifications through a copy. Committing modifications may require
 a merge. The user should be able to check for external modifications while
-holding a copy.
+holding a copy. This may be useful for a form of transactions.
 
 
 Partitions
