@@ -936,7 +936,6 @@ mod tests {
     use elt::PartId;
     use io::DummyPartIO;
     use state::*;
-    use std::rc::Rc;
     
     struct MCM;
     impl MakeCommitMeta for MCM {}
@@ -948,7 +947,7 @@ mod tests {
         let mut mcm = MCM;
         
         let insert = |state: &mut MutPartState<_>, num, string: &str| -> Result<_, _> {
-            state.insert_with_id(p.elt_id(num), Rc::new(string.to_string()))
+            state.insert(p.elt_id(num), string.to_string())
         };
         
         let mut state = PartState::new(p, &mut mcm).clone_mut();
@@ -1009,8 +1008,8 @@ mod tests {
         
         let elt1 = "This is element one.".to_string();
         let elt2 = "Element two data.".to_string();
-        let e1id = state.insert(elt1).expect("inserting elt");
-        let e2id = state.insert(elt2).expect("inserting elt");
+        let e1id = state.insert_new(elt1).expect("inserting elt");
+        let e2id = state.insert_new(elt2).expect("inserting elt");
         
         assert_eq!(part.push_state(state).expect("comitting"), true);
         assert_eq!(part.unsaved.len(), 1);

@@ -424,7 +424,7 @@ impl<E: ElementT> Commit<E> {
                     mut_state.remove(*id)?;
                 },
                 &EltChange::Insertion(ref elt) => {
-                    mut_state.insert_with_id(*id, elt.clone())?;
+                    mut_state.insert_rc(*id, elt.clone())?;
                 }
                 &EltChange::Replacement(ref elt) => {
                     mut_state.replace_rc(*id, elt.clone())?;

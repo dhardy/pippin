@@ -95,23 +95,23 @@ fn create_small() {
     
     // 2 Add a few elements over multiple commits
     let mut state = part.tip().expect("has tip").clone_mut();
-    state.insert("thirty five".to_string()).expect("inserting elt 35");
-    state.insert("six thousand, five hundred and thirteen"
+    state.insert_new("thirty five".to_string()).expect("inserting elt 35");
+    state.insert_new("six thousand, five hundred and thirteen"
             .to_string()).expect("inserting elt 6513");
-    state.insert("five million, six hundred and ninety eight \
+    state.insert_new("five million, six hundred and ninety eight \
             thousand, one hundred and thirty one".to_string())
             .expect("inserting elt 5698131");
     part.push_state(state).expect("committing");
     let state1 = part.tip().expect("has tip").clone_exact();
     
     let mut state = part.tip().expect("getting tip").clone_mut();
-    state.insert("sixty eight thousand, one hundred and sixty eight"
+    state.insert_new("sixty eight thousand, one hundred and sixty eight"
             .to_string()).expect("inserting elt 68168");
     part.push_state(state).expect("committing");
     
     let mut state = part.tip().expect("getting tip").clone_mut();
-    state.insert("eighty nine".to_string()).expect("inserting elt 89");
-    state.insert("one thousand and sixty three".to_string())
+    state.insert_new("eighty nine".to_string()).expect("inserting elt 89");
+    state.insert_new("one thousand and sixty three".to_string())
             .expect("inserting elt 1063");
     part.push_state(state).expect("committing");
     let state3 = part.tip().expect("has tip").clone_exact();

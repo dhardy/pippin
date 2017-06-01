@@ -63,61 +63,55 @@ pub trait StateT<E: ElementT> {
         self.get_rc(id).map(|rc| &**rc)
     }
     /// Low-level version of `get(id)`: returns a reference to the
-    /// reference-counter wrapped container of the element.
+    /// reference-counted wrapped container of the element.
     fn get_rc(&self, id: EltId) -> Result<&Rc<E>, ElementOp>;
 }
 
 /// Trait abstracting over write operations on the state of a partition or
 /// repository.
 pub trait MutStateT<E: ElementT>: StateT<E> {
-    /// Inserts a new element with a generated identifier then returns that
-    /// identifier.
+    /// Tries to directly insert an element with a given identifier.
     /// 
-    /// This fails if the relevant partition is not loaded or if the relevant
-    /// partition is unable to find a free identifier. In the latter case
-    /// (`ElementOp::IdGenFailure`) presumably the partition is rather full,
-    /// however simply trying again may succeed.
+    /// The partition part of the identifier must correspond to the current
+    /// partition (when called on a single partition) or a loaded partition
+    /// (when called on a repository).
     /// 
-    /// Note: on a single partition, the lower-level function `insert(id, elt)`
-    /// allows the identifier to be speciifed. On a repository this is not
-    /// allowed since the partition is determined automatically and the
-    /// partition number becomes part of the element identifier.
-    fn insert(&mut self, elt: E) -> Result<EltId, ElementOp> {
-        self.insert_rc(Rc::new(elt))
+    /// Classification is not checked since the identifier already specifies a
+    /// partition. If classification is unknown another function should be
+    /// used (TODO).
+    fn insert(&mut self, id: EltId, elt: E) -> Result<EltId, ElementOp> {
+        self.insert_rc(id, Rc::new(elt))
     }
-    /// Low-level version of `insert(elt)`: takes a reference-counter wrapper
-    /// of an element.
-    fn insert_rc(&mut self, elt: Rc<E>) -> Result<EltId, ElementOp> {
-        // #0049: configurable source of randomness?
-        let initial = random::<u32>() & 0xFF_FFFF;
-        self.insert_rc_initial(initial, elt)
-    }
-    /// Low-level version of `insert(elt)` which allows specification of
-    /// a number used to generate an identifier. See documentation of
-    /// `MutPartState::id_from_initial()` for details.
-    fn insert_initial(&mut self, initial: u32, elt: E) -> Result<EltId, ElementOp> {
-        self.insert_rc_initial(initial, Rc::new(elt))
-    }
-    /// Lowest-level version of `insert(elt)`: takes an Rc-wrapped element and
-    /// allows specification of a number used to generate an identifier.
-    /// See documentation of `MutPartState::id_from_initial()` for details.
-    fn insert_rc_initial(&mut self, initial: u32, elt: Rc<E>) -> Result<EltId, ElementOp>;
     
-    /// Replace an existing element and return the identifier of the newly
-    /// inserted element and the replaced element. Note that the identifier
-    /// returned can be different on a repository where the replacement element
-    /// is classified under a different partition.
+    /// Low-level version of `insert(elt)`: takes a reference-counted wrapper
+    /// of an element.
+    fn insert_rc(&mut self, id: EltId, elt: Rc<E>) -> Result<EltId, ElementOp>;
+    
+    /// Find a free identifier, and insert the element.
     /// 
-    /// This fails if the relevant partition is not loaded or the element is
-    /// not found. In the case of a multi-partition repository it is possible
-    /// that the element has been moved, in which case `RepoState::locate(id)`
-    /// may be helpful.
+    /// When called on a repository, this checks the element's classification
+    /// to find the correct partition. When called directly on a partition, it
+    /// assumes classification is correct.
+    fn insert_new(&mut self, elt: E) -> Result<EltId, ElementOp> {
+        self.insert_new_rc(Rc::new(elt))
+    }
+    
+    /// Low-level version of `insert_new(elt)`: takes a reference-counted
+    /// wrapper of an element.
+    fn insert_new_rc(&mut self, elt: Rc<E>) -> Result<EltId, ElementOp>;
+    
+    /// Remove an existing element, insert a replacement in the same place
+    /// (without checking classifiers), and return the removed element.
+    /// 
+    /// Atomic: makes no changes if there is any error, such as no old element
+    /// is found.
     /// 
     /// Note that the returned `Rc<E>` cannot be unwrapped automatically since
     /// we do not know that we have the only reference.
     fn replace(&mut self, id: EltId, elt: E) -> Result<Rc<E>, ElementOp> {
         self.replace_rc(id, Rc::new(elt))
     }
+    
     /// Low-level version of `replace(id, elt)` which takes an Rc-wrapped
     /// element.
     fn replace_rc(&mut self, id: EltId, elt: Rc<E>) -> Result<Rc<E>, ElementOp>;
@@ -421,41 +415,6 @@ impl<E: ElementT> MutPartState<E> {
         self.moved.get(&id).map(|id| *id) // Some(value) or None
     }
     
-    /// Find a free element identifier, given an initial number. This number
-    /// must be between zero and `EltId::max()`. An initial element identifier
-    /// will be generated from the partition number (`part_id.elt_id(initial)`)
-    /// which will be returned if free, otherwise the function searches nearby
-    /// deterministically for a free identifier.
-    /// 
-    /// Note that the search algorithm is desiged to handle the case that the
-    /// initial number is fairly well distributed (e.g. uniform random) and
-    /// there are quite a few free identifiers. It is not designed to find the
-    /// last few free identifiers efficiently, and it can fail.
-    pub fn id_from_initial(&self, initial: u32) -> Result<EltId, ElementOp> {
-        let mut id = self.part_id.elt_id(initial);
-        for _ in 0..10000 {
-            if !self.elts.contains_key(&id) && !self.moved.contains_key(&id) {
-                return Ok(id);
-            }
-            id = id.next_elt();
-        }
-        Err(ElementOp::IdGenFailure)
-    }
-    
-    /// Insert an element and return the id (the one inserted).
-    /// 
-    /// Fails if the id does not have the correct partition identifier part or
-    /// if the id is already in use.
-    /// It is suggested to use insert() instead if you do not need to specify
-    /// the identifier.
-    pub fn insert_with_id(&mut self, id: EltId, elt: Rc<E>) -> Result<EltId, ElementOp> {
-        if id.part_id() != self.part_id { return Err(ElementOp::WrongPartition); }
-        if self.elts.contains_key(&id) { return Err(ElementOp::IdClash); }
-        self.elt_sum.permute(&elt.sum(id));
-        self.elts.insert(id, elt);
-        Ok(id)
-    }
-    
     /// Add a note about where an element has been moved to.
     /// 
     /// The point of doing this is that someone looking for the element later
@@ -479,6 +438,31 @@ impl<E: ElementT> MutPartState<E> {
     pub fn meta(&self) -> &CommitMetaPartial { &self.meta }
     /// Get write access to metadata
     pub fn meta_mut(&mut self) -> &mut CommitMetaPartial { &mut self.meta }
+    
+    /// Looks for a free element identifier (randomly).
+    /// 
+    /// Can fail if nearly all ids are used, but this is highly unlikely,
+    /// assuming random distribution of ids.
+    pub fn free_id(&mut self) -> Result<EltId, ElementOp> {
+        // #0049: configurable source of randomness?
+        let initial = random::<u32>() & 0xFF_FFFF;
+        self.free_id_near(initial)
+    }
+    
+    /// Looks for a free element identifier near the given starting point.
+    /// 
+    /// Can fail if nearly all ids are used, but this is highly unlikely,
+    /// assuming random distribution of ids.
+    pub fn free_id_near(&mut self, initial: u32) -> Result<EltId, ElementOp> {
+        let mut id = self.part_id.elt_id(initial);
+        for _ in 0..10000 {
+            if !self.elts.contains_key(&id) && !self.moved.contains_key(&id) {
+                return Ok(id);
+            }
+            id = id.next_elt();
+        }
+        Err(ElementOp::IdGenFailure)
+    }
 }
 
 impl<E: ElementT> StateT<E> for PartState<E> {
@@ -492,7 +476,7 @@ impl<E: ElementT> StateT<E> for PartState<E> {
         self.elts.contains_key(&id)
     }
     fn get_rc(&self, id: EltId) -> Result<&Rc<E>, ElementOp> {
-        self.elts.get(&id).ok_or(ElementOp::NotFound)
+        self.elts.get(&id).ok_or(ElementOp::EltNotFound)
     }
 }
 impl<E: ElementT> StateT<E> for MutPartState<E> {
@@ -506,27 +490,33 @@ impl<E: ElementT> StateT<E> for MutPartState<E> {
         self.elts.contains_key(&id)
     }
     fn get_rc(&self, id: EltId) -> Result<&Rc<E>, ElementOp> {
-        self.elts.get(&id).ok_or(ElementOp::NotFound)
+        self.elts.get(&id).ok_or(ElementOp::EltNotFound)
     }
 }
 impl<E: ElementT> MutStateT<E> for MutPartState<E> {
-    fn insert_rc_initial(&mut self, initial: u32, elt: Rc<E>) -> Result<EltId, ElementOp> {
-        let id = self.id_from_initial(initial)?;
-        self.insert_with_id(id, elt)
-    }
-    fn replace_rc(&mut self, id: EltId, elt: Rc<E>) -> Result<Rc<E>, ElementOp> {
+    fn insert_rc(&mut self, id: EltId, elt: Rc<E>) -> Result<EltId, ElementOp> {
+        if id.part_id() != self.part_id { return Err(ElementOp::WrongPartId); }
+        if self.elts.contains_key(&id) { return Err(ElementOp::IdClash); }
         self.elt_sum.permute(&elt.sum(id));
-        match self.elts.insert(id, elt) {
-            None => Err(ElementOp::NotFound),
-            Some(removed) => {
-                self.elt_sum.permute(&removed.sum(id));
-                Ok(removed)
-            }
+        self.elts.insert(id, elt);
+        Ok(id)
+    }
+    
+    fn insert_new_rc(&mut self, elt: Rc<E>) -> Result<EltId, ElementOp> {
+        let id = self.free_id()?;
+        self.insert_rc(id, elt)
+    }
+    
+    fn replace_rc(&mut self, id: EltId, elt: Rc<E>) -> Result<Rc<E>, ElementOp> {
+        match self.elts.entry(id) {
+            hs::Entry::Occupied(ref mut entry) => Ok(entry.insert(elt)),
+            hs::Entry::Vacant(_) => Err(ElementOp::EltNotFound),
         }
     }
+    
     fn remove(&mut self, id: EltId) -> Result<Rc<E>, ElementOp> {
         match self.elts.remove(&id) {
-            None => Err(ElementOp::NotFound),
+            None => Err(ElementOp::EltNotFound),
             Some(removed) => {
                 self.elt_sum.permute(&removed.sum(id));
                 Ok(removed)

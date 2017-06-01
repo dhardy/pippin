@@ -94,7 +94,7 @@ pub fn read_snapshot<T: ElementT>(reader: &mut Read, part_id: PartId,
         combined_elt_sum.permute(&elt_sum);
         
         let elt = T::from_vec_sum(data, elt_sum)?;
-        if ident.part_id() != part_id { return Err(Box::new(ElementOp::WrongPartition)); }
+        if ident.part_id() != part_id { return Err(Box::new(ElementOp::WrongPartId)); }
         match elts.entry(ident) {
             Entry::Occupied(_) => { return Err(Box::new(ElementOp::IdClash)); },
             Entry::Vacant(e) => e.insert(Rc::new(elt)),
@@ -249,11 +249,11 @@ fn snapshot_writing() {
         advantage from it? But who has any right to find fault with a man who \
         chooses to enjoy a pleasure that has no annoying consequences, or one \
         who avoids a pain that produces no resultant pleasure?";
-    state.insert(data.to_string()).unwrap();
+    state.insert_new(data.to_string()).unwrap();
     let data = "arstneio[()]123%αρστνειο\
         qwfpluy-QWFPLUY—<{}>456+5≤≥φπλθυ−\
         zxcvm,./ZXCVM;:?`\"ç$0,./ζχψωμ~·÷";
-    state.insert(data.to_string()).unwrap();
+    state.insert_new(data.to_string()).unwrap();
     
     struct MMTT {}
     impl MakeCommitMeta for MMTT {

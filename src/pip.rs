@@ -3,8 +3,6 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 //! Convenient bindings to Pippin types, traits, functions and constants.
-//! 
-//! TODO: should anything be renamed, or excluded from this list for clarity?
 
 pub use ::LIB_VERSION;
 pub use commit::{ExtraMeta, MetaFlags, CommitMeta, CommitMetaPartial, Commit, EltChange};

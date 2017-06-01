@@ -37,7 +37,7 @@ fn inner() -> pip::Result<()> {
             
             // Create a new state derived from the tip:
             let mut state = part.tip()?.clone_mut();
-            state.insert("Hello, world!".to_string())?;
+            state.insert_new("Hello, world!".to_string())?;
             part.push_state(state)?;
             
             // Write our changes:

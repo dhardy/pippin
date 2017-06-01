@@ -279,7 +279,8 @@ impl<C: ClassifierT, R: RepoT<C>> Repository<C, R> {
                     // TODO: if there are a lot of elements/data, we should stop and write a
                     // checkpoint from time to time.
                     if let Ok(elt) = old_state.remove(elt_id) {
-                        state.insert_rc_initial(elt_id.elt_num(), elt)?;
+                        let id = state.free_id_near(elt_id.elt_num())?;
+                        state.insert_rc(id, elt)?;
                     }
                 }
                 part.push_state(state)?;
@@ -463,14 +464,17 @@ impl<C: ClassifierT> RepoState<C> {
     fn new(classifier: C) -> RepoState<C> {
         RepoState { classifier: classifier, states: HashMap::new() }
     }
+    
     /// Add a state from some partition
     fn add_part(&mut self, num: PartId, state: MutPartState<C::Element>) {
         self.states.insert(num, state);
     }
+    
     /// Checks whether the given partition is present
     pub fn has_part(&self, num: PartId) -> bool {
         self.states.contains_key(&num)
     }
+    
     /// Counts the number of partitions represented
     pub fn num_parts(&self) -> usize {
         self.states.len()
@@ -521,7 +525,7 @@ impl<C: ClassifierT> RepoState<C> {
                 }
                 // else: Partition is loaded but does not have element!
             } else {
-                return Err(ElementOp::NotLoaded);
+                return Err(ElementOp::PartNotFound);
             }
             break;
         }
@@ -534,7 +538,7 @@ impl<C: ClassifierT> RepoState<C> {
         // TODO: should elements remember their old names?
         
         // No success; fail
-        Err(ElementOp::NotFound)
+        Err(ElementOp::EltNotFound)
     }
 }
 
@@ -553,88 +557,39 @@ impl<C: ClassifierT> StateT<C::Element> for RepoState<C> {
         let part_id = id.part_id();
         match self.states.get(&part_id) {
             Some(state) => state.get_rc(id),
-            None => Err(ElementOp::NotLoaded),
+            None => Err(ElementOp::PartNotFound),
         }
     }
 }
 impl<C: ClassifierT> MutStateT<C::Element> for RepoState<C> {
-    fn insert_rc_initial(&mut self, initial: u32, elt: Rc<C::Element>) -> Result<EltId, ElementOp> {
-        let part_id = if let Some(part_id) = self.classifier.classify(&*elt) {
-            part_id
+    fn insert_rc(&mut self, id: EltId, elt: Rc<C::Element>) -> Result<EltId, ElementOp> {
+        if let Some(mut state) = self.states.get_mut(&id.part_id()) {
+            state.insert_rc(id, elt)
         } else {
-            match self.classifier.fallback() {
-                ClassifyFallback::Default(part_id) | ClassifyFallback::ReplacedOrDefault(part_id) => part_id,
-                ClassifyFallback::ReplacedOrFail | ClassifyFallback::Fail => {
-                    return Err(ElementOp::ClassifyFailure);
-                },
-            }
-        };
-        if let Some(mut state) = self.states.get_mut(&part_id) {
-            // Now insert into our PartState (may also fail):
-            state.insert_rc_initial(initial, elt)
-        } else {
-            Err(ElementOp::NotLoaded)
+            // TODO: try to find & load the partition?
+            Err(ElementOp::PartNotFound)
         }
     }
+    
+    fn insert_new_rc(&mut self, elt: Rc<C::Element>) -> Result<EltId, ElementOp> {
+        // TODO: classification
+        unimplemented!()
+    }
+    
     fn replace_rc(&mut self, id: EltId, elt: Rc<C::Element>) -> Result<Rc<C::Element>, ElementOp> {
-        let class_id = if let Some(class_id) = self.classifier.classify(&*elt) {
-            class_id
+        if let Some(mut state) = self.states.get_mut(&id.part_id()) {
+            state.replace_rc(id, elt)
         } else {
-            warn!("Failed to classify element");
-            match self.classifier.fallback() {
-                ClassifyFallback::Default(class_id) => class_id,
-                ClassifyFallback::ReplacedOrFail | ClassifyFallback::ReplacedOrDefault(_) => id.part_id(),
-                ClassifyFallback::Fail => {
-                    return Err(ElementOp::ClassifyFailure);
-                },
-            }
-        };
-        if class_id != id.part_id() {
-            // Different partition; we need to move.
-            // 1: Confirm we have the source partition available or abort.
-            let source_id = id.part_id();
-            if let Some(mut _source_state) = self.states.get_mut(&source_id) {
-                // TODO: do we want to notify that `id` is about to be moved?
-                Ok(())
-            } else {
-                Err(ElementOp::NotLoaded)
-            }?;
-            // 2: Find target partition and insert element.
-            let new_id = if let Some(mut target_state) = self.states.get_mut(&class_id) {
-                match target_state.insert_with_id(class_id.elt_id(id.elt_num()), elt.clone()) {
-                    // success with the same element part of the id:
-                    Ok(id) => Ok(id),
-                    // failure; try with a new id:
-                    Err(_) => target_state.insert_rc(elt)
-                }
-            } else {
-                Err(ElementOp::NotLoaded)
-            }?;
-            // 3: Remove from source partition. We must find `source_state`
-            // again because `self.states` does not support simultaneous
-            // mutable references to two of its elements.
-            if let Some(mut source_state) = self.states.get_mut(&source_id) {
-                let removed = source_state.remove(id)?;
-                source_state.set_move(id, new_id);
-                Ok(removed)
-            } else {
-                Err(ElementOp::NotLoaded)
-            }
-        } else {
-            // Same partition: just replace
-            if let Some(mut state) = self.states.get_mut(&class_id) {
-                state.replace_rc(id, elt)
-            } else {
-                Err(ElementOp::NotLoaded)
-            }
+            // TODO: try to find & load the partition?
+            Err(ElementOp::PartNotFound)
         }
     }
+    
     fn remove(&mut self, id: EltId) -> Result<Rc<C::Element>, ElementOp> {
-        let part_id = id.part_id();
-        if let Some(mut state) = self.states.get_mut(&part_id) {
+        if let Some(mut state) = self.states.get_mut(&id.part_id()) {
             state.remove(id)
         } else {
-            Err(ElementOp::NotLoaded)
+            Err(ElementOp::PartNotFound)
         }
     }
 }

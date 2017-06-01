@@ -163,30 +163,30 @@ impl fmt::Display for ArgError {
 #[derive(PartialEq, Eq, Debug, Clone, Copy)]
 pub enum ElementOp {
     /// The element was simply not found
-    NotFound,
+    EltNotFound,
     /// Unable to find a free element identifier for a new element
     IdGenFailure,
     /// Wrong partition identifier. This should only be returned for operations
     /// on a specified partition, and indicates that the given identifier is
     /// from another partition.
-    WrongPartition,
+    WrongPartId,
     /// Identifier already in use. An insertion failed since the given
     /// identifier is already in use.
     IdClash,
     /// Unable to proceed because classification failed
     ClassifyFailure,
-    /// The relevant partition is not loaded within a repository
-    NotLoaded,
+    /// The relevant partition could not be found
+    PartNotFound,
 }
 impl ErrorTrait for ElementOp {
     fn description(&self) -> &'static str {
         match *self {
-            ElementOp::NotFound => "element not found",
+            ElementOp::EltNotFound => "element not found",
             ElementOp::IdGenFailure => "id generation failed to find a free identifier",
-            ElementOp::WrongPartition => "operation on a partition uses element identifier from another partition",
+            ElementOp::WrongPartId => "operation on a partition uses element identifier from another partition",
             ElementOp::IdClash => "identifier already in use",
             ElementOp::ClassifyFailure => "classification of element failed",
-            ElementOp::NotLoaded => "partition must be loaded",
+            ElementOp::PartNotFound => "partition not found or not loaded",
         }
     }
 }
