@@ -81,7 +81,7 @@ impl<'a, E: ElementT> TwoWayMerge<'a, E> {
                 v.push((id, EltMerge::Fail));
             }
         }
-        for (id, _) in map_b.into_iter() {
+        for (id, _) in map_b {
             // Have elt in state 2 but not 1
             v.push((id, EltMerge::Fail));
         }
@@ -93,7 +93,7 @@ impl<'a, E: ElementT> TwoWayMerge<'a, E> {
     /// 
     /// Operation is `O(X)`.
     pub fn solve<S>(&mut self, s: &S) where S: TwoWaySolver<E> {
-        for &mut (id, ref mut result) in self.v.iter_mut() {
+        for &mut (id, ref mut result) in &mut self.v {
             if *result == EltMerge::Fail {
                 *result = s.solve(self.a.get_rc(id).ok(), self.b.get_rc(id).ok(), self.c.get_rc(id).ok());
             }
@@ -160,7 +160,7 @@ impl<'a, E: ElementT> TwoWayMerge<'a, E> {
         let mut sum1: Sum = self.a.statesum() ^ &self.a.metasum();
         let mut sum2: Sum = self.b.statesum() ^ &self.b.metasum();
         
-        for (id, result) in self.v.into_iter() {
+        for (id, result) in self.v {
             let a = self.a.get_rc(id);
             let b = self.b.get_rc(id);
             match result {
@@ -416,7 +416,7 @@ pub trait TwoWaySolver<E: ElementT> {
         c: Option<&'a Rc<E>>) -> EltMerge<E>;
 }
 
-/// Implementation of TwoWaySolver which always selects state A.
+/// Implementation of `TwoWaySolver` which always selects state A.
 pub struct TwoWaySolveUseA<E: ElementT>{
     p: PhantomData<E>
 }
@@ -433,7 +433,7 @@ impl<E: ElementT> TwoWaySolver<E> for TwoWaySolveUseA<E> {
         EltMerge::A
     }
 }
-/// Implementation of TwoWaySolver which always selects state B.
+/// Implementation of `TwoWaySolver` which always selects state B.
 pub struct TwoWaySolveUseB<E: ElementT>{
     p: PhantomData<E>
 }
@@ -450,7 +450,7 @@ impl<E: ElementT> TwoWaySolver<E> for TwoWaySolveUseB<E> {
         EltMerge::B
     }
 }
-/// Implementation of TwoWaySolver which always selects state C.
+/// Implementation of `TwoWaySolver` which always selects state C.
 pub struct TwoWaySolveUseC<E: ElementT>{
     p: PhantomData<E>
 }
@@ -465,12 +465,12 @@ impl<E: ElementT> TwoWaySolver<E> for TwoWaySolveUseC<E> {
         c: Option<&Rc<E>>) -> EltMerge<E>
     {
         match c {
-            Some(ref elt) => EltMerge::Value((*elt).clone()),
+            Some(elt) => EltMerge::Value((*elt).clone()),
             None => EltMerge::Delete,
         }
     }
 }
-/// Implementation of TwoWaySolver which always gives up.
+/// Implementation of `TwoWaySolver` which always gives up.
 pub struct TwoWaySolveFail<E: ElementT>{
     p: PhantomData<E>
 }

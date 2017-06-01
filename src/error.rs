@@ -23,7 +23,7 @@ use std::error::Error as ErrorTrait;
 // —————  ReadError  —————
 
 /// This is a variant of the core `try!(...)` macro which adds position data
-/// in a stream to the error, on failure. Return type is Result<_, ReadError>.
+/// in a stream to the error, on failure. Return type is `Result<_, ReadError>`.
 #[macro_export]
 macro_rules! try_read {
     ($expr:expr, $pos:expr, $offset:expr) => (match $expr {
@@ -86,9 +86,9 @@ impl fmt::Display for ReadError {
     fn fmt(&self, f: &mut fmt::Formatter) -> result::Result<(), fmt::Error> {
         write!(f, "read error at position {}, offset ({}, {}): ", 
                 self.pos, self.off_start, self.off_end)?;
-        match &self.detail {
-            &Wrapped::Msg(ref msg) => write!(f, "{}", msg),
-            &Wrapped::ErrT(ref e) => e.fmt(f),
+        match self.detail {
+            Wrapped::Msg(msg) => write!(f, "{}", msg),
+            Wrapped::ErrT(ref e) => e.fmt(f),
         }
     }
 }
@@ -104,9 +104,9 @@ impl<'a> fmt::Display for ReadErrorFormatter<'a> {
         
         write!(f, "read error (pos {}, offset ({}, {})): ", self.err.pos,
             self.err.off_start, self.err.off_end)?;
-        match &self.err.detail {
-            &Wrapped::Msg(ref msg) => write!(f, "{}", msg),
-            &Wrapped::ErrT(ref e) => e.fmt(f),
+        match self.err.detail {
+            Wrapped::Msg(msg) => write!(f, "{}", msg),
+            Wrapped::ErrT(ref e) => e.fmt(f),
         }?;
         let start = self.err.pos + 8 * (self.err.off_start / 8);
         let end = self.err.pos + 8 * ((self.err.off_end + 7) / 8);
@@ -200,7 +200,7 @@ impl fmt::Display for ElementOp {
 // —————  PatchOp  —————
 /// Reason for a `push_commit` / `push_state` / commit patch operation failing.
 /// 
-/// Any ElementOp can automatically be converted to PatchOp::PatchApply.
+/// Any `ElementOp` can automatically be converted to `PatchOp::PatchApply`.
 #[derive(PartialEq, Eq, Debug, Clone, Copy)]
 pub enum PatchOp {
     /// Parent state not found
@@ -273,17 +273,17 @@ pub enum MatchError {
 }
 impl ErrorTrait for MatchError {
     fn description(&self) -> &str {
-        match self {
-            &MatchError::NoMatch => "no matching string",
-            &MatchError::MultiMatch(_,_) => "multiple matching strings",
+        match *self {
+            MatchError::NoMatch => "no matching string",
+            MatchError::MultiMatch(_,_) => "multiple matching strings",
         }
     }
 }
 impl fmt::Display for MatchError {
     fn fmt(&self, f: &mut fmt::Formatter) -> result::Result<(), fmt::Error> {
-        match self {
-            &MatchError::NoMatch => write!(f, "no match found"),
-            &MatchError::MultiMatch(ref m1, ref m2) =>
+        match *self {
+            MatchError::NoMatch => write!(f, "no match found"),
+            MatchError::MultiMatch(ref m1, ref m2) =>
                 write!(f, "multiple matches found ({}, {}, ...)", m1, m2)
         }
     }
@@ -302,9 +302,9 @@ pub enum TipError {
 }
 impl ErrorTrait for TipError {
     fn description(&self) -> &str {
-        match self {
-            &TipError::NotReady => "tip not ready: no tips loaded",
-            &TipError::MergeRequired => "tip not ready: merge required",
+        match *self {
+            TipError::NotReady => "tip not ready: no tips loaded",
+            TipError::MergeRequired => "tip not ready: merge required",
         }
     }
 }
@@ -330,11 +330,11 @@ pub enum MergeError {
 }
 impl ErrorTrait for MergeError {
     fn description(&self) -> &str {
-        match self {
-            &MergeError::NoState => "merge: could not find state",
-            &MergeError::NoCommonAncestor => "merge: could not find a common ancestor",
-            &MergeError::NotSolved => "merge: solver failed",
-            &MergeError::PatchOp(ref p) => p.description(),
+        match *self {
+            MergeError::NoState => "merge: could not find state",
+            MergeError::NoCommonAncestor => "merge: could not find a common ancestor",
+            MergeError::NotSolved => "merge: solver failed",
+            MergeError::PatchOp(ref p) => p.description(),
         }
     }
 }
@@ -420,21 +420,21 @@ impl RepoDivideError {
 }
 impl ErrorTrait for RepoDivideError {
     fn description(&self) -> &str {
-        match self {
-            &RepoDivideError::NotSubdivisible => "divide: partition is not divisible",
-            &RepoDivideError::LoadPart(_) => "divide: another partition needs loading",
-            &RepoDivideError::Other(ref e) => e.description(),
+        match *self {
+            RepoDivideError::NotSubdivisible => "divide: partition is not divisible",
+            RepoDivideError::LoadPart(_) => "divide: another partition needs loading",
+            RepoDivideError::Other(ref e) => e.description(),
         }
     }
 }
 impl fmt::Display for RepoDivideError {
     fn fmt(&self, f: &mut fmt::Formatter) -> result::Result<(), fmt::Error> {
-        match self {
-            &RepoDivideError::NotSubdivisible =>
+        match *self {
+            RepoDivideError::NotSubdivisible =>
                 write!(f, "divide: partition is not divisible"),
-            &RepoDivideError::LoadPart(id) =>
+            RepoDivideError::LoadPart(id) =>
                 write!(f, "divide: another partition, {}, needs loading", id),
-            &RepoDivideError::Other(ref e) =>
+            RepoDivideError::Other(ref e) =>
                 write!(f, "divide: other error: {}", e.description()),
         }
     }
@@ -466,7 +466,7 @@ impl ErrorTrait for OtherError {
     fn description(&self) -> &str { self.msg }
 }
 
-/// Use io::error::new to make an IO error
+/// Use `io::error::new` to make an IO error
 // #0011: replace all usages with Pippin-specific error types?
 pub fn make_io_err<T>(kind: io::ErrorKind, msg: &'static str) -> Result<T> {
     Err(Box::new(io::Error::new(kind, msg)))

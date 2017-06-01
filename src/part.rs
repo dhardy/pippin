@@ -78,7 +78,7 @@ impl<E: ElementT> Partition<E> {
     /// let part_t = Box::new(DefaultUserPartT::new(DummyPartIO::new()));
     /// let partition = Partition::<String>::create(part_id, part_t, "example repo");
     /// ```
-    pub fn create<'a>(part_id: PartId, user: Box<UserPartT>, name: &str) -> Result<Partition<E>> {
+    pub fn create(part_id: PartId, user: Box<UserPartT>, name: &str) -> Result<Partition<E>> {
         validate_repo_name(name)?;
         let ss = 0;
         info!("Creating partiton {}; writing snapshot {}", part_id, ss);
@@ -157,7 +157,7 @@ impl<E: ElementT> Partition<E> {
     /// This operation fails if the name has already been set *and* is not
     /// equal to the `repo_name` parameter.
     pub fn set_repo_name(&mut self, repo_name: &str) -> Result<()> {
-        if self.repo_name.len() == 0 {
+        if !self.repo_name.is_empty() {
             self.repo_name = repo_name.to_string();
         } else if self.repo_name != repo_name {
             return OtherError::err("repository name does not match when loading (wrong repo?)");
@@ -173,7 +173,7 @@ impl<E: ElementT> Partition<E> {
     /// 
     /// Returns the repo_name on success. Fails if it cannot read a header.
     pub fn get_repo_name(&mut self) -> Result<&str> {
-        if self.repo_name.len() > 0 {
+        if !self.repo_name.is_empty() {
             return Ok(&self.repo_name);
         }
         for ss in (0 .. self.user.io().ss_len()).rev() {
@@ -187,7 +187,7 @@ impl<E: ElementT> Partition<E> {
                 return Ok(&self.repo_name);
             }
         }
-        return OtherError::err("no snapshot found for first partition");
+        OtherError::err("no snapshot found for first partition")
     }
     
     /// Load all history. Shortcut for `load_range(0, usize::MAX, user)`.
@@ -321,7 +321,7 @@ impl<E: ElementT> Partition<E> {
     /// Returns true when elements have been loaded (i.e. there is at least one
     /// tip; see also `is_ready` and `merge_required`).
     pub fn is_loaded(&self) -> bool {
-        self.tips.len() > 0
+        !self.tips.is_empty()
     }
     
     /// Returns true when ready for use (this is equivalent to
@@ -344,7 +344,7 @@ impl<E: ElementT> Partition<E> {
     /// 
     /// This function is called for every file loaded.
     fn read_head(&mut self, header: FileHeader) -> Result<()> {
-        if self.repo_name.len() > 0 && self.repo_name != header.name {
+        if !self.repo_name.is_empty() && self.repo_name != header.name {
             return OtherError::err("repository name does not match when loading (wrong repo?)");
         }
         
@@ -354,7 +354,7 @@ impl<E: ElementT> Partition<E> {
         
         self.user.read_header(&header)?;
         
-        if self.repo_name.len() == 0 {
+        if self.repo_name.is_empty() {
             self.repo_name = header.name;
         }
         Ok(())
@@ -413,7 +413,7 @@ impl<E: ElementT> Partition<E> {
     /// This operation will fail if no data has been loaded yet or if a merge
     /// is required (i.e. it fails if the number of tips is not exactly one).
     pub fn tip(&self) -> result::Result<&PartState<E>, TipError> {
-        Ok(&self.states.get(self.tip_key()?).unwrap())
+        Ok(self.states.get(self.tip_key()?).unwrap())
     }
     
     /// Get the state-sum (key) of the tip. Fails when `tip()` fails.
@@ -473,7 +473,7 @@ impl<E: ElementT> Partition<E> {
         let string = string.to_uppercase().replace(" ", "");
         let mut matching: Option<&Sum> = None;
         for state in self.states.iter() {
-            if state.statesum().matches_string(&string.as_bytes()) {
+            if state.statesum().matches_string(string.as_bytes()) {
                 if let Some(prev) = matching {
                     return Err(MatchError::MultiMatch(
                         prev.as_string(false), state.statesum().as_string(false)));
@@ -483,7 +483,7 @@ impl<E: ElementT> Partition<E> {
             }
         }
         if let Some(m) = matching {
-            Ok(self.states.get(&m).unwrap())
+            Ok(self.states.get(m).unwrap())
         } else {
             Err(MatchError::NoMatch)
         }
@@ -661,7 +661,7 @@ impl<E: ElementT> Partition<E> {
                 while !self.unsaved.is_empty() {
                     // We try to write the commit, then when successful remove it
                     // from the list of 'unsaved' commits.
-                    write_commit(&self.unsaved.front().unwrap(), &mut writer)?;
+                    write_commit(self.unsaved.front().unwrap(), &mut writer)?;
                     self.unsaved.pop_front().expect("pop_front");
                 }
                 
@@ -747,11 +747,7 @@ impl<E: ElementT> Partition<E> {
         
         let mut next = VecDeque::new();
         next.push_back(k1);
-        loop {
-            let k = match next.pop_back() {
-                Some(k) => k,
-                None => { break; }
-            };
+        while let Some(k) = next.pop_back() {
             if a1.contains(k) { continue; }
             a1.insert(k);
             if let Some(state) = self.states.get(k) {
@@ -766,11 +762,7 @@ impl<E: ElementT> Partition<E> {
         
         // next is empty
         next.push_back(k2);
-        loop {
-            let k = match next.pop_back() {
-                Some(k) => k,
-                None => { break; }
-            };
+        while let Some(k) = next.pop_back() {
             if a2.contains(k) { continue; }
             a2.insert(k);
             if a1.contains(k) {
@@ -851,8 +843,8 @@ impl<E: ElementT> Partition<E> {
         assert_eq!(commit.statesum(), state.statesum());
         assert!(self.states.contains(commit.first_parent()));
         
-        while let Some(ref old_state) = self.states.get(state.statesum()) {
-            if state == **old_state {
+        while let Some(old_state) = self.states.get(state.statesum()) {
+            if state == *old_state {
                 trace!("Partition {} already contains commit {}", self.part_id, commit.statesum());
                 return false;
             } else {

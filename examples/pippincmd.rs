@@ -208,10 +208,10 @@ fn inner(path: PathBuf, op: Operation, args: Rest) -> Result<()>
             print!("Partition number: {}", head.part_id.into_num());
             
             for ud in &*head.user {
-                match ud {
-                    &UserData::Data(ref d) =>
+                match *ud {
+                    UserData::Data(ref d) =>
                         println!("User data (binary, length {})", d.len()),
-                    &UserData::Text(ref t) =>
+                    UserData::Text(ref t) =>
                         println!("User text: {}", t),
                 };
             }
@@ -238,10 +238,8 @@ fn inner(path: PathBuf, op: Operation, args: Rest) -> Result<()>
                             }
                         }
                     }
-                } else {
-                    if ss_len > 0 {
-                        println!("Highest snapshot number: {}", ss_len - 1);
-                    }
+                } else if ss_len > 0 {
+                    println!("Highest snapshot number: {}", ss_len - 1);
                 }
                 if list_commits {
                     let part_t = Box::new(DefaultUserPartT::new(part.clone()));
@@ -312,12 +310,12 @@ fn inner(path: PathBuf, op: Operation, args: Rest) -> Result<()>
                         let id: u64 = elt.parse()?;
                         {
                             let elt_data: &DataElt = if let Ok(d) = state.get(id.into()) {
-                                &d
+                                d
                             } else {
                                 panic!("element not found");
                             };
                             let mut file = fs::OpenOptions::new().write(true).open(&tmp_path)?;
-                            file.write(elt_data.bytes())?;
+                            file.write_all(elt_data.bytes())?;
                         }
                         println!("Written to temporary file: {}", tmp_path.display());
                         
@@ -361,9 +359,9 @@ enum DataElt {
 }
 impl DataElt {
     fn bytes(&self) -> &[u8] {
-        match self {
-            &DataElt::Str(ref s) => s.as_bytes(),
-            &DataElt::Bin(ref v) => &v,
+        match *self {
+            DataElt::Str(ref s) => s.as_bytes(),
+            DataElt::Bin(ref v) => v,
         }
     }
 }
@@ -382,7 +380,7 @@ impl From<Vec<u8>> for DataElt {
 }
 impl ElementT for DataElt {
     fn write_buf(&self, writer: &mut Write) -> Result<()> {
-        writer.write(self.bytes())?;
+        writer.write_all(self.bytes())?;
         Ok(())
     }
     fn read_buf(buf: &[u8]) -> Result<Self> {
@@ -391,9 +389,9 @@ impl ElementT for DataElt {
 }
 impl fmt::Display for DataElt {
     fn fmt(&self, f: &mut fmt::Formatter) -> result::Result<(), fmt::Error> {
-        match self {
-            &DataElt::Str(ref s) => write!(f, "String, {} bytes: {}", s.len(), s),
-            &DataElt::Bin(ref v) => write!(f, "Binary, {} bytes: {}", String::from_utf8_lossy(v), v.len()),
+        match *self {
+            DataElt::Str(ref s) => write!(f, "String, {} bytes: {}", s.len(), s),
+            DataElt::Bin(ref v) => write!(f, "Binary, {} bytes: {}", String::from_utf8_lossy(v), v.len()),
         }
     }
 }

@@ -86,7 +86,7 @@ pub fn read_snapshot<T: ElementT>(reader: &mut Read, part_id: PartId,
         
         let elt_sum = Sum::elt_sum(ident, &data);
         r.read_exact(&mut buf[0..SUM_BYTES])?;
-        if !elt_sum.eq(&buf[0..SUM_BYTES]) {
+        if elt_sum != buf[0..SUM_BYTES] {
             return ReadError::err("element checksum mismatch", pos, (0, SUM_BYTES));
         }
         pos += SUM_BYTES;
@@ -129,7 +129,7 @@ pub fn read_snapshot<T: ElementT>(reader: &mut Read, part_id: PartId,
     pos += 8;
     
     r.read_exact(&mut buf[0..SUM_BYTES])?;
-    if !state.statesum().eq(&buf[0..SUM_BYTES]) {
+    if *state.statesum() != buf[0..SUM_BYTES] {
         return ReadError::err("state checksum mismatch", pos, (0, SUM_BYTES));
     }
     pos += SUM_BYTES;
@@ -137,7 +137,7 @@ pub fn read_snapshot<T: ElementT>(reader: &mut Read, part_id: PartId,
     let sum = r.sum();
     let mut r = r.into_inner();
     r.read_exact(&mut buf[0..SUM_BYTES])?;
-    if !sum.eq(&buf[0..SUM_BYTES]) {
+    if sum != buf[0..SUM_BYTES] {
         return ReadError::err("checksum invalid", pos, (0, SUM_BYTES));
     }
     
@@ -162,14 +162,14 @@ pub fn write_snapshot<T: ElementT>(state: &PartState<T>,
     let mut snapsh_u: [u8; 8] = *b"SNAPSH_U";
     assert!(state.parents().len() <= (u8::MAX as usize));
     snapsh_u[6] = state.parents().len() as u8;
-    w.write(&snapsh_u)?;
+    w.write_all(&snapsh_u)?;
     write_meta(&mut w, state.meta())?;
     
     for parent in state.parents() {
-        parent.write(&mut w)?;
+        parent.write_to(&mut w)?;
     }
     
-    w.write(b"ELEMENTS")?;
+    w.write_all(b"ELEMENTS")?;
     let num_elts = state.elts_len() as u64;  // #0015
     w.write_u64::<BigEndian>(num_elts)?;
     
@@ -178,27 +178,27 @@ pub fn write_snapshot<T: ElementT>(state: &PartState<T>,
     let mut keys: Vec<_> = state.elts_iter().map(|(k,_)| k).collect();
     keys.sort();
     for ident in keys {
-        w.write(b"ELEMENT\x00")?;
+        w.write_all(b"ELEMENT\x00")?;
         w.write_u64::<BigEndian>(ident.into())?;
         
         let elt = state.get_rc(ident).expect("get elt by key");
-        w.write(b"BYTES\x00\x00\x00")?;
+        w.write_all(b"BYTES\x00\x00\x00")?;
         elt_buf.clear();
         elt.write_buf(&mut &mut elt_buf)?;
         w.write_u64::<BigEndian>(elt_buf.len() as u64 /* #0015 */)?;
         
-        w.write(&elt_buf)?;
+        w.write_all(&elt_buf)?;
         let pad_len = 16 * ((elt_buf.len() + 15) / 16) - elt_buf.len();
         if pad_len > 0 {
             let padding = [0u8; 15];
-            w.write(&padding[0..pad_len])?;
+            w.write_all(&padding[0..pad_len])?;
         }
         
-        elt.sum(ident).write(&mut w)?;
+        elt.sum(ident).write_to(&mut w)?;
     }
     
     if state.moved_len() > 0 {
-        w.write(b"ELTMOVES")?;
+        w.write_all(b"ELTMOVES")?;
         w.write_u64::<BigEndian>(state.moved_len() as u64 /* #0015 */)?;
         for (ident, new_ident) in state.moved_iter() {
             w.write_u64::<BigEndian>(ident.into())?;
@@ -208,13 +208,13 @@ pub fn write_snapshot<T: ElementT>(state: &PartState<T>,
     
     // We write the checksum we kept in memory, the idea being that in-memory
     // corruption will be detected on next load.
-    w.write(b"STATESUM")?;
+    w.write_all(b"STATESUM")?;
     w.write_u64::<BigEndian>(num_elts)?;
-    state.statesum().write(&mut w)?;
+    state.statesum().write_to(&mut w)?;
     
     // Write the checksum of everything above:
     let sum = w.sum();
-    sum.write(&mut w.into_inner())?;
+    sum.write_to(&mut w.into_inner())?;
     
     Ok(())
 }

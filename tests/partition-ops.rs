@@ -40,7 +40,7 @@ impl PartIO for PartitionStreams {
     fn read_ss<'a>(&'a self, ss_num: usize) -> Result<Option<Box<Read+'a>>> {
         Ok(self.ss.get(ss_num)
                 .and_then(|&(ref ss, _)| 
-                    ss.as_ref().map(|ref data| Box::new(&data[..]) as Box<Read+'a>)))
+                    ss.as_ref().map(|data| Box::new(&data[..]) as Box<Read+'a>)))
     }
     fn read_ss_cl<'a>(&'a self, ss_num: usize, cl_num: usize) -> Result<Option<Box<Read+'a>>> {
         Ok(self.ss.get(ss_num)

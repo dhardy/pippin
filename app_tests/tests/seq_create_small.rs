@@ -97,8 +97,8 @@ fn insert() {
     use pippin::discover;
     
     let repo_dir = util::get_data_dir("seq_small");
-    let io = discover::repo_from_path(repo_dir.to_path_buf()).expect("discover")
-            .is_readonly(true);
+    let mut io = discover::repo_from_path(repo_dir.to_path_buf()).expect("discover");
+    io.set_readonly(true);
     let rt = SeqRepo::new(io);
     let mut repo = Repository::open(rt).expect("open");
     repo.load_latest(None).expect("load");

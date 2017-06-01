@@ -60,9 +60,8 @@ impl FileType {
     /// Extract the version number regardless of file type (should be one of
     /// the HEAD_VERSIONS numbers or zero).
     pub fn ver(&self) -> u32 {
-        match self {
-            &FileType::Snapshot(v) => v,
-            &FileType::CommitLog(v) => v,
+        match *self {
+            FileType::Snapshot(v) | FileType::CommitLog(v) => v,
         }
     }
 }
@@ -105,7 +104,7 @@ fn read_head_version(s: &[u8]) -> u32 {
 /// Performs basic validation of a repository name. This same function is used
 /// on the name given to a new partition or repository on creation.
 pub fn validate_repo_name(name: &str) -> stdResult<(), ArgError> {
-    if name.len() == 0 {
+    if name.is_empty() {
         return Err(ArgError::new("repo name missing (length 0)"));
     }
     if name.as_bytes().len() > 16 {
@@ -212,13 +211,13 @@ pub fn read_head(reader: &mut Read) -> Result<FileHeader> {
         pos += block.len();
     }
     
-    let part_id = part_id.ok_or(ReadError::new("no PARTID specified", pos, (0, 0)))?;
+    let part_id = part_id.ok_or_else(|| ReadError::new("no PARTID specified", pos, (0, 0)))?;
     
     // Read checksum:
     let sum = r.sum();
     let mut r = r.into_inner();
     r.read_exact(&mut buf[0..SUM_BYTES])?;
-    if !sum.eq(&buf[0..SUM_BYTES]) {
+    if sum != buf[0..SUM_BYTES] {
         return ReadError::err("header checksum invalid", pos, (0, SUM_BYTES));
     }
     
@@ -238,56 +237,56 @@ pub fn write_head(header: &FileHeader, writer: &mut Write) -> Result<()> {
     match header.ftype {
         // Note: we always write in the latest version, even if we read from an old one
         FileType::Snapshot(_) => {
-            w.write(&HEAD_SNAPSHOT)?;
+            w.write_all(&HEAD_SNAPSHOT)?;
         },
         FileType::CommitLog(_) => {
-            w.write(&HEAD_COMMITLOG)?;
+            w.write_all(&HEAD_COMMITLOG)?;
         },
     };
     validate_repo_name(&header.name)?;
-    let len = w.write(header.name.as_bytes())?;
-    pad(&mut w, 16 - len)?;
+    w.write_all(header.name.as_bytes())?;
+    pad(&mut w, 16 - header.name.len())?;
     
-    w.write(&PARTID)?;
+    w.write_all(&PARTID)?;
     w.write_u64::<BigEndian>(header.part_id.into())?;
     
     for u in &header.user {
         // We allow padding in text mode:
-        let (t, uf, is_text) = match u {
-            &UserData::Data(ref b) => (b'U', &b[..], false),
-            &UserData::Text(ref t) => (b'R', t.as_bytes(), true),
+        let (t, uf, is_text) = match *u {
+            UserData::Data(ref b) => (b'U', &b[..], false),
+            UserData::Text(ref t) => (b'R', t.as_bytes(), true),
         };
         let mut l = [b'B', 0, b'Q', b'H', t];
         if uf.len() <= 14 && (is_text || uf.len() == 14) {
-            w.write(&l[3..5])?;
-            w.write(&uf)?;
+            w.write_all(&l[3..5])?;
+            w.write_all(uf)?;
             pad(&mut w, 14 - uf.len())?;
         } else if uf.len() + 3 <= 16 * 36 && 
             (is_text || (uf.len() + 3) % 16 == 0)
         {
             let n = (uf.len() + 3 /* QxU */ + 15 /* round up */) / 16;
             l[3] = if n <= 9 { b'0' + n as u8 } else { b'A' - 10 + n as u8 };
-            w.write(&l[2..5])?;
-            w.write(&uf)?;
+            w.write_all(&l[2..5])?;
+            w.write_all(uf)?;
             pad(&mut w, n * 16 - uf.len() - 3)?;
         } else if uf.len() <= (2 << 24) - 5 {
             let len = uf.len() + 5; // length written includes leading `Bbbb` and 'U' or 'R'
             l[1] = ((len >> 16) & 0xFF) as u8;
             l[2] = ((len >> 8) & 0xFF) as u8;
             l[3] = (len & 0xFF) as u8;
-            w.write(&l[0..5])?;
-            w.write(&uf)?;
+            w.write_all(&l[0..5])?;
+            w.write_all(uf)?;
             pad(&mut w, ((len + 15) / 16) * 16 - len)?;
         } else {
             return ArgError::err("user field too long");
         }
     }
     
-    w.write(&SUM_BLAKE2_16)?;
+    w.write_all(&SUM_BLAKE2_16)?;
     
     // Write the checksum of everything above:
     let sum = w.sum();
-    sum.write(&mut w.into_inner())?;
+    sum.write_to(&mut w.into_inner())?;
     
     fn pad<W: Write>(w: &mut W, n1: usize) -> Result<()> {
         let zeros = [0u8; 16];

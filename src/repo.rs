@@ -145,7 +145,7 @@ impl<C: ClassifierT, R: RepoT<C>> Repository<C, R> {
     
     /// Load the latest state of all partitions
     pub fn load_latest(&mut self) -> Result<()> {
-        for (_, part) in &mut self.partitions {
+        for part in &mut self.partitions.values_mut() {
             part.load_latest()?;
         }
         Ok(())
@@ -155,7 +155,7 @@ impl<C: ClassifierT, R: RepoT<C>> Repository<C, R> {
     /// 
     /// Also see the `write_full()` function.
     pub fn write_fast(&mut self) -> Result<()> {
-        for (_, part) in &mut self.partitions {
+        for part in &mut self.partitions.values_mut() {
             part.write_fast()?;
         }
         Ok(())
@@ -168,7 +168,7 @@ impl<C: ClassifierT, R: RepoT<C>> Repository<C, R> {
     pub fn write_full(&mut self) -> Result<()> {
         // Write all logs first, in case we crash later
         self.write_fast()?;
-        for (_, part) in &mut self.partitions {
+        for part in &mut self.partitions.values_mut() {
             part.write_full()?;
         }
         
@@ -182,7 +182,7 @@ impl<C: ClassifierT, R: RepoT<C>> Repository<C, R> {
             if self.repo_t.should_divide(*id, part) && part.is_ready() {
                 should_divide.push(*id);
             }
-            if let Ok(ref state) = part.tip() {
+            if let Ok(state) = part.tip() {
                 if state.meta().ext_flags().flag_reclassify() {
                     need_reclassify.push(*id);
                 }
@@ -258,14 +258,14 @@ impl<C: ClassifierT, R: RepoT<C>> Repository<C, R> {
             // Check where elements need to be moved
             // for each partition, the elements to be moved there (old element ids)
             let mut target_part_elts = HashMap::<PartId, Vec<EltId>>::new();
-            for (elt_id, ref elt) in old_part.tip()?.elts_iter() {
+            for (elt_id, elt) in old_part.tip()?.elts_iter() {
                 if let Some(part_id) = classifier.classify(&*elt) {
-                    target_part_elts.entry(part_id).or_insert(Vec::new())
+                    target_part_elts.entry(part_id).or_insert(vec![])
                             .push(elt_id);
                 } // else: don't move anything we can't reclassify
             }
             
-            for (part_id, old_elt_ids) in target_part_elts.into_iter() {
+            for (part_id, old_elt_ids) in target_part_elts {
                 let mut part = match self.partitions.get_mut(&part_id) {
                     Some(p) => p,
                     None => {
@@ -306,7 +306,7 @@ impl<C: ClassifierT, R: RepoT<C>> Repository<C, R> {
     
     /// Force all loaded partitions to write a snapshot.
     pub fn write_snapshot_all(&mut self) -> Result<()> {
-        for (_, part) in &mut self.partitions {
+        for part in &mut self.partitions.values_mut() {
             part.write_snapshot()?;
         }
         Ok(())
@@ -320,7 +320,7 @@ impl<C: ClassifierT, R: RepoT<C>> Repository<C, R> {
     /// if and only if all partitions are unloaded.
     pub fn unload_all(&mut self, force: bool) -> bool {
         let mut all = true;
-        for (_, part) in &mut self.partitions {
+        for part in &mut self.partitions.values_mut() {
             all = all && part.unload(force);
         }
         all
@@ -351,7 +351,7 @@ impl<C: ClassifierT, R: RepoT<C>> Repository<C, R> {
     /// TODO: clearer names, maybe move some of the work around.
     pub fn merge<S: TwoWaySolver<C::Element>>(&mut self, solver: &S, auto_load: bool) -> Result<()>
     {
-        for (_, part) in &mut self.partitions {
+        for part in &mut self.partitions.values_mut() {
             part.merge(solver, auto_load)?;
         }
         Ok(())
@@ -394,9 +394,8 @@ impl<C: ClassifierT, R: RepoT<C>> Repository<C, R> {
                 panic!("RepoState has a partition not found in the Repository");
                 //TODO: support for merging after a division/union/change of partitioning
             };
-            if part.push_state(pstate)? {
-                if part.merge_required() { merge_required = true; }
-            }
+            let is_new = part.push_state(pstate)?;
+            if is_new && part.merge_required() { merge_required = true; }
         }
         Ok(merge_required)
     }
@@ -547,7 +546,7 @@ impl<C: ClassifierT> StateT<C::Element> for RepoState<C> {
         self.states.values().any(|v| v.any_avail())
     }
     fn num_avail(&self) -> usize {
-        self.states.values().fold(0, |acc, ref v| acc + v.num_avail())
+        self.states.values().fold(0, |acc, v| acc + v.num_avail())
     }
     fn is_avail(&self, id: EltId) -> bool {
         let part_id = id.part_id();

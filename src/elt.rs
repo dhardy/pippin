@@ -236,7 +236,7 @@ pub trait ElementT where Self: Sized+PartialEq+Debug {
 
 impl ElementT for String {
     fn write_buf(&self, writer: &mut Write) -> Result<()> {
-        writer.write(self.as_bytes())?;
+        writer.write_all(self.as_bytes())?;
         Ok(())
     }
     fn read_buf(buf: &[u8]) -> Result<Self> {

@@ -49,9 +49,9 @@ pub fn part_from_path<P: AsRef<Path>>(path: P, opt_part_num: Option<PartId>) -> 
         info!("Scanning for partition files in: {}", path.display());
         path
     } else if let Some(fname) = path.file_name() {
-        let fname = fname.to_str().ok_or(PathError::new("not valid UTF-8", path))?;
+        let fname = fname.to_str().ok_or_else(|| PathError::new("not valid UTF-8", path))?;
         if let Some(bname) = discover_basename(fname) {
-            let dir = path.parent().ok_or(PathError::new("path has no parent", path))?;
+            let dir = path.parent().ok_or_else(|| PathError::new("path has no parent", path))?;
             info!("Scanning for partition files matching: {}/{}*", dir.display(), bname);
             part_id = Some(find_part_num(&bname, path)?);
             basename = Some(bname);
@@ -67,7 +67,7 @@ pub fn part_from_path<P: AsRef<Path>>(path: P, opt_part_num: Option<PartId>) -> 
     
     {   // new scope for filter_skip closure
     let mut filter_skip = |bname: &str, path: &Path| -> Result<bool> {
-        if let &Some(ref req_bname) = &basename {
+        if let Some(ref req_bname) = basename {
             // basename known: filter by it
             if bname == req_bname {
                 // match; good
@@ -164,8 +164,8 @@ pub fn part_from_path<P: AsRef<Path>>(path: P, opt_part_num: Option<PartId>) -> 
 /// it were run with the parent directory instead.
 /// 
 /// #0040: it would be nice to specify whether this should be recursive
-/// (max_depth) and whether it should follow links, but without adding extra
-/// required arguments (builder pattern like WalkDir?).
+/// (`max_depth`) and whether it should follow links, but without adding extra
+/// required arguments (builder pattern like `WalkDir`?).
 pub fn repo_from_path<P: AsRef<Path>>(path: P) -> Result<RepoFileIO> {
     let path = path.as_ref();
     let ss_pat = Regex::new("^((?:.*)-)?ss(0|[1-9][0-9]*)\\.pip$").expect("valid regex");
@@ -175,7 +175,7 @@ pub fn repo_from_path<P: AsRef<Path>>(path: P) -> Result<RepoFileIO> {
     let dir = if path.is_dir() {
         path
     } else if path.is_file() {
-        path.parent().ok_or(PathError::new("unable to get parent dir", path))?
+        path.parent().ok_or_else(|| PathError::new("unable to get parent dir", path))?
     } else {
         return PathError::err("neither a directory nor a file", path);
     };
@@ -219,7 +219,7 @@ pub fn repo_from_path<P: AsRef<Path>>(path: P) -> Result<RepoFileIO> {
                     .ok_or_else(|| PathError::new("not valid UTF-8", path.to_path_buf()))?;
                 let pn = find_part_num(fname, &path)?;
                 e.insert(pn);
-                (pn, partitions.entry(pn).or_insert_with(|| PartPaths::new()))
+                (pn, partitions.entry(pn).or_insert_with(PartPaths::new))
             },
         };
         
@@ -267,7 +267,7 @@ pub fn part_num_from_name(name: &str) -> Option<PartId> {
     
     pat.captures(name)
             .and_then(|caps| caps.at(1).expect("cap")
-            .parse().ok().map(|n| PartId::from_num(n)))
+            .parse().ok().map(PartId::from_num))
 }   
 /// A wrapper around `part_num_from_name` which discovers the number from the
 /// name if possible and otherwise reads the header to find the partition

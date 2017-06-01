@@ -35,15 +35,6 @@ impl Sum {
         Sum { s: [0u8; SUM_BYTES] }
     }
     
-    /// True if sum equals that in a buffer
-    pub fn eq(&self, arr: &[u8]) -> bool {
-        assert_eq!(arr.len(), SUM_BYTES);
-        for i in 0..SUM_BYTES {
-            if self.s[i] != arr[i] { return false; }
-        }
-        return true;
-    }
-    
     /// Load from a u8 array
     pub fn load(arr: &[u8]) -> Sum {
         assert_eq!(arr.len(), SUM_BYTES);
@@ -54,7 +45,7 @@ impl Sum {
     }
     
     /// Write the checksum bytes to a stream
-    pub fn write(&self, w: &mut Write) -> Result<()> {
+    pub fn write_to(&self, w: &mut Write) -> Result<()> {
 //         let mut buf = [0u8; 32];
 //         s1.store(&mut buf, 0);
 //         s2.store(&mut buf, 16);
@@ -114,7 +105,7 @@ impl Sum {
                 return false;
             }
         }
-        return true;
+        true
     }
     
     /// Write a formatted version to a formatter
@@ -124,6 +115,16 @@ impl Sum {
             {:02X}{:02X}{:02X}{:02X}{:02X}{:02X}{:02X}{:02X}",
             self.s[ 0], self.s[ 1], self.s[ 2], self.s[ 3], self.s[ 4], self.s[ 5], self.s[ 6], self.s[ 7],
             self.s[ 8], self.s[ 9], self.s[10], self.s[11], self.s[12], self.s[13], self.s[14], self.s[15])
+    }
+}
+
+impl PartialEq<[u8]> for Sum {
+    fn eq(&self, arr: &[u8]) -> bool {
+        assert_eq!(arr.len(), SUM_BYTES);
+        for i in 0..SUM_BYTES {
+            if self.s[i] != arr[i] { return false; }
+        }
+        true
     }
 }
 

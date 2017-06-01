@@ -114,7 +114,7 @@ pub struct CommitMeta {
     extra: ExtraMeta,
 }
 
-/// Partial version of metadata (used by some functions on CommitMeta).
+/// Partial version of metadata (used by some functions on `CommitMeta`).
 #[derive(Debug, PartialEq, Clone)]
 pub struct CommitMetaPartial {
     parent: (Sum, CommitMeta),
@@ -316,22 +316,18 @@ impl<E: ElementT> EltChange<E> {
     }
     /// Get `Some(elt)` if an element is contained, `None` otherwise
     pub fn element(&self) -> Option<&Rc<E>> {
-        match self {
-            &EltChange::Deletion => None,
-            &EltChange::Insertion(ref elt) => Some(elt),
-            &EltChange::Replacement(ref elt) => Some(elt),
-            &EltChange::MoveOut(_) => None,
-            &EltChange::Moved(_) => None,
+        use commit::EltChange::*;
+        match *self {
+            Deletion | MoveOut(_) | Moved(_) => None,
+            Insertion(ref elt) | Replacement(ref elt) => Some(elt),
         }
     }
     /// Get `Some(new_id)` if this is a "moved" change, else None
     pub fn moved_id(&self) -> Option<EltId> {
-        match self {
-            &EltChange::Deletion => None,
-            &EltChange::Insertion(_) => None,
-            &EltChange::Replacement(_) => None,
-            &EltChange::MoveOut(id) => Some(id),
-            &EltChange::Moved(id) => Some(id)
+        use commit::EltChange::*;
+        match *self {
+            Deletion | Insertion(_) | Replacement(_) => None,
+            MoveOut(id) | Moved(id) => Some(id)
         }
     }
 }
@@ -418,22 +414,22 @@ impl<E: ElementT> Commit<E> {
     /// `PartState::from_state_commit(&par_state, &commit)` instead of using
     /// this method directly.
     pub fn apply_mut(&self, mut_state: &mut MutPartState<E>) -> Result<(), ElementOp> {
-        for (id, ref change) in self.changes.iter() {
+        for (id, change) in &self.changes {
             match *change {
-                &EltChange::Deletion => {
+                EltChange::Deletion => {
                     mut_state.remove(*id)?;
                 },
-                &EltChange::Insertion(ref elt) => {
+                EltChange::Insertion(ref elt) => {
                     mut_state.insert_rc(*id, elt.clone())?;
                 }
-                &EltChange::Replacement(ref elt) => {
+                EltChange::Replacement(ref elt) => {
                     mut_state.replace_rc(*id, elt.clone())?;
                 }
-                &EltChange::MoveOut(new_id) => {
+                EltChange::MoveOut(new_id) => {
                     mut_state.remove(*id)?;
                     mut_state.set_move(*id, new_id);
                 }
-                &EltChange::Moved(new_id) => {
+                EltChange::Moved(new_id) => {
                     mut_state.set_move(*id, new_id);
                 }
             }

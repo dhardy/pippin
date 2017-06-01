@@ -180,7 +180,7 @@ impl<E: ElementT> PartState<E> {
     /// Metadata can be customised via `mcm`.
     pub fn new(part_id: PartId, mcm: &mut MakeCommitMeta) -> PartState<E> {
         let meta = CommitMeta::new_parents(vec![], mcm);
-        let metasum = Sum::state_meta_sum(part_id, &vec![], &meta);
+        let metasum = Sum::state_meta_sum(part_id, &[], &meta);
         PartState {
             part_id: part_id,
             parents: vec![],
@@ -231,7 +231,7 @@ impl<E: ElementT> PartState<E> {
         let mut mut_state = parent.clone_mut();
         commit.apply_mut(&mut mut_state)?;
         
-        let metasum = Sum::state_meta_sum(mut_state.part_id, &commit.parents(), &commit.meta());
+        let metasum = Sum::state_meta_sum(mut_state.part_id, commit.parents(), commit.meta());
         let statesum = &mut_state.elt_sum ^ &metasum;
         if statesum != *commit.statesum() { return Err(PatchOp::PatchApply); }
         
@@ -310,7 +310,7 @@ impl<E: ElementT> PartState<E> {
     /// Check our notes tracking moved elements, and return a new `EltId` if
     /// we have one. Note that this method ignores stored elements.
     pub fn is_moved(&self, id: EltId) -> Option<EltId> {
-        self.moved.get(&id).map(|id| *id) // Some(value) or None
+        self.moved.get(&id).cloned()
     }
     
     /// As `gen_id()`, but ensure the generated id is free in both self and
@@ -412,7 +412,7 @@ impl<E: ElementT> MutPartState<E> {
     /// Check our notes tracking moved elements, and return a new `EltId` if
     /// we have one. Note that this method ignores stored elements.
     pub fn is_moved(&self, id: EltId) -> Option<EltId> {
-        self.moved.get(&id).map(|id| *id) // Some(value) or None
+        self.moved.get(&id).cloned()
     }
     
     /// Add a note about where an element has been moved to.
@@ -567,7 +567,7 @@ impl<'a> ExactSizeIterator for EltIdIter<'a> {
     }
 }
 
-/// Helper to use PartState with HashIndexed
+/// Helper to use `PartState` with `HashIndexed`
 pub struct PartStateSumComparator;
 impl<E: ElementT> KeyComparator<PartState<E>, Sum> for PartStateSumComparator {
     fn extract_key(value: &PartState<E>) -> &Sum {

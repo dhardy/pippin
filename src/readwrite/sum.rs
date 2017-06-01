@@ -31,7 +31,7 @@ impl Sum {
         let mut buf = [0u8; 8];
         BigEndian::write_u64(&mut buf, elt_id.into());
         hasher.input(&buf);
-        hasher.input(&data);
+        hasher.input(data);
         Sum::load_hasher(hasher)
     }
     /// Calculate a partition's meta-data sum
@@ -43,18 +43,18 @@ impl Sum {
             buf.resize(SUM_BYTES, 0);
         }
         BigEndian::write_u64(&mut buf[0..8], part_id.into());
-        assert!(buf[8..12] == *b"CNUM");
+        assert_eq!(buf[8..12], *b"CNUM");
         BigEndian::write_u32(&mut buf[12..16], meta.number());
         BigEndian::write_i64(&mut buf[16..24], meta.timestamp());
         
         hasher.input(&buf[0..24]);
         for parent in parents {
-            parent.write((&mut &mut buf[..])).expect("writing to buf");
+            parent.write_to(&mut &mut buf[..]).expect("writing to buf");
             hasher.input(&buf);
         }
-        match meta.extra() {
-            &ExtraMeta::None => {},
-            &ExtraMeta::Text(ref text) => {
+        match *meta.extra() {
+            ExtraMeta::None => {},
+            ExtraMeta::Text(ref text) => {
                 hasher.input(text.as_bytes());
             },
         }
@@ -63,7 +63,7 @@ impl Sum {
     /// Calculate a standard checksum
     pub fn calculate(data: &[u8]) -> Sum {
         let mut hasher = mk_hasher();
-        hasher.input(&data);
+        hasher.input(data);
         Sum::load_hasher(hasher)
     }
     /// Load from a hasher

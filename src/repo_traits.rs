@@ -62,7 +62,7 @@ pub enum ClassifyFallback {
     Fail,
 }
 
-/// Encapsulates a RepoIO and a ClassifierT, handling repartitioning and
+/// Encapsulates a `RepoIO` and a `ClassifierT`, handling repartitioning and
 /// serialisation.
 /// 
 /// Implementations should also implement `UserFields` to store and retrieve
@@ -78,11 +78,11 @@ pub enum ClassifyFallback {
 pub trait RepoT<C: ClassifierT+Sized> {
     /// Get access to the I/O provider. This could be an instance of
     /// `DiscoverRepoFiles` or could be self (among other possibilities).
-    fn io<'a>(&'a self) -> &'a RepoIO;
+    fn io(&self) -> &RepoIO;
     
     /// Get mutable access to the I/O provider. This could be an instance of
     /// `DiscoverRepoFiles` or could be self (among other possibilities).
-    fn io_mut<'a>(&'a mut self) -> &'a mut RepoIO;
+    fn io_mut(&mut self) -> &mut RepoIO;
     
     /// Get a `UserPartT` object for existing partition `num`.
     fn make_user_part_t(&mut self, num: PartId) -> Result<Box<UserPartT>>;

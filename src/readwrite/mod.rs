@@ -87,26 +87,26 @@ fn read_meta(mut r: &mut Read, mut buf: &mut [u8], mut pos: &mut usize, format_v
 fn write_meta(w: &mut Write, meta: &CommitMeta) -> Result<()> {
     w.write_i64::<BigEndian>(meta.timestamp())?;
     
-    w.write(b"F")?;
-    w.write(&[0u8; 1])?; // 0 extension data: we don't use this currently
+    w.write_all(b"F")?;
+    w.write_all(&[0u8; 1])?; // 0 extension data: we don't use this currently
     w.write_u16::<BigEndian>(meta.ext_flags().raw())?;
     w.write_u32::<BigEndian>(meta.number())?;
     // extension data would go here, but we don't currently have any
     
-    match meta.extra() {
-        &ExtraMeta::None => {
+    match *meta.extra() {
+        ExtraMeta::None => {
             // last four zeros is 0u32 encoded in bytes
-            w.write(b"XM\x00\x00\x00\x00\x00\x00")?;
+            w.write_all(b"XM\x00\x00\x00\x00\x00\x00")?;
         },
-        &ExtraMeta::Text(ref txt) => {
-            w.write(b"XMTT")?;
+        ExtraMeta::Text(ref txt) => {
+            w.write_all(b"XMTT")?;
             assert!(txt.len() <= u32::MAX as usize);
             w.write_u32::<BigEndian>(txt.len() as u32)?;
-            w.write(txt.as_bytes())?;
+            w.write_all(txt.as_bytes())?;
             let pad_len = 16 * ((txt.len() + 15) / 16) - txt.len();
             if pad_len > 0 {
                 let padding = [0u8; 15];
-                w.write(&padding[0..pad_len])?;
+                w.write_all(&padding[0..pad_len])?;
             }
         },
     }

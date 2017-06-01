@@ -28,10 +28,10 @@ pub trait UserPartT: MakeCommitMeta {
     /// 
     /// This layer of indirection allows use of `PartFileIO`, which should be sufficient
     /// for many use cases.
-    fn io<'a>(&'a self) -> &'a PartIO;
+    fn io(&self) -> &PartIO;
     
     /// Get mutable access to an I/O provider.
-    fn io_mut<'a>(&'a mut self) -> &'a mut PartIO;
+    fn io_mut(&mut self) -> &mut PartIO;
     
     /// Get access to the snapshot policy.
     /// 
@@ -89,10 +89,10 @@ impl<IO: PartIO> DefaultUserPartT<IO> {
 impl<IO: PartIO> MakeCommitMeta for DefaultUserPartT<IO> {}
 impl<IO: PartIO> UserPartT for DefaultUserPartT<IO> {
     fn as_any(&self) -> &Any { self }
-    fn io<'a>(&'a self) -> &'a PartIO {
+    fn io(&self) -> &PartIO {
         &self.io
     }
-    fn io_mut<'a>(&'a mut self) -> &'a mut PartIO {
+    fn io_mut(&mut self) -> &mut PartIO {
         &mut self.io
     }
     fn snapshot_policy(&mut self) -> &mut SnapshotPolicy {

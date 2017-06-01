@@ -10,7 +10,7 @@ use std::fmt::{self, Write};
 /// "trim" applied to generic arrays: while the last byte is pat, remove it.
 ///  
 /// Performance is `O(l)` where `l = s.len()`.
-pub fn rtrim<T: cmp::PartialEq>(s: &[T], pat: T) -> &[T] {
+pub fn rtrim<T: cmp::PartialEq + Copy>(s: &[T], pat: T) -> &[T] {
     let mut p = s.len();
     while p > 0 && s[p - 1] == pat { p -= 1; }
     &s[0..p]
@@ -70,15 +70,14 @@ impl <'a> fmt::Display for HexFormatter<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         const HEX: &'static str = "0123456789ABCDEF";
         let line = self.bytes;
-        for i in 0..line.len() {
-            let (high,low) = (line[i] as usize / 16, line[i] as usize & 0xF);
+        for c in line.iter().cloned() {
+            let (high,low) = (c as usize / 16, c as usize & 0xF);
             write!(f, "{}{} ", &HEX[high..(high+1)], &HEX[low..(low+1)])?;
         }
         let mut v: Vec<u8> = Vec::from(line);
-        for i in 0..v.len() {
-            let c = v[i];
+        for mut c in &mut v {
             // replace spaces, tabs and undisplayable characters:
-            if c <= 0x32 || c == 0x7F { v[i] = b'.'; }
+            if *c <= 0x32 || *c == 0x7F { *c = b'.'; }
         }
         writeln!(f, "{}", String::from_utf8_lossy(&v))?;
         Ok(())

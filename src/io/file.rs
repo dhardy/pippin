@@ -19,7 +19,7 @@ use error::{Result, ReadOnly, OtherError};
 
 // —————  Partition  —————
 
-/// Data structure used in a PartFileIO to actually store file paths.
+/// Data structure used in a `PartFileIO` to actually store file paths.
 #[derive(Debug, Clone)]
 pub struct PartPaths {
     // First key is snapshot number. Value is (if found) a path to the snapshot
@@ -52,7 +52,7 @@ impl PartPaths {
     
     /// Returns a reference to the path of a snapshot file path, if found.
     pub fn get_ss(&self, ss: usize) -> Option<&Path> {
-        self.paths.get(ss).and_then(|&(ref p, _)| p.as_ref().map(|ref path| path.as_path()))
+        self.paths.get(ss).and_then(|&(ref p, _)| p.as_ref().map(|path| path.as_path()))
     }
     /// Returns a reference to the path of a log file, if found.
     pub fn get_cl(&self, ss: usize, cl: usize) -> Option<&Path> {
@@ -141,13 +141,7 @@ impl PartFileIO {
     pub fn readonly(&self) -> bool {
         self.readonly
     }
-    /// Set readonly, inline style. If this is readonly, file creation and
-    /// modification of `RepoFileIO` and `PartFileIO` operations will be
-    /// inhibited (operations will return a `ReadOnly` error).
-    pub fn is_readonly(mut self, readonly: bool) -> Self {
-        self.readonly = readonly;
-        self
-    }
+    
     /// Set readonly. If this is readonly, file creation and
     /// modification of `RepoFileIO` and `PartFileIO` operations will be
     /// inhibited (operations will return a `ReadOnly` error).
@@ -187,7 +181,7 @@ impl PartIO for PartFileIO {
         // Cannot replace `match` with `map` since `try!()` cannot be used in a closure
         Ok(match self.paths.paths.get(ss_num) {
             Some(&(ref p, _)) => {
-                if let &Some(ref path) = p {
+                if let Some(ref path) = *p {
                     trace!("Reading snapshot file: {}", path.display());
                     Some(Box::new(File::open(path)?))
                 } else {
@@ -291,13 +285,7 @@ impl RepoFileIO {
     pub fn readonly(&self) -> bool {
         self.readonly
     }
-    /// Set readonly, inline style. If this is readonly, file creation and
-    /// modification of `RepoFileIO` and `PartFileIO` operations will be
-    /// inhibited (operations will return a `ReadOnly` error).
-    pub fn is_readonly(mut self, readonly: bool) -> Self {
-        self.set_readonly(readonly);
-        self
-    }
+    
     /// Set readonly. If this is readonly, file creation and
     /// modification of `RepoFileIO` and `PartFileIO` operations will be
     /// inhibited (operations will return a `ReadOnly` error).
@@ -332,7 +320,7 @@ impl RepoIO for RepoFileIO {
         self.parts.len()
     }
     fn parts(&self) -> Vec<PartId> {
-        self.parts.keys().map(|k| *k).collect()
+        self.parts.keys().cloned().collect()
     }
     fn has_part(&self, pn: PartId) -> bool {
         self.parts.contains_key(&pn)
@@ -346,8 +334,8 @@ impl RepoIO for RepoFileIO {
         Ok(())
     }
     fn make_part_io(&mut self, num: PartId) -> Result<Box<PartIO>> {
-        if let Some(ref io) = self.parts.get(&num) {
-            Ok(Box::new((**io).clone()))
+        if let Some(io) = self.parts.get(&num) {
+            Ok(Box::new((*io).clone()))
         } else {
             OtherError::err("partition not found")
         }

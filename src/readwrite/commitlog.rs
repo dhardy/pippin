@@ -19,7 +19,7 @@ use elt::ElementT;
 use sum::{Sum, SUM_BYTES};
 use error::{Result, ReadError};
 
-/// Implement this to use read_log().
+/// Implement this to use `read_log()`.
 /// 
 /// There is a simple implementation for `Vec<Commit<E>>` which just pushes
 /// each commit and returns `true` (to continue reading to the end).
@@ -135,7 +135,7 @@ pub fn read_log<E: ElementT>(mut reader: &mut Read,
                     
                     let elt_sum = Sum::elt_sum(elt_id, &data);
                     r.read_exact(&mut buf[0..SUM_BYTES])?;
-                    if !elt_sum.eq(&buf[0..SUM_BYTES]) {
+                    if elt_sum != buf[0..SUM_BYTES] {
                         return ReadError::err("element checksum mismatch", pos, (0, SUM_BYTES));
                     }
                     pos += SUM_BYTES;
@@ -166,7 +166,7 @@ pub fn read_log<E: ElementT>(mut reader: &mut Read,
         let sum = r.sum();
         reader = r.into_inner();
         reader.read_exact(&mut buf[0..SUM_BYTES])?;
-        if !sum.eq(&buf[0..SUM_BYTES]) {
+        if sum != buf[0..SUM_BYTES] {
             return ReadError::err("checksum invalid", pos, (0, SUM_BYTES));
         }
         
@@ -186,7 +186,7 @@ pub fn read_log<E: ElementT>(mut reader: &mut Read,
 /// Write the section identifier at the start of a commit log
 // #0016: do we actually need this?
 pub fn start_log(writer: &mut Write) -> Result<()> {
-    writer.write(b"COMMIT LOG\x00\x00\x00\x00\x00\x00")?;
+    writer.write_all(b"COMMIT LOG\x00\x00\x00\x00\x00\x00")?;
     Ok(())
 }
 
@@ -199,23 +199,23 @@ pub fn write_commit<E: ElementT>(commit: &Commit<E>, writer: &mut Write) -> Resu
     let mut w = sum::HashWriter::new(writer);
     
     if commit.parents().len() == 1 {
-        w.write(b"COMMIT\x00U")?;
+        w.write_all(b"COMMIT\x00U")?;
     } else {
         assert!(commit.parents().len() > 1 && commit.parents().len() < 0x100);
-        w.write(b"MERGE")?;
+        w.write_all(b"MERGE")?;
         let n: [u8; 1] = [commit.parents().len() as u8];
-        w.write(&n)?;
-        w.write(b"\x00U")?;
+        w.write_all(&n)?;
+        w.write_all(b"\x00U")?;
     }
     
     write_meta(&mut w, commit.meta())?;
     
     // Parent statesums (we wrote the number above already):
     for parent in commit.parents() {
-        parent.write(&mut w)?;
+        parent.write_to(&mut w)?;
     }
     
-    w.write(b"ELEMENTS")?;
+    w.write_all(b"ELEMENTS")?;
     w.write_u64::<BigEndian>(commit.num_changes() as u64)?;       // #0015
     
     let mut elt_buf = Vec::new();
@@ -224,40 +224,40 @@ pub fn write_commit<E: ElementT>(commit: &Commit<E>, writer: &mut Write) -> Resu
     keys.sort();
     for elt_id in keys {
         let change = commit.change(*elt_id).expect("get change");
-        let marker = match change {
-            &EltChange::Deletion => b"ELT DEL\x00",
-            &EltChange::Insertion(_) => b"ELT INS\x00",
-            &EltChange::Replacement(_) => b"ELT REPL",
-            &EltChange::MoveOut(_) => b"ELT MOVO",
-            &EltChange::Moved(_) => b"ELT MOV\x00",
+        let marker = match *change {
+            EltChange::Deletion => b"ELT DEL\x00",
+            EltChange::Insertion(_) => b"ELT INS\x00",
+            EltChange::Replacement(_) => b"ELT REPL",
+            EltChange::MoveOut(_) => b"ELT MOVO",
+            EltChange::Moved(_) => b"ELT MOV\x00",
         };
-        w.write(marker)?;
+        w.write_all(marker)?;
         w.write_u64::<BigEndian>((*elt_id).into())?;
         if let Some(elt) = change.element() {
-            w.write(b"ELT DATA")?;
+            w.write_all(b"ELT DATA")?;
             elt_buf.clear();
             elt.write_buf(&mut &mut elt_buf)?;
             w.write_u64::<BigEndian>(elt_buf.len() as u64)?;      // #0015
             
-            w.write(&elt_buf)?;
+            w.write_all(&elt_buf)?;
             let pad_len = 16 * ((elt_buf.len() + 15) / 16) - elt_buf.len();
             if pad_len > 0 {
                 let padding = [0u8; 15];
-                w.write(&padding[0..pad_len])?;
+                w.write_all(&padding[0..pad_len])?;
             }
             
-            elt.sum(*elt_id).write(&mut w)?;
+            elt.sum(*elt_id).write_to(&mut w)?;
         }
         if let Some(new_id) = change.moved_id() {
-            w.write(b"NEW ELT\x00")?;
+            w.write_all(b"NEW ELT\x00")?;
             w.write_u64::<BigEndian>(new_id.into())?;
         }
     }
     
-    commit.statesum().write(&mut w)?;
+    commit.statesum().write_to(&mut w)?;
     
     let sum = w.sum();
-    sum.write(&mut w.into_inner())?;
+    sum.write_to(&mut w.into_inner())?;
     
     Ok(())
 }
