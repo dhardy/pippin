@@ -89,6 +89,14 @@ Another option: store description of known subset of `P` in each partition's met
     still allows disagreements]  
 ← Finding elements of unknown location is faster but still worst-case `O(n)`
 
+Subset of above: store the list of partition numbers and names/location in each
+partition's metadata, but no classification data.  
+→ Simple  
+→ Easy to get a list of all partitions (including those found on the disk but
+    not mentioned)  
+← Does not help find elements or correct partition, unless the user can provide
+    useful hints from file name / partition identifier
+
 User is responsible for specifying `C`, `L` and `P`. Library can discover available partitions and inform
 of missing or unused partitions but no more.  
 → Simple from library perspective; no issues with conflicting definitions of `L`  

@@ -3,13 +3,31 @@ Pippin
 
 Pippin is a database inspired by distributed version control systems (notably
 git). Unlike git it is designed to store thousands to millions (or more) small
-objects in only a few dozen files. Unlike regular databases, it is designed
-with distributed synchronisation in mind and convenient access to objects of a
-single user-defined type. Pippin does not (currently) have a true index for
-searching its database, but does have partitioning to reduce searches to a
-smaller subset.
+objects in only a few dozen files. Unlike most databases, it is designed to
+allow independent distributed usage with eventual (potentially user-assisted)
+synchronisation.
 
-For more, see the documentation in [src/lib.rs](src/lib.rs) or take a look at the [examples](examples/).
+Pippin is an *object database* in that complex objects (any supporting
+serialisation) are stored directly, not a *relational database* using
+predefined numeric and string types. Pippin is *serverless*, designed to run
+in a single process, or even from multiple processes simultaneously using
+the same files on disk (with eventual synchronisation).
+
+ACID-compliant transactions are possible (with a single DB host and within a
+single partition), depending on how merges are handled; merge functionality is
+highly configurable.
+
+The full history of transactions/commits is recorded via a combination of
+*snapshot files* and *commit logs*. Snapshot files never change and logs are
+kept small, making for simple backups.
+Old snapshots and logs can simply be deleted if the history is no longer required.
+
+Pippin is designed to be scalable via partitioning, achieved using user-defined
+classifiers. This functionality, along with filtering (i.e. simple search), is
+planned, but not yet available.
+
+For more, see the documentation in [src/lib.rs](src/lib.rs) or take a look at
+the [examples](examples/).
 
 
 Change-log
@@ -24,7 +42,7 @@ features there and is ready for testing, but the API may change. Perhaps the
 biggest caveat is that every commit is written to a new file due to not yet
 working out how to safely extend files.
 
-Repository-oriented usage is still far from ready.
+Repository-oriented usage is not yet ready.
 
 What should work:
 
