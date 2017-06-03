@@ -128,6 +128,11 @@ impl fmt::Display for EltId {
 /// affect historical states of the repository stored in memory, possibly even
 /// affecting commit creation. Not recommended.
 /// 
+/// ### Equivalence
+/// 
+/// It must be possible to check the equivalence of two elements. This is used
+/// to generate change-sets and handle merges.
+/// 
 /// ### Serialisation
 /// 
 /// Elements must be serialisable as a data stream, and deserialisable from a
@@ -177,7 +182,7 @@ impl fmt::Display for EltId {
 ///     }
 /// }
 /// ```
-pub trait ElementT where Self: Sized+PartialEq+Debug {
+pub trait ElementT where Self: Sized+PartialEq+Eq+Debug {
     // #0025: provide a choice of how to implement IO via a const bool?
 //     /// If this is set true, the `read_buf` and `write_buf` functions must be
 //     /// implemented. These are easier to use but potentially less efficient. If

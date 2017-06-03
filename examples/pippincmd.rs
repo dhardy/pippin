@@ -352,7 +352,7 @@ fn inner(path: PathBuf, op: Operation, args: Rest) -> Result<()>
     }
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Eq, Debug)]
 enum DataElt {
     Str(String),
     Bin(Vec<u8>),
