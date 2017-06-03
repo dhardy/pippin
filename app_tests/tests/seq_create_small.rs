@@ -8,7 +8,7 @@ use std::cmp::min;
 use std::cell::Cell;
 use rand::Rng;
 use rand::distributions::{IndependentSample, LogNormal};
-use pippin::{StateT, MutStateT, Repository};
+use pippin::{StateRead, StateWrite, Repository};
 use pippin::fileio::RepoFileIO;
 use pippin::commit::MakeCommitMeta;
 use pippin_app_tests::util;

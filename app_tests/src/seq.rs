@@ -25,7 +25,7 @@ use pippin::error::{ReadError, OtherError};
 /// Type of sequence elements.
 pub type R = f64;
 /// Type is a wrapper around a vector of f64. The reason for this is that we
-/// can only implement ElementT for new types, thus cannot use the vector type
+/// can only implement `Element` for new types, thus cannot use the vector type
 /// directly (see #44).
 #[derive(PartialEq, Debug)]
 pub struct Sequence {
@@ -43,7 +43,7 @@ impl From<Vec<R>> for Sequence {
     }
 }
 
-impl ElementT for Sequence {
+impl Element for Sequence {
     fn write_buf(&self, writer: &mut Write) -> Result<()> {
         for x in &self.v {
             writer.write_f64::<LittleEndian>(*x)?;
@@ -183,9 +183,9 @@ impl Generator for GeneratorEnum {
 }
 
 
-// —————  RepoT type and supporting types  —————
+// —————  RepoControl type and supporting types  —————
 
-/// Data type implementing pippin's `ClassifierT` (stores information about
+/// Data type implementing pippin's `Classify` (stores information about
 /// classifications).
 #[derive(Clone)]
 pub struct SeqClassifier {
@@ -193,7 +193,7 @@ pub struct SeqClassifier {
     // sequences in the class. Ordered by min length, increasing.
     classes: Vec<(usize, PartId)>,
 }
-impl ClassifierT for SeqClassifier {
+impl Classify for SeqClassifier {
     type Element = Sequence;
     fn classify(&self, elt: &Sequence) -> Option<PartId> {
         let len = elt.v.len();
@@ -234,7 +234,7 @@ pub struct SeqRepo<IO: RepoIO> {
     parts: HashMap<PartId, PartInfo>,
 }
 impl<IO: RepoIO> SeqRepo<IO> {
-    /// Create an new `RepoT` around a given I/O device.
+    /// Create an new `RepoControl` around a given I/O device.
     pub fn new(r: IO) -> SeqRepo<IO> {
         SeqRepo {
             csf: SeqClassifier { classes: Vec::new() },
@@ -325,7 +325,7 @@ impl<IO: RepoIO> UserFields for SeqRepo<IO> {
         self.set_classifier();
     }
 }
-impl<IO: RepoIO> RepoT<SeqClassifier> for SeqRepo<IO> {
+impl<IO: RepoIO> RepoControl<SeqClassifier> for SeqRepo<IO> {
     fn io(&mut self) -> &mut RepoIO {
         &mut self.io
     }

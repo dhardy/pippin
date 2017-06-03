@@ -12,8 +12,8 @@
 //! *   `RepoIO` with an accompanying `PartIO` to describe how to access
 //!     the files (or other objects) storing data; the types in the `discover`
 //!     module should suffice for normal usage
-//! *   `ClassifierT` to classify elements, along with an `ElementT` type
-//! *   `RepoT`. This type should handle partitioning, creation of `ClassifierT`
+//! *   `Classify` to classify elements, along with an `Element` type
+//! *   `RepoControl`. This type should handle partitioning, creation of `Classify`
 //!     objects, saving and discovering partitioning information, and provide
 //!     the `RepoIO` implementation
 
@@ -23,11 +23,11 @@ use std::rc::Rc;
 use std::mem::swap;
 
 // Re-export these. We pretend these are part of the same module while keeping files smaller.
-pub use repo_traits::{ClassifierT, ClassifyFallback, RepoT, DummyClassifier};
+pub use repo_traits::{Classify, ClassifyFallback, RepoControl, DummyClassifier};
 use part::Partition;
-use state::{StateT, MutStateT, MutPartState};
+use state::{StateRead, StateWrite, MutPartState};
 use merge::TwoWaySolver;
-use elt::{EltId, PartId, ElementT};
+use elt::{EltId, PartId, Element};
 use error::{Result, OtherError, TipError, ElementOp, RepoDivideError};
 
 /// Handle on a repository.
@@ -43,11 +43,11 @@ use error::{Result, OtherError, TipError, ElementOp, RepoDivideError};
 /// and used to read and write elements. The copy may be accessed without
 /// blocking other operations on the underlying repository. Changes made to
 /// the copy may be merged back into the repository.
-pub struct Repository<C: ClassifierT, R: RepoT<C>> {
+pub struct Repository<C: Classify, R: RepoControl<C>> {
     /// Classifier. This must use compile-time polymorphism since it gives us
     /// the element type, and we do not want element look-ups to involve a
     /// run-time conversion.
-    repo_t: R,
+    control: R,
     /// Descriptive identifier for the repository
     name: String,
     /// List of loaded partitions, by their `PartId`.
@@ -55,7 +55,7 @@ pub struct Repository<C: ClassifierT, R: RepoT<C>> {
 }
 
 // Non-member functions on Repository
-impl<C: ClassifierT, R: RepoT<C>> Repository<C, R> {
+impl<C: Classify, R: RepoControl<C>> Repository<C, R> {
     /// Create a new repository with the given name.
     /// 
     /// The name must be UTF-8 and not more than 16 bytes long. It allows a
@@ -66,20 +66,20 @@ impl<C: ClassifierT, R: RepoT<C>> Repository<C, R> {
     /// 
     /// This creates an initial 'partition' ready for use (all contents must
     /// be kept within a `Partition`).
-    pub fn create<S: Into<String>>(mut repo_t: R, name: S) -> Result<Repository<C, R>>
+    pub fn create<S: Into<String>>(mut control: R, name: S) -> Result<Repository<C, R>>
     {
         let name: String = name.into();
         info!("Creating repository: {}", name);
-        let part_id = repo_t.init_first()?;
-        let suggestion = repo_t.suggest_part_prefix(part_id);
+        let part_id = control.init_first()?;
+        let suggestion = control.suggest_part_prefix(part_id);
         let prefix = suggestion.unwrap_or_else(|| format!("pn{}", part_id));
-        repo_t.io_mut().new_part(part_id, prefix)?;
-        let user_part_t = repo_t.make_user_part_t(part_id)?;
-        let part = Partition::create(part_id, user_part_t, &name)?;
+        control.io_mut().new_part(part_id, prefix)?;
+        let part_control = control.make_part_control(part_id)?;
+        let part = Partition::create(part_id, part_control, &name)?;
         let mut partitions = HashMap::new();
         partitions.insert(part.part_id(), part);
         Ok(Repository{
-            repo_t: repo_t,
+            control: control,
             name: name,
             partitions: partitions,
         })
@@ -89,24 +89,24 @@ impl<C: ClassifierT, R: RepoT<C>> Repository<C, R> {
     /// 
     /// This does not automatically load partition data, however it must load
     /// at least one header in order to identify the repository.
-    pub fn open(mut repo_t: R)-> Result<Repository<C, R>> {
+    pub fn open(mut control: R)-> Result<Repository<C, R>> {
         let (name, parts) = {
-            let mut part_nums = repo_t.io().parts().into_iter();
+            let mut part_nums = control.io().parts().into_iter();
             let num0 = if let Some(num) = part_nums.next() {
                 num
             } else {
                 return OtherError::err("No repository files found");
             };
             
-            let user_part_t = repo_t.make_user_part_t(num0)?;
-            let mut part0 = Partition::open(num0, user_part_t)?;
+            let part_control = control.make_part_control(num0)?;
+            let mut part0 = Partition::open(num0, part_control)?;
             let name = part0.get_repo_name()?.to_string();
             
             let mut parts = HashMap::new();
             parts.insert(num0, part0);
             for n in part_nums {
-                let user_part_t = repo_t.make_user_part_t(n)?;
-                let mut part = Partition::open(n, user_part_t)?;
+                let part_control = control.make_part_control(n)?;
+                let mut part = Partition::open(n, part_control)?;
                 part.set_repo_name(&name)?;
                 parts.insert(n, part);
             }
@@ -115,7 +115,7 @@ impl<C: ClassifierT, R: RepoT<C>> Repository<C, R> {
         
         info!("Opening repository with {} partitions: {}", parts.len(), name);
         Ok(Repository{
-            repo_t: repo_t,
+            control: control,
             name: name,
             partitions: parts,
         })
@@ -123,7 +123,7 @@ impl<C: ClassifierT, R: RepoT<C>> Repository<C, R> {
 }
 
 // Member functions on Repository — a set of elements.
-impl<C: ClassifierT, R: RepoT<C>> Repository<C, R> {
+impl<C: Classify, R: RepoControl<C>> Repository<C, R> {
     /// Get the repo name
     pub fn name(&self) -> &str { &self.name }
     
@@ -179,7 +179,7 @@ impl<C: ClassifierT, R: RepoT<C>> Repository<C, R> {
         let mut should_divide: Vec<PartId> = Vec::new();
         let mut need_reclassify: Vec<PartId> = Vec::new();
         for (id, part) in &self.partitions {
-            if self.repo_t.should_divide(*id, part) && part.is_ready() {
+            if self.control.should_divide(*id, part) && part.is_ready() {
                 should_divide.push(*id);
             }
             if let Ok(state) = part.tip() {
@@ -191,7 +191,7 @@ impl<C: ClassifierT, R: RepoT<C>> Repository<C, R> {
         
         while let Some(old_id) = should_divide.pop() {
             // Get new partition numbers and update classifiers. This gets saved later if successful.
-            let result = self.repo_t.divide(self.partitions.get(&old_id).expect("get partition"));
+            let result = self.control.divide(self.partitions.get(&old_id).expect("get partition"));
             let (new_parts, changed) = match result {
                 Ok(result) => result,
                 Err(RepoDivideError::NotSubdivisible) => {
@@ -226,11 +226,11 @@ impl<C: ClassifierT, R: RepoT<C>> Repository<C, R> {
             
             // Create new partitions:
             for new_id in new_parts {
-                let suggestion = self.repo_t.suggest_part_prefix(new_id);
+                let suggestion = self.control.suggest_part_prefix(new_id);
                 let prefix = suggestion.unwrap_or_else(|| format!("pn{}", new_id));
-                self.repo_t.io_mut().new_part(new_id, prefix)?;
-                let user_part_t = self.repo_t.make_user_part_t(new_id)?;
-                let mut part = Partition::create(new_id, user_part_t, &self.name)?;
+                self.control.io_mut().new_part(new_id, prefix)?;
+                let part_control = self.control.make_part_control(new_id)?;
+                let mut part = Partition::create(new_id, part_control, &self.name)?;
                 part.write_full()?;
                 self.partitions.insert(new_id, part);
             }
@@ -253,7 +253,7 @@ impl<C: ClassifierT, R: RepoT<C>> Repository<C, R> {
         while let Some(old_id) = need_reclassify.pop() {
             // extract from partitions so as not to block it
             let mut old_part = self.partitions.remove(&old_id).expect("remove old part");
-            let classifier = self.repo_t.clone_classifier();
+            let classifier = self.control.clone_classifier();
             
             // Check where elements need to be moved
             // for each partition, the elements to be moved there (old element ids)
@@ -371,7 +371,7 @@ impl<C: ClassifierT, R: RepoT<C>> Repository<C, R> {
     /// 
     /// TODO: a way to copy only some of the loaded partitions.
     pub fn clone_state(&self) -> result::Result<RepoState<C>, TipError> {
-        let mut rs = RepoState::new(self.repo_t.clone_classifier());
+        let mut rs = RepoState::new(self.control.clone_classifier());
         for (num, part) in &self.partitions {
             if part.is_loaded() {
                 rs.add_part(*num, part.tip()?.clone_mut());
@@ -453,12 +453,12 @@ impl<C: ClassifierT, R: RepoT<C>> Repository<C, R> {
 /// 
 /// This should be merged back in to the repo in order to record and
 /// synchronise edits.
-pub struct RepoState<C: ClassifierT> {
+pub struct RepoState<C: Classify> {
     classifier: C,
     states: HashMap<PartId, MutPartState<C::Element>>,
 }
 
-impl<C: ClassifierT> RepoState<C> {
+impl<C: Classify> RepoState<C> {
     /// Create new, with no partition states (use `add_part()`)
     fn new(classifier: C) -> RepoState<C> {
         RepoState { classifier: classifier, states: HashMap::new() }
@@ -541,7 +541,7 @@ impl<C: ClassifierT> RepoState<C> {
     }
 }
 
-impl<C: ClassifierT> StateT<C::Element> for RepoState<C> {
+impl<C: Classify> StateRead<C::Element> for RepoState<C> {
     fn any_avail(&self) -> bool {
         self.states.values().any(|v| v.any_avail())
     }
@@ -560,7 +560,7 @@ impl<C: ClassifierT> StateT<C::Element> for RepoState<C> {
         }
     }
 }
-impl<C: ClassifierT> MutStateT<C::Element> for RepoState<C> {
+impl<C: Classify> StateWrite<C::Element> for RepoState<C> {
     fn insert_rc(&mut self, id: EltId, elt: Rc<C::Element>) -> Result<EltId, ElementOp> {
         if let Some(mut state) = self.states.get_mut(&id.part_id()) {
             state.insert_rc(id, elt)
@@ -594,10 +594,10 @@ impl<C: ClassifierT> MutStateT<C::Element> for RepoState<C> {
 }
 
 /// Iterator over partitions.
-pub struct PartIter<'a, E: ElementT+'a> {
+pub struct PartIter<'a, E: Element+'a> {
     iter: Values<'a, PartId, Partition<E>>
 }
-impl<'a, E: ElementT> Iterator for PartIter<'a, E> {
+impl<'a, E: Element> Iterator for PartIter<'a, E> {
     type Item = &'a Partition<E>;
     fn next(&mut self) -> Option<Self::Item> {
         self.iter.next()
@@ -606,10 +606,10 @@ impl<'a, E: ElementT> Iterator for PartIter<'a, E> {
 }
 
 /// Mutating iterator over partitions.
-pub struct PartIterMut<'a, E: ElementT+'a> {
+pub struct PartIterMut<'a, E: Element+'a> {
     iter: ValuesMut<'a, PartId, Partition<E>>
 }
-impl<'a, E: ElementT> Iterator for PartIterMut<'a, E> {
+impl<'a, E: Element> Iterator for PartIterMut<'a, E> {
     type Item = &'a mut Partition<E>;
     fn next(&mut self) -> Option<Self::Item> {
         self.iter.next()

@@ -400,7 +400,7 @@ impl ErrorTrait for UserError {
 
 
 // —————  RepoDivideError  —————
-/// Failures allowed for `ClassifierT::divide`.
+/// Failures allowed for `Classify::divide`.
 #[derive(Debug)]
 pub enum RepoDivideError {
     /// No logic is available allowing subdivision of the category.

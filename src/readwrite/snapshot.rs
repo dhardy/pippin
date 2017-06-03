@@ -12,8 +12,8 @@ use std::collections::hash_map::{HashMap, Entry};
 use byteorder::{ByteOrder, BigEndian, WriteBytesExt};
 
 use readwrite::{sum, read_meta, write_meta};
-use state::{PartState, StateT};
-use elt::{ElementT, PartId};
+use state::{PartState, StateRead};
+use elt::{Element, PartId};
 use sum::{Sum, SUM_BYTES};
 use error::{Result, ReadError, ElementOp};
 
@@ -27,7 +27,7 @@ use error::{Result, ReadError, ElementOp};
 /// 
 /// The file version affects how data is read. Get it from a header with
 /// `header.ftype.ver()`.
-pub fn read_snapshot<T: ElementT>(reader: &mut Read, part_id: PartId,
+pub fn read_snapshot<T: Element>(reader: &mut Read, part_id: PartId,
         format_ver: u32) -> Result<PartState<T>>
 {
     // A reader which calculates the checksum of what was read:
@@ -150,7 +150,7 @@ pub fn read_snapshot<T: ElementT>(reader: &mut Read, part_id: PartId,
 /// 
 /// The snapshot is derived from a partition state, but also includes a
 /// partition identifier range.
-pub fn write_snapshot<T: ElementT>(state: &PartState<T>,
+pub fn write_snapshot<T: Element>(state: &PartState<T>,
     writer: &mut Write) -> Result<()>
 {
     trace!("Writing snapshot (partition {} with {} elements): {}",
@@ -221,7 +221,7 @@ pub fn write_snapshot<T: ElementT>(state: &PartState<T>,
 
 #[test]
 fn snapshot_writing() {
-    use state::MutStateT;
+    use state::StateWrite;
     use readwrite::header::HEAD_VERSIONS;
     use commit::{CommitMeta, ExtraMeta, MakeCommitMeta};
     

@@ -162,12 +162,12 @@ impl fmt::Display for EltId {
 /// use std::io::Write;
 /// 
 /// use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
-/// use pippin::{ElementT, Result};
+/// use pippin::{Element, Result};
 /// 
 /// #[derive(PartialEq, Debug)]
 /// struct Point { x: f64, y: f64 }
 /// 
-/// impl ElementT for Point {
+/// impl Element for Point {
 ///     fn write_buf(&self, writer: &mut Write) -> Result<()> {
 ///         try!(writer.write_f64::<LittleEndian>(self.x));
 ///         try!(writer.write_f64::<LittleEndian>(self.y));
@@ -182,7 +182,7 @@ impl fmt::Display for EltId {
 ///     }
 /// }
 /// ```
-pub trait ElementT where Self: Sized+PartialEq+Eq+Debug {
+pub trait Element where Self: Sized+PartialEq+Eq+Debug {
     // #0025: provide a choice of how to implement IO via a const bool?
 //     /// If this is set true, the `read_buf` and `write_buf` functions must be
 //     /// implemented. These are easier to use but potentially less efficient. If
@@ -239,7 +239,7 @@ pub trait ElementT where Self: Sized+PartialEq+Eq+Debug {
     }
 }
 
-impl ElementT for String {
+impl Element for String {
     fn write_buf(&self, writer: &mut Write) -> Result<()> {
         writer.write_all(self.as_bytes())?;
         Ok(())

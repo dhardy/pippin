@@ -35,15 +35,15 @@ use std::marker::PhantomData;
 use std::rc::Rc;
 
 use commit::{Commit, CommitMeta, EltChange, MakeCommitMeta};
-use state::{PartState, StateT};
-use elt::{EltId, ElementT};
+use state::{PartState, StateRead};
+use elt::{EltId, Element};
 use sum::Sum;
 
 /// This struct controls the merging of two states into one.
 /// 
 /// It currently requires a common ancestor, but could be rewritten not to
 /// (by asking for help solving far more cases).
-pub struct TwoWayMerge<'a, E: ElementT+'a> {
+pub struct TwoWayMerge<'a, E: Element+'a> {
     // First tip
     a: &'a PartState<E>,
     // Second tip
@@ -53,7 +53,7 @@ pub struct TwoWayMerge<'a, E: ElementT+'a> {
     // List of conflicts
     v: Vec<(EltId, EltMerge<E>)>,
 }
-impl<'a, E: ElementT> TwoWayMerge<'a, E> {
+impl<'a, E: Element> TwoWayMerge<'a, E> {
     /// Create an instance. `c` should be a common ancestor state of `a` and `b`.
     /// 
     /// Operation is `O(A + B + X)` where `A` and `B` are the numbers of
@@ -391,7 +391,7 @@ impl<'a, E: ElementT> TwoWayMerge<'a, E> {
 /// can be replicated via `EltMerge::Value(...)` and `EltMerge::Delete`. This
 /// significantly simplifies code in `TwoWayMerge::merge()`.
 #[derive(PartialEq)]
-pub enum EltMerge<E: ElementT> {
+pub enum EltMerge<E: Element> {
     /// Use the value from first state
     A,
     /// Use the value from the second state
@@ -408,7 +408,7 @@ pub enum EltMerge<E: ElementT> {
 }
 
 /// Implementations solve two-way merges on an element-by-element basis.
-pub trait TwoWaySolver<E: ElementT> {
+pub trait TwoWaySolver<E: Element> {
     /// This function should take possibly-present elements from states A, B
     /// and common ancestor state C, which all have the same identifier, and
     /// return an `EltMerge` object.
@@ -417,16 +417,16 @@ pub trait TwoWaySolver<E: ElementT> {
 }
 
 /// Implementation of `TwoWaySolver` which always selects state A.
-pub struct TwoWaySolveUseA<E: ElementT>{
+pub struct TwoWaySolveUseA<E: Element>{
     p: PhantomData<E>
 }
-impl<E: ElementT> TwoWaySolveUseA<E> {
+impl<E: Element> TwoWaySolveUseA<E> {
     /// Create an instance (requires no parameters)
     pub fn new() -> Self {
         TwoWaySolveUseA { p: PhantomData }
     }
 }
-impl<E: ElementT> TwoWaySolver<E> for TwoWaySolveUseA<E> {
+impl<E: Element> TwoWaySolver<E> for TwoWaySolveUseA<E> {
     fn solve(&self, _: Option<&Rc<E>>, _: Option<&Rc<E>>,
         _: Option<&Rc<E>>) -> EltMerge<E>
     {
@@ -434,16 +434,16 @@ impl<E: ElementT> TwoWaySolver<E> for TwoWaySolveUseA<E> {
     }
 }
 /// Implementation of `TwoWaySolver` which always selects state B.
-pub struct TwoWaySolveUseB<E: ElementT>{
+pub struct TwoWaySolveUseB<E: Element>{
     p: PhantomData<E>
 }
-impl<E: ElementT> TwoWaySolveUseB<E> {
+impl<E: Element> TwoWaySolveUseB<E> {
     /// Create an instance (requires no parameters)
     pub fn new() -> Self {
         TwoWaySolveUseB { p: PhantomData }
     }
 }
-impl<E: ElementT> TwoWaySolver<E> for TwoWaySolveUseB<E> {
+impl<E: Element> TwoWaySolver<E> for TwoWaySolveUseB<E> {
     fn solve(&self, _: Option<&Rc<E>>, _: Option<&Rc<E>>,
         _: Option<&Rc<E>>) -> EltMerge<E>
     {
@@ -451,16 +451,16 @@ impl<E: ElementT> TwoWaySolver<E> for TwoWaySolveUseB<E> {
     }
 }
 /// Implementation of `TwoWaySolver` which always selects state C.
-pub struct TwoWaySolveUseC<E: ElementT>{
+pub struct TwoWaySolveUseC<E: Element>{
     p: PhantomData<E>
 }
-impl<E: ElementT> TwoWaySolveUseC<E> {
+impl<E: Element> TwoWaySolveUseC<E> {
     /// Create an instance (requires no parameters)
     pub fn new() -> Self {
         TwoWaySolveUseC { p: PhantomData }
     }
 }
-impl<E: ElementT> TwoWaySolver<E> for TwoWaySolveUseC<E> {
+impl<E: Element> TwoWaySolver<E> for TwoWaySolveUseC<E> {
     fn solve(&self, _: Option<&Rc<E>>, _: Option<&Rc<E>>,
         c: Option<&Rc<E>>) -> EltMerge<E>
     {
@@ -471,16 +471,16 @@ impl<E: ElementT> TwoWaySolver<E> for TwoWaySolveUseC<E> {
     }
 }
 /// Implementation of `TwoWaySolver` which always gives up.
-pub struct TwoWaySolveFail<E: ElementT>{
+pub struct TwoWaySolveFail<E: Element>{
     p: PhantomData<E>
 }
-impl<E: ElementT> TwoWaySolveFail<E> {
+impl<E: Element> TwoWaySolveFail<E> {
     /// Create an instance (requires no parameters)
     pub fn new() -> Self {
         TwoWaySolveFail { p: PhantomData }
     }
 }
-impl<E: ElementT> TwoWaySolver<E> for TwoWaySolveFail<E> {
+impl<E: Element> TwoWaySolver<E> for TwoWaySolveFail<E> {
     fn solve(&self, _: Option<&Rc<E>>, _: Option<&Rc<E>>,
         _: Option<&Rc<E>>) -> EltMerge<E>
     {
@@ -490,13 +490,13 @@ impl<E: ElementT> TwoWaySolver<E> for TwoWaySolveFail<E> {
 
 /// Chains two solvers. Calls the second if and only if the first returns
 /// `EltMerge::Fail`.
-pub struct TwoWaySolverChain<'a, E: ElementT,
+pub struct TwoWaySolverChain<'a, E: Element,
     S: TwoWaySolver<E>+'a, T: TwoWaySolver<E>+'a>
 {
     s: &'a S, t: &'a T,
     p: PhantomData<E>
 }
-impl<'a, E: ElementT, S: TwoWaySolver<E>+'a, T: TwoWaySolver<E>+'a>
+impl<'a, E: Element, S: TwoWaySolver<E>+'a, T: TwoWaySolver<E>+'a>
     TwoWaySolverChain<'a, E, S, T>
 {
     /// Create an instance, based on two other solvers
@@ -504,7 +504,7 @@ impl<'a, E: ElementT, S: TwoWaySolver<E>+'a, T: TwoWaySolver<E>+'a>
         TwoWaySolverChain{ s: s, t: t, p: PhantomData }
     }
 }
-impl<'a, E: ElementT, S: TwoWaySolver<E>+'a, T: TwoWaySolver<E>+'a> TwoWaySolver<E>
+impl<'a, E: Element, S: TwoWaySolver<E>+'a, T: TwoWaySolver<E>+'a> TwoWaySolver<E>
     for TwoWaySolverChain<'a, E, S, T>
 {
     fn solve(&self, a: Option<&Rc<E>>, b: Option<&Rc<E>>,
@@ -528,16 +528,16 @@ impl<'a, E: ElementT, S: TwoWaySolver<E>+'a, T: TwoWaySolver<E>+'a> TwoWaySolver
 /// independently, then one reverts, and then a merge is carried out, the
 /// merge will ignore the revert. Git and any other "3-way-merge" algorithms
 /// have the same defect.)
-pub struct AncestorSolver2W<E: ElementT>{
+pub struct AncestorSolver2W<E: Element>{
     p: PhantomData<E>
 }
-impl<E: ElementT> AncestorSolver2W<E> {
+impl<E: Element> AncestorSolver2W<E> {
     /// Create an instance (requires no parameters)
     pub fn new() -> Self {
         AncestorSolver2W { p: PhantomData }
     }
 }
-impl<E: ElementT> TwoWaySolver<E> for AncestorSolver2W<E> {
+impl<E: Element> TwoWaySolver<E> for AncestorSolver2W<E> {
     fn solve<'a>(&self, a: Option<&'a Rc<E>>, b: Option<&'a Rc<E>>,
         c: Option<&'a Rc<E>>) -> EltMerge<E>
     {
@@ -555,16 +555,16 @@ impl<E: ElementT> TwoWaySolver<E> for AncestorSolver2W<E> {
 /// Solver which handles the case where there is no common ancestor element by
 /// renaming (or in the case that either `a` or `b` is `None`, choosing the
 /// other).
-pub struct RenamingSolver2W<E: ElementT>{
+pub struct RenamingSolver2W<E: Element>{
     p: PhantomData<E>
 }
-impl<E: ElementT> RenamingSolver2W<E> {
+impl<E: Element> RenamingSolver2W<E> {
     /// Create an instance (requires no parameters)
     pub fn new() -> Self {
         RenamingSolver2W { p: PhantomData }
     }
 }
-impl<E: ElementT> TwoWaySolver<E> for RenamingSolver2W<E> {
+impl<E: Element> TwoWaySolver<E> for RenamingSolver2W<E> {
     fn solve(&self, _: Option<&Rc<E>>, _: Option<&Rc<E>>,
         c: Option<&Rc<E>>) -> EltMerge<E>
     {

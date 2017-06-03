@@ -12,7 +12,7 @@
 //! modification of the set of elements and updates its checksums as this
 //! happens.
 //! 
-//! This module also contains the `StateT` and `MutStateT` traits which
+//! This module also contains the `StateRead` and `StateWrite` traits which
 //! abstract over operations on partition and repository states.
 
 use std::collections::{HashMap};
@@ -23,14 +23,14 @@ use std::rc::Rc;
 use hashindexed::KeyComparator;
 use rand::random;
 
-use elt::{ElementT, PartId, EltId};
+use elt::{Element, PartId, EltId};
 use sum::Sum;
 use commit::*;
 use error::{ElementOp, PatchOp};
 
 /// Trait abstracting over read operations on the state of a partition or
 /// repository.
-pub trait StateT<E: ElementT> {
+pub trait StateRead<E: Element> {
     /// Returns true when any elements are available.
     /// 
     /// In a single partition this means that the partition is not empty; in a
@@ -69,7 +69,7 @@ pub trait StateT<E: ElementT> {
 
 /// Trait abstracting over write operations on the state of a partition or
 /// repository.
-pub trait MutStateT<E: ElementT>: StateT<E> {
+pub trait StateWrite<E: Element>: StateRead<E> {
     /// Tries to directly insert an element with a given identifier.
     /// 
     /// The partition part of the identifier must correspond to the current
@@ -139,7 +139,7 @@ pub trait MutStateT<E: ElementT>: StateT<E> {
 /// Essentially this holds a map of elements indexed by their identifiers, a
 /// map of moved elements, partition-metadata and commit-metadata.
 #[derive(PartialEq, Debug)]
-pub struct PartState<E: ElementT> {
+pub struct PartState<E: Element> {
     part_id: PartId,
     parents: Vec<Sum>,
     statesum: Sum,
@@ -162,7 +162,7 @@ pub struct PartState<E: ElementT> {
 /// to be seen what advantages and disadvantages this would have. See issue
 /// #0021.
 #[derive(PartialEq, Debug)]
-pub struct MutPartState<E: ElementT> {
+pub struct MutPartState<E: Element> {
     part_id: PartId,
     parent: Sum,
     elt_sum: Sum,
@@ -171,7 +171,7 @@ pub struct MutPartState<E: ElementT> {
     meta: CommitMetaPartial,
 }
 
-impl<E: ElementT> PartState<E> {
+impl<E: Element> PartState<E> {
     /// Create a new state, with no elements or history.
     /// 
     /// The partition's identifier must be given; this is used to assign new
@@ -370,7 +370,7 @@ impl<E: ElementT> PartState<E> {
     }
 }
     
-impl<E: ElementT> MutPartState<E> {
+impl<E: Element> MutPartState<E> {
     /// Get the partition identifier
     pub fn part_id(&self) -> PartId { self.part_id }
     /// Get the parent's sum
@@ -465,7 +465,7 @@ impl<E: ElementT> MutPartState<E> {
     }
 }
 
-impl<E: ElementT> StateT<E> for PartState<E> {
+impl<E: Element> StateRead<E> for PartState<E> {
     fn any_avail(&self) -> bool {
         !self.elts.is_empty()
     }
@@ -479,7 +479,7 @@ impl<E: ElementT> StateT<E> for PartState<E> {
         self.elts.get(&id).ok_or(ElementOp::EltNotFound)
     }
 }
-impl<E: ElementT> StateT<E> for MutPartState<E> {
+impl<E: Element> StateRead<E> for MutPartState<E> {
     fn any_avail(&self) -> bool {
         !self.elts.is_empty()
     }
@@ -493,7 +493,7 @@ impl<E: ElementT> StateT<E> for MutPartState<E> {
         self.elts.get(&id).ok_or(ElementOp::EltNotFound)
     }
 }
-impl<E: ElementT> MutStateT<E> for MutPartState<E> {
+impl<E: Element> StateWrite<E> for MutPartState<E> {
     fn insert_rc(&mut self, id: EltId, elt: Rc<E>) -> Result<EltId, ElementOp> {
         if id.part_id() != self.part_id { return Err(ElementOp::WrongPartId); }
         if self.elts.contains_key(&id) { return Err(ElementOp::IdClash); }
@@ -569,7 +569,7 @@ impl<'a> ExactSizeIterator for EltIdIter<'a> {
 
 /// Helper to use `PartState` with `HashIndexed`
 pub struct PartStateSumComparator;
-impl<E: ElementT> KeyComparator<PartState<E>, Sum> for PartStateSumComparator {
+impl<E: Element> KeyComparator<PartState<E>, Sum> for PartStateSumComparator {
     fn extract_key(value: &PartState<E>) -> &Sum {
         value.statesum()
     }

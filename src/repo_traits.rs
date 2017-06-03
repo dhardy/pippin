@@ -7,8 +7,8 @@
 use std::marker::PhantomData;
 
 use io::RepoIO;
-use part::{Partition, UserPartT};
-use elt::{ElementT, PartId};
+use part::{Partition, PartControl};
+use elt::{Element, PartId};
 use error::{Result, RepoDivideError};
 
 
@@ -16,12 +16,12 @@ use error::{Result, RepoDivideError};
 /// only a single partition, or it may have some fixed partitioning, or it may
 /// have dynamic partitioning. This trait exposes the partitioning.
 /// 
-/// Expected usage is that the `RepoT` type will determine classification and
-/// yield an object implementing this trait when `RepoT::clone_classifier()` is
+/// Expected usage is that the `RepoControl` type will determine classification and
+/// yield an object implementing this trait when `RepoControl::clone_classifier()` is
 /// called.
-pub trait ClassifierT {
+pub trait Classify {
     /// The user-specified element type.
-    type Element: ElementT;
+    type Element: Element;
     
     /// Get the classification of an element.
     /// 
@@ -29,7 +29,7 @@ pub trait ClassifierT {
     /// element is temporarily unavailable. In this case it might call
     /// `fallback`.
     /// 
-    /// The return value must not be zero (see `ClassifierT` documentation on
+    /// The return value must not be zero (see `Classify` documentation on
     /// numbers).
     /// 
     /// This function is only called when inserting/replacing an element and
@@ -62,7 +62,7 @@ pub enum ClassifyFallback {
     Fail,
 }
 
-/// Encapsulates a `RepoIO` and a `ClassifierT`, handling repartitioning and
+/// Encapsulates a `RepoIO` and a `Classify`, handling repartitioning and
 /// serialisation.
 /// 
 /// Implementations should also implement `UserFields` to store and retrieve
@@ -75,7 +75,7 @@ pub enum ClassifyFallback {
 /// is versioned independently for *each partition* so that when metadata is
 /// recovered from headers, a correct version is built even if multiple
 /// partitions had been modified independently.
-pub trait RepoT<C: ClassifierT+Sized> {
+pub trait RepoControl<C: Classify+Sized> {
     /// Get access to the I/O provider. This could be an instance of
     /// `DiscoverRepoFiles` or could be self (among other possibilities).
     fn io(&self) -> &RepoIO;
@@ -84,8 +84,8 @@ pub trait RepoT<C: ClassifierT+Sized> {
     /// `DiscoverRepoFiles` or could be self (among other possibilities).
     fn io_mut(&mut self) -> &mut RepoIO;
     
-    /// Get a `UserPartT` object for existing partition `num`.
-    fn make_user_part_t(&mut self, num: PartId) -> Result<Box<UserPartT>>;
+    /// Get a `PartControl` object for existing partition `num`.
+    fn make_part_control(&mut self, num: PartId) -> Result<Box<PartControl>>;
     
     /// Make a copy of the classifier. This should be independent (for use with
     /// `Repository::clone_state()`) and be unaffected by repartitioning (e.g.
@@ -180,16 +180,16 @@ pub trait RepoT<C: ClassifierT+Sized> {
 
 /// Trivial implementation for testing purposes. Always returns the same value,
 /// 1, thus there will only ever be a single 'partition'.
-pub struct DummyClassifier<E: ElementT> {
+pub struct DummyClassifier<E: Element> {
     p: PhantomData<E>,
 }
-impl<E: ElementT> DummyClassifier<E> {
+impl<E: Element> DummyClassifier<E> {
     /// Create an instance
     pub fn new() -> DummyClassifier<E> {
         DummyClassifier { p: PhantomData }
     }
 }
-impl<E: ElementT> ClassifierT for DummyClassifier<E> where DummyClassifier<E> : Clone {
+impl<E: Element> Classify for DummyClassifier<E> where DummyClassifier<E> : Clone {
     type Element = E;
     fn classify(&self, _elt: &Self::Element) -> Option<PartId> {
         Some(PartId::from_num(1))

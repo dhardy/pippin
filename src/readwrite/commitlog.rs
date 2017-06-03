@@ -15,7 +15,7 @@ use byteorder::{ByteOrder, BigEndian, WriteBytesExt};
 
 use readwrite::{sum, read_meta, write_meta};
 use commit::{Commit, EltChange};
-use elt::ElementT;
+use elt::Element;
 use sum::{Sum, SUM_BYTES};
 use error::{Result, ReadError};
 
@@ -23,12 +23,12 @@ use error::{Result, ReadError};
 /// 
 /// There is a simple implementation for `Vec<Commit<E>>` which just pushes
 /// each commit and returns `true` (to continue reading to the end).
-pub trait CommitReceiver<E: ElementT> {
+pub trait CommitReceiver<E: Element> {
     /// Implement to receive a commit once it has been read. Return true to
     /// continue reading or false to stop reading more commits.
     fn receive(&mut self, commit: Commit<E>) -> bool;
 }
-impl<E: ElementT> CommitReceiver<E> for Vec<Commit<E>> {
+impl<E: Element> CommitReceiver<E> for Vec<Commit<E>> {
     /// Implement function required by readwrite::read_log().
     fn receive(&mut self, commit: Commit<E>) -> bool {
         self.push(commit);
@@ -40,7 +40,7 @@ impl<E: ElementT> CommitReceiver<E> for Vec<Commit<E>> {
 /// Read a commit log from a stream
 /// 
 /// `format_ver` is the decimalised file format version
-pub fn read_log<E: ElementT>(mut reader: &mut Read,
+pub fn read_log<E: Element>(mut reader: &mut Read,
         receiver: &mut CommitReceiver<E>, format_ver: u32) -> Result<()>
 {
     let mut pos: usize = 0;
@@ -191,7 +191,7 @@ pub fn start_log(writer: &mut Write) -> Result<()> {
 }
 
 /// Write a single commit to a stream
-pub fn write_commit<E: ElementT>(commit: &Commit<E>, writer: &mut Write) -> Result<()> {
+pub fn write_commit<E: Element>(commit: &Commit<E>, writer: &mut Write) -> Result<()> {
     trace!("Writing commit ({} changes): {}",
         commit.num_changes(), commit.statesum());
     

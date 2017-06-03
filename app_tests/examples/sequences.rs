@@ -18,7 +18,7 @@ use std::cmp::{min, max};
 use docopt::Docopt;
 use rand::distributions::{IndependentSample, LogNormal};
 
-use pippin::{PartId, Partition, StateT, MutStateT, Result};
+use pippin::{PartId, Partition, StateRead, StateWrite, Result};
 use pippin::{discover, fileio};
 use pippin::repo::Repository;
 use pippin::merge::*;
@@ -91,7 +91,7 @@ fn run(path: &Path, part_num: Option<u64>,
     let merge_solver = TwoWaySolverChain::new(&solver1, &solver2);
     
     let mut rng = rand::thread_rng();
-    let mut generate = |state: &mut MutStateT<_>|
+    let mut generate = |state: &mut StateWrite<_>|
             if let Some(num) = generate_n
         {
             let len_range = LogNormal::new(1., 2.);

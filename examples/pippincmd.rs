@@ -194,8 +194,8 @@ fn inner(path: PathBuf, op: Operation, args: Rest) -> Result<()>
             
             let prefix = path.join(name);
             let io = PartFileIO::new_empty(prefix);
-            let part_t = Box::new(DefaultUserPartT::new(io));
-            Partition::<DataElt>::create(part_id, part_t, &repo_name)?;
+            let control = Box::new(DefaultPartControl::new(io));
+            Partition::<DataElt>::create(part_id, control, &repo_name)?;
             Ok(())
         },
         Operation::Header => {
@@ -242,8 +242,8 @@ fn inner(path: PathBuf, op: Operation, args: Rest) -> Result<()>
                     println!("Highest snapshot number: {}", ss_len - 1);
                 }
                 if list_commits {
-                    let part_t = Box::new(DefaultUserPartT::new(part.clone()));
-                    let mut part = Partition::<DataElt>::open(*part_id, part_t)?;
+                    let control = Box::new(DefaultPartControl::new(part.clone()));
+                    let mut part = Partition::<DataElt>::open(*part_id, control)?;
                     part.load_all()?;
                     let mut states: Vec<_> = part.states_iter().collect();
                     states.sort_by_key(|s| s.meta().number());
@@ -263,8 +263,8 @@ fn inner(path: PathBuf, op: Operation, args: Rest) -> Result<()>
             println!("Scanning files ...");
             let (part_id, part_files) = part_from_path(&path, None)?;
             
-            let part_t = Box::new(DefaultUserPartT::new(part_files));
-            let mut part = Partition::<DataElt>::open(part_id, part_t)?;
+            let control = Box::new(DefaultPartControl::new(part_files));
+            let mut part = Partition::<DataElt>::open(part_id, control)?;
             {
                 let (is_tip, mut state) = if let Some(ss) = args.commit {
                     part.load_all()?;
@@ -378,7 +378,7 @@ impl From<Vec<u8>> for DataElt {
         }
     }
 }
-impl ElementT for DataElt {
+impl Element for DataElt {
     fn write_buf(&self, writer: &mut Write) -> Result<()> {
         writer.write_all(self.bytes())?;
         Ok(())

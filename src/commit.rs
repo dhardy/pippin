@@ -13,8 +13,8 @@ use std::ops::BitOr;
 
 use chrono::{DateTime, NaiveDateTime, UTC};
 
-use state::{PartState, MutPartState, MutStateT};
-use elt::{ElementT, EltId};
+use state::{PartState, MutPartState, StateWrite};
+use elt::{Element, EltId};
 use sum::Sum;
 use error::{Result, ElementOp, OtherError};
 
@@ -264,7 +264,7 @@ pub trait MakeCommitMeta {
 /// 
 /// The number of parents is at least one; where more this is a merge commit.
 #[derive(PartialEq, Debug)]
-pub struct Commit<E: ElementT> {
+pub struct Commit<E: Element> {
     /// Expected resultant state sum; doubles as an ID.
     statesum: Sum,
     /// State sum (ID) of parent states. There must be at least one. The first
@@ -279,7 +279,7 @@ pub struct Commit<E: ElementT> {
 
 /// Per-element changes
 #[derive(PartialEq, Debug)]
-pub enum EltChange<E: ElementT> {
+pub enum EltChange<E: Element> {
     /// Element was deleted
     Deletion,
     /// Element was added (full data)
@@ -291,7 +291,7 @@ pub enum EltChange<E: ElementT> {
     /// Same as `MoveOut` except that the element has already been removed from the partition
     Moved(EltId),
 }
-impl<E: ElementT> EltChange<E> {
+impl<E: Element> EltChange<E> {
     /// Create an `Insertion`
     pub fn insertion(elt: Rc<E>) -> EltChange<E> {
         EltChange::Insertion(elt)
@@ -334,7 +334,7 @@ impl<E: ElementT> EltChange<E> {
 
 // —————  Commit operations  —————
 
-impl<E: ElementT> Commit<E> {
+impl<E: Element> Commit<E> {
     /// Create a commit from parts. It is suggested not to use this unless you
     /// are sure all sums are correct.
     /// 

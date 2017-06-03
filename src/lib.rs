@@ -51,18 +51,18 @@
 //! Traits for the user to implement (only the first two if only using a single
 //! partition; useful implementations of the "IO" traits are provided):
 //! 
-//! *   `ElementT`
+//! *   `Element`
 //! *   `PartIO`
-//! *   `ClassifierT` (depends on `ElementT`)
+//! *   `Classify` (depends on `Element`)
 //! *   `RepoIO` (must be able to yield `PartIO` objects)
-//! *   `RepoT` (requires `ClassifierT` and `RepoIO` implementations)
+//! *   `RepoControl` (requires `Classify` and `RepoIO` implementations)
 //! 
 //! Library structures:
 //! 
-//! *   `PartState` (depends on `ElementT`)
+//! *   `PartState` (depends on `Element`)
 //! *   `Partition` (uses a `PartIO` and yields `PartState` objects)
-//! *   `Repository` (uses a `RepoT` and holds `Partition` objects, can yield `RepoState` objects)
-//! *   `RepoState` (uses a `ClassifierT` object)
+//! *   `Repository` (uses a `RepoControl` and holds `Partition` objects, can yield `RepoState` objects)
+//! *   `RepoState` (uses a `Classify` object)
 
 // This should probably be enabled by default for libraries.
 #![warn(missing_docs)]

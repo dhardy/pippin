@@ -19,11 +19,11 @@ use readwrite::{read_log, start_log, write_commit};
 use state::{PartState, MutPartState, PartStateSumComparator};
 use commit::{Commit};
 use merge::{TwoWayMerge, TwoWaySolver};
-use elt::{ElementT, PartId};
+use elt::{Element, PartId};
 use sum::Sum;
 use error::{Result, TipError, PatchOp, MatchError, MergeError, OtherError, make_io_err};
 
-pub use part_traits::{DefaultSnapshot, DefaultUserPartT, UserPartT, SnapshotPolicy};
+pub use part_traits::{DefaultSnapshot, DefaultPartControl, PartControl, SnapshotPolicy};
 
 /// A *partition* is a sub-set of the entire set such that (a) each element is
 /// in exactly one partition, (b) a partition is small enough to be loaded into
@@ -41,9 +41,9 @@ pub use part_traits::{DefaultSnapshot, DefaultUserPartT, UserPartT, SnapshotPoli
 /// Terminology: a *tip* (as in *point* or *peak*) is a state without a known
 /// successor. Normally there is exactly one tip, but see `is_ready`,
 /// `is_loaded` and `merge_required`.
-pub struct Partition<E: ElementT> {
+pub struct Partition<E: Element> {
     // User control trait
-    user: Box<UserPartT>,
+    control: Box<PartControl>,
     // Partition name. Used to identify loaded files.
     repo_name: String,
     // Partition identifier
@@ -63,7 +63,7 @@ pub struct Partition<E: ElementT> {
 }
 
 // Methods creating a partition, loading its data or checking status
-impl<E: ElementT> Partition<E> {
+impl<E: Element> Partition<E> {
     /// Create a partition, assigning an IO provider (this can only be done at
     /// time of creation). Create a blank state in the partition, write an
     /// empty snapshot to the provided `PartIO`, and mark self as *ready
@@ -72,19 +72,19 @@ impl<E: ElementT> Partition<E> {
     /// Example:
     /// 
     /// ```
-    /// use pippin::pip::{Partition, PartId, PartIO, DefaultUserPartT, DummyPartIO};
+    /// use pippin::pip::{Partition, PartId, PartIO, DefaultPartControl, DummyPartIO};
     /// 
     /// let part_id = PartId::from_num(1);
-    /// let part_t = Box::new(DefaultUserPartT::new(DummyPartIO::new()));
-    /// let partition = Partition::<String>::create(part_id, part_t, "example repo");
+    /// let control = Box::new(DefaultPartControl::new(DummyPartIO::new()));
+    /// let partition = Partition::<String>::create(part_id, control, "example repo");
     /// ```
-    pub fn create(part_id: PartId, user: Box<UserPartT>, name: &str) -> Result<Partition<E>> {
+    pub fn create(part_id: PartId, control: Box<PartControl>, name: &str) -> Result<Partition<E>> {
         validate_repo_name(name)?;
         let ss = 0;
         info!("Creating partiton {}; writing snapshot {}", part_id, ss);
         
         let mut part = Partition {
-            user: user,
+            control: control,
             repo_name: name.into(),
             part_id: part_id,
             ss0: ss,
@@ -95,10 +95,10 @@ impl<E: ElementT> Partition<E> {
             unsaved: VecDeque::new(),
         };
         
-        let state = PartState::new(part_id, part.user.as_mcm_ref_mut());
+        let state = PartState::new(part_id, part.control.as_mcm_ref_mut());
         let header = part.make_header(FileType::Snapshot(0))?;
         
-         if let Some(mut writer) = part.user.io_mut().new_ss(ss)? {
+         if let Some(mut writer) = part.control.io_mut().new_ss(ss)? {
             write_head(&header, &mut writer)?;
             write_snapshot(&state, &mut writer)?;
         } else {
@@ -125,17 +125,17 @@ impl<E: ElementT> Partition<E> {
     /// 
     /// ```no_run
     /// use std::path::Path;
-    /// use pippin::pip::{Partition, PartId, DefaultUserPartT, part_from_path};
+    /// use pippin::pip::{Partition, PartId, DefaultPartControl, part_from_path};
     /// 
     /// let path = Path::new("./my-partition");
     /// let (part_id, io) = part_from_path(path, None).unwrap();
-    /// let part_t = Box::new(DefaultUserPartT::new(io));
-    /// let partition = Partition::<String>::open(part_id, part_t);
+    /// let control = Box::new(DefaultPartControl::new(io));
+    /// let partition = Partition::<String>::open(part_id, control);
     /// ```
-    pub fn open(part_id: PartId, user: Box<UserPartT>) -> Result<Partition<E>> {
+    pub fn open(part_id: PartId, control: Box<PartControl>) -> Result<Partition<E>> {
         trace!("Opening partition {}", part_id);
         Ok(Partition {
-            user: user,
+            control: control,
             repo_name: "".to_string() /*temporary value; checked before usage elsewhere*/,
             part_id: part_id,
             ss0: 0,
@@ -176,8 +176,8 @@ impl<E: ElementT> Partition<E> {
         if !self.repo_name.is_empty() {
             return Ok(&self.repo_name);
         }
-        for ss in (0 .. self.user.io().ss_len()).rev() {
-            let opt_header = if let Some(mut ssf) = self.user.io().read_ss(ss)? {
+        for ss in (0 .. self.control.io().ss_len()).rev() {
+            let opt_header = if let Some(mut ssf) = self.control.io().read_ss(ss)? {
                 Some(read_head(&mut *ssf)?)
             } else {
                 None
@@ -190,12 +190,12 @@ impl<E: ElementT> Partition<E> {
         OtherError::err("no snapshot found for first partition")
     }
     
-    /// Load all history. Shortcut for `load_range(0, usize::MAX, user)`.
+    /// Load all history. Shortcut for `load_range(0, usize::MAX, control)`.
     pub fn load_all(&mut self) -> Result<()> {
         self.load_range(0, usize::MAX)
     }
     /// Load latest state from history (usually including some historical
-    /// data). Shortcut for `load_range(usize::MAX, usize::MAX, user)`.
+    /// data). Shortcut for `load_range(usize::MAX, usize::MAX, control)`.
     pub fn load_latest(&mut self) -> Result<()> {
         self.load_range(usize::MAX, usize::MAX)
     }
@@ -222,7 +222,7 @@ impl<E: ElementT> Partition<E> {
         //      load all logs found and rebuild states, aborting if parents are missing
         
         // Input arguments may be greater than the available snapshot numbers. Clamp:
-        let ss_len = self.user.io().ss_len();
+        let ss_len = self.control.io().ss_len();
         let mut ss0 = min(ss0, if ss_len > 0 { ss_len - 1 } else { ss_len });
         let mut ss1 = min(ss1, ss_len);
         // If data is already loaded, we must load snapshots between it and the new range too:
@@ -231,13 +231,13 @@ impl<E: ElementT> Partition<E> {
             if ss1 < self.ss0 { ss1 = self.ss0; }
         }
         // If snapshot files are missing, we need to load older files:
-        while ss0 > 0 && !self.user.io().has_ss(ss0) { ss0 -= 1; }
+        while ss0 > 0 && !self.control.io().has_ss(ss0) { ss0 -= 1; }
         debug!("Loading partition {} data with snapshot range ({}, {})", self.part_id, ss0, ss1);
         
-        if ss0 == 0 && !self.user.io().has_ss(ss0) {
+        if ss0 == 0 && !self.control.io().has_ss(ss0) {
             assert!(self.states.is_empty());
             // No initial snapshot; assume a blank state
-            let state = PartState::new(self.part_id, self.user.as_mcm_ref_mut());
+            let state = PartState::new(self.part_id, self.control.as_mcm_ref_mut());
             self.tips.insert(state.statesum().clone());
             self.states.insert(state);
         }
@@ -248,7 +248,7 @@ impl<E: ElementT> Partition<E> {
             if self.ss0 <= ss && ss < self.ss1 { continue; }
             let at_tip = ss >= self.ss1;
             
-            let opt_result = if let Some(mut r) = self.user.io().read_ss(ss)? {
+            let opt_result = if let Some(mut r) = self.control.io().read_ss(ss)? {
                 let head = read_head(&mut r)?;
                 let state = read_snapshot(&mut r, self.part_id, head.ftype.ver())?;
                 Some((head, state))
@@ -271,7 +271,7 @@ impl<E: ElementT> Partition<E> {
                 
                 require_ss = false;
                 if at_tip {
-                    self.user.snapshot_policy().reset();
+                    self.control.snapshot_policy().reset();
                 }
             } else {
                 // Missing snapshot; if at head require a new one
@@ -279,8 +279,8 @@ impl<E: ElementT> Partition<E> {
             }
             
             let mut queue = vec![];
-            for cl in 0..self.user.io().ss_cl_len(ss) {
-                let opt_header = if let Some(mut r) = self.user.io().read_ss_cl(ss, cl)? {
+            for cl in 0..self.control.io().ss_cl_len(ss) {
+                let opt_header = if let Some(mut r) = self.control.io().read_ss_cl(ss, cl)? {
                     let header = read_head(&mut r)?;
                     read_log(&mut r, &mut queue, header.ftype.ver())?;
                     Some(header)
@@ -308,7 +308,7 @@ impl<E: ElementT> Partition<E> {
         assert!(self.ss0 <= ss1 && ss1 <= self.ss1);
         
         if require_ss {
-            self.user.snapshot_policy().force_snapshot();
+            self.control.snapshot_policy().force_snapshot();
         }
         Ok(())
     }
@@ -352,7 +352,7 @@ impl<E: ElementT> Partition<E> {
             return OtherError::err("partition identifier differs from previous value");
         }
         
-        self.user.read_header(&header)?;
+        self.control.read_header(&header)?;
         
         if self.repo_name.is_empty() {
             self.repo_name = header.name;
@@ -368,7 +368,7 @@ impl<E: ElementT> Partition<E> {
             part_id: self.part_id,
             user: vec![],
         };
-        let user_fields = self.user.make_user_data(&header)?;
+        let user_fields = self.control.make_user_data(&header)?;
         header.user = user_fields;
         Ok(header)
     }
@@ -395,8 +395,8 @@ impl<E: ElementT> Partition<E> {
     /// This destroys all states held internally, but states may be cloned
     /// before unwrapping. Since `Element`s are copy-on-write, cloning
     /// shouldn't be too expensive.
-    pub fn unwrap_user(self) -> Box<UserPartT> {
-        self.user
+    pub fn unwrap_control(self) -> Box<PartControl> {
+        self.control
     }
     
     /// Get the partition's number
@@ -406,7 +406,7 @@ impl<E: ElementT> Partition<E> {
 }
 
 // Methods accessing or modifying a partition's data
-impl<E: ElementT> Partition<E> {
+impl<E: Element> Partition<E> {
     /// Get a reference to the PartState of the current tip. You can read
     /// this directly or make a clone in order to make your modifications.
     /// 
@@ -514,7 +514,7 @@ impl<E: ElementT> Partition<E> {
             };
             trace!("Partition {}: attempting merge of tips {} and {}", self.part_id, &tip1, &tip2);
             let c = match self.merge_two(&tip1, &tip2) {
-                Ok(merge) => merge.solve_inline(solver).make_commit(self.user.as_mcm_ref()),
+                Ok(merge) => merge.solve_inline(solver).make_commit(self.control.as_mcm_ref()),
                 Err(MergeError::NoCommonAncestor) if auto_load && self.ss0 > 0 => {
                     // Iteratively load previous history and retry until success or error.
                     start_ss = self.ss0 - 1;
@@ -602,7 +602,7 @@ impl<E: ElementT> Partition<E> {
     /// parent (i.e. hasn't been changed) or another already known state.
     pub fn push_state(&mut self, state: MutPartState<E>) -> Result<bool, PatchOp> {
         let parent_sum = state.parent().clone();
-        let new_state = PartState::from_mut(state, self.user.as_mcm_ref_mut());
+        let new_state = PartState::from_mut(state, self.control.as_mcm_ref_mut());
         
         // #0019: Commit::from_diff compares old and new states and code be slow.
         // #0019: Instead, we could record each alteration as it happens.
@@ -627,7 +627,7 @@ impl<E: ElementT> Partition<E> {
     /// Require that a snapshot be written the next time `write_full` is called.
     /// (This property is not persisted across save/load.)
     pub fn require_snapshot(&mut self) {
-        self.user.snapshot_policy().force_snapshot()
+        self.control.snapshot_policy().force_snapshot()
     }
     
     /// This will write all unsaved commits to a log on the disk. Does nothing
@@ -650,9 +650,9 @@ impl<E: ElementT> Partition<E> {
         let header = self.make_header(FileType::CommitLog(0))?;
         
         // #0012: extend existing logs instead of always writing a new log file.
-        let mut cl_num = self.user.io().ss_cl_len(self.ss1 - 1);
+        let mut cl_num = self.control.io().ss_cl_len(self.ss1 - 1);
         loop {
-            if let Some(mut writer) = self.user.io_mut().new_ss_cl(self.ss1 - 1, cl_num)? {
+            if let Some(mut writer) = self.control.io_mut().new_ss_cl(self.ss1 - 1, cl_num)? {
                 // Write a header since this is a new file:
                 write_head(&header, &mut writer)?;
                 start_log(&mut writer)?;
@@ -690,7 +690,7 @@ impl<E: ElementT> Partition<E> {
         let has_changes = self.write_fast()?;
         
         // Second step: maintenance operations
-        if self.is_ready() && self.user.snapshot_policy().want_snapshot() {
+        if self.is_ready() && self.control.snapshot_policy().want_snapshot() {
             self.write_snapshot()?;
         }
         
@@ -713,7 +713,7 @@ impl<E: ElementT> Partition<E> {
         loop {
             
             // Try to get a writer for this snapshot number:
-            if let Some(mut writer) = self.user.io_mut().new_ss(ss_num)? {
+            if let Some(mut writer) = self.control.io_mut().new_ss(ss_num)? {
                 info!("Partition {}: writing snapshot {}: {}",
                     part_id, ss_num, tip_key);
                 
@@ -729,16 +729,16 @@ impl<E: ElementT> Partition<E> {
                 continue;
             }
             
-            // After borrow on self.user expires:
+            // After borrow on self.control expires:
             self.ss1 = ss_num + 1;
-            self.user.snapshot_policy().reset();
+            self.control.snapshot_policy().reset();
             return Ok(())
         }
     }
 }
 
 // Internal support functions
-impl<E: ElementT> Partition<E> {
+impl<E: Element> Partition<E> {
     // Take self and two sums. Return a copy of a key to avoid lifetime issues.
     fn latest_common_ancestor(&self, k1: &Sum, k2: &Sum) -> Result<Sum, MergeError> {
         // #0019: there are multiple strategies here; we just find all
@@ -808,7 +808,7 @@ impl<E: ElementT> Partition<E> {
         // We know from above 'state' is not in 'self.states'; if it's not in
         // 'self.ancestors' either then it must be a tip:
         if !self.ancestors.contains(state.statesum()) {
-            self.user.snapshot_policy().count(1, n_edits);
+            self.control.snapshot_policy().count(1, n_edits);
             self.tips.insert(state.statesum().clone());
         }
         self.states.insert(state);
@@ -881,11 +881,11 @@ impl<'a> ExactSizeIterator for TipIter<'a> {
 }
 
 /// Wrapper around a `PartState<E>`. Dereferences to this type.
-pub struct StateItem<'a, E: ElementT+'a> {
+pub struct StateItem<'a, E: Element+'a> {
     state: &'a PartState<E>,
     tips: &'a HashSet<Sum>,
 }
-impl<'a, E: ElementT+'a> StateItem<'a, E> {
+impl<'a, E: Element+'a> StateItem<'a, E> {
     /// Returns true if and only if this state is a tip state (i.e. is not the
     /// parent of any other state).
     /// 
@@ -895,7 +895,7 @@ impl<'a, E: ElementT+'a> StateItem<'a, E> {
         self.tips.contains(self.state.statesum())
     }
 }
-impl<'a, E: ElementT+'a> Deref for StateItem<'a, E> {
+impl<'a, E: Element+'a> Deref for StateItem<'a, E> {
     type Target = PartState<E>;
     fn deref(&self) -> &Self::Target {
         self.state
@@ -903,11 +903,11 @@ impl<'a, E: ElementT+'a> Deref for StateItem<'a, E> {
 }
 
 /// Iterator over a partition's (historical or current) states
-pub struct StateIter<'a, E: ElementT+'a> {
+pub struct StateIter<'a, E: Element+'a> {
     iter: Iter<'a, PartState<E>, Sum, PartStateSumComparator>,
     tips: &'a HashSet<Sum>,
 }
-impl<'a, E: ElementT+'a> Iterator for StateIter<'a, E> {
+impl<'a, E: Element+'a> Iterator for StateIter<'a, E> {
     type Item = StateItem<'a, E>;
     fn next(&mut self) -> Option<Self::Item> {
         self.iter.next().map(|item|
@@ -972,8 +972,8 @@ mod tests {
         queue.push(commit);
         
         let part_id = PartId::from_num(1);
-        let part_t = Box::new(DefaultUserPartT::new(DummyPartIO::new()));
-        let mut part = Partition::create(part_id, part_t, "replay part").unwrap();
+        let control = Box::new(DefaultPartControl::new(DummyPartIO::new()));
+        let mut part = Partition::create(part_id, control, "replay part").unwrap();
         part.add_state(state_a, 0);
         for commit in queue {
             part.push_commit(commit).unwrap();
@@ -987,8 +987,8 @@ mod tests {
     #[test]
     fn on_new_partition() {
         let part_id = PartId::from_num(7);
-        let part_t = Box::new(DefaultUserPartT::new(DummyPartIO::new()));
-        let mut part = Partition::<String>::create(part_id, part_t, "on_new_partition")
+        let control = Box::new(DefaultPartControl::new(DummyPartIO::new()));
+        let mut part = Partition::<String>::create(part_id, control, "on_new_partition")
                 .expect("partition creation");
         assert_eq!(part.tips.len(), 1);
         

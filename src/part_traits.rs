@@ -20,7 +20,7 @@ use commit::{MakeCommitMeta};
 /// 
 /// Each commit carries metadata: a timestamp and an "extra metadata" field; these can be set
 /// by the user. (They can be read by retrieving and examining a `Commit`).
-pub trait UserPartT: MakeCommitMeta {
+pub trait PartControl: MakeCommitMeta {
     /// Convert self to a `&Any`
     fn as_any(&self) -> &Any;
     
@@ -72,22 +72,22 @@ pub trait UserPartT: MakeCommitMeta {
     }
 }
 
-/// A convenient implementation of `UserPartT`.
+/// A convenient implementation of `PartControl`.
 /// 
 /// Uses `DefaultSnapshot` snapshot policy.
 #[derive(Debug)]
-pub struct DefaultUserPartT<IO: PartIO + 'static> {
+pub struct DefaultPartControl<IO: PartIO + 'static> {
     io: IO,
     ss_policy: DefaultSnapshot,
 }
-impl<IO: PartIO> DefaultUserPartT<IO> {
+impl<IO: PartIO> DefaultPartControl<IO> {
     /// Create, given I/O provider
     pub fn new(io: IO) -> Self {
-        DefaultUserPartT { io: io, ss_policy: Default::default() }
+        DefaultPartControl { io: io, ss_policy: Default::default() }
     }
 }
-impl<IO: PartIO> MakeCommitMeta for DefaultUserPartT<IO> {}
-impl<IO: PartIO> UserPartT for DefaultUserPartT<IO> {
+impl<IO: PartIO> MakeCommitMeta for DefaultPartControl<IO> {}
+impl<IO: PartIO> PartControl for DefaultPartControl<IO> {
     fn as_any(&self) -> &Any { self }
     fn io(&self) -> &PartIO {
         &self.io

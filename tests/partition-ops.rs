@@ -83,14 +83,14 @@ impl PartIO for PartitionStreams {
 
 #[test]
 fn create_small() {
-    type PartT = DefaultUserPartT<PartitionStreams>;
+    type PartControl = DefaultPartControl<PartitionStreams>;
     
     env_logger::init().unwrap();
     
     let part_id = PartId::from_num(56);
     let part_streams = PartitionStreams { ss: VecMap::new() };
-    let part_t = Box::new(PartT::new(part_streams));
-    let mut part = Partition::<String>::create(part_id, part_t, "create_small")
+    let control = Box::new(PartControl::new(part_streams));
+    let mut part = Partition::<String>::create(part_id, control, "create_small")
             .expect("creating partition");
     
     // 2 Add a few elements over multiple commits
@@ -118,12 +118,12 @@ fn create_small() {
     
     // 3 Write to streams in memory
     part.write_fast().expect("writing");
-    let boxed_user = part.unwrap_user();
+    let boxed_control = part.unwrap_control();
     
     // 4 Check the generated streams
     {
-        let user = boxed_user.as_any().downcast_ref::<PartT>().expect("downcasting user");
-        let boxed_io = user.io();
+        let control = boxed_control.as_any().downcast_ref::<PartControl>().expect("downcasting control");
+        let boxed_io = control.io();
         let io = boxed_io.as_any().downcast_ref::<PartitionStreams>().expect("downcasting io");
         assert_eq!(io.ss.len(), 1);
         assert!(io.ss.contains_key(0));
@@ -162,7 +162,7 @@ fn create_small() {
     }
     
     // 5 Read streams back again and compare
-    let mut part2 = Partition::open(part_id, boxed_user).expect("opening partition");
+    let mut part2 = Partition::open(part_id, boxed_control).expect("opening partition");
     part2.load_all().expect("part2.load");
     assert_eq!(state1,
         *part2.state(state1.statesum()).expect("get state1 by sum"));
