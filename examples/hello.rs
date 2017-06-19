@@ -13,8 +13,8 @@ fn inner() -> pip::Result<()> {
     match pip::part_from_path(".", None) {
         Ok((part_id, io)) => {
             // Read the found files:
-            let control = Box::new(pip::DefaultPartControl::new(io));
-            let mut part = pip::Partition::<String>::open(part_id, control)?;
+            let control = pip::DefaultPartControl::<String, _>::new(io);
+            let mut part = pip::Partition::open(part_id, control)?;
             part.load_latest()?;
             
             // Get access to the latest state:
@@ -32,7 +32,7 @@ fn inner() -> pip::Result<()> {
             
             // Create a new partition, using PartFileIO:
             let io = pip::PartFileIO::new_default("hello");
-            let control = Box::new(pip::DefaultPartControl::new(io));
+            let control = pip::DefaultPartControl::<String, _>::new(io);
             let mut part = pip::Partition::create(pip::PartId::from_num(1), control, "hello world")?;
             
             // Create a new state derived from the tip:

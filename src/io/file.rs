@@ -7,7 +7,6 @@
 use std::path::{Path, PathBuf};
 use std::io::{Read, Write};
 use std::fs::{File, OpenOptions};
-use std::any::Any;
 use std::ops::Add;
 use std::collections::hash_map::{self, HashMap};
 
@@ -164,8 +163,6 @@ impl PartFileIO {
 }
 
 impl PartIO for PartFileIO {
-    fn as_any(&self) -> &Any { self }
-    
     fn ss_len(&self) -> usize {
         self.paths.ss_len()
     }
@@ -315,7 +312,6 @@ impl RepoFileIO {
     }
 }
 impl RepoIO for RepoFileIO {
-    fn as_any(&self) -> &Any { self }
     fn num_parts(&self) -> usize {
         self.parts.len()
     }

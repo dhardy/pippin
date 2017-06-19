@@ -41,9 +41,9 @@ pub use part_traits::{DefaultSnapshot, DefaultPartControl, PartControl, Snapshot
 /// Terminology: a *tip* (as in *point* or *peak*) is a state without a known
 /// successor. Normally there is exactly one tip, but see `is_ready`,
 /// `is_loaded` and `merge_required`.
-pub struct Partition<E: Element> {
+pub struct Partition<P: PartControl> {
     // User control trait
-    control: Box<PartControl>,
+    control: P,
     // Partition name. Used to identify loaded files.
     repo_name: String,
     // Partition identifier
@@ -53,17 +53,17 @@ pub struct Partition<E: Element> {
     // Number of latest snapshot file loaded + 1; 0 if nothing loaded and never less than ss0
     ss1: usize,
     // Known committed states indexed by statesum 
-    states: HashIndexed<PartState<E>, Sum, PartStateSumComparator>,
+    states: HashIndexed<PartState<P::Element>, Sum, PartStateSumComparator>,
     // All states not in `states` which are known to be superceded
     ancestors: HashSet<Sum>,
     // All states without a known successor
     tips: HashSet<Sum>,
     // Commits created but not yet saved to disk. First in at front; use as queue.
-    unsaved: VecDeque<Commit<E>>,
+    unsaved: VecDeque<Commit<P::Element>>,
 }
 
 // Methods creating a partition, loading its data or checking status
-impl<E: Element> Partition<E> {
+impl<P: PartControl> Partition<P> {
     /// Create a partition, assigning an IO provider (this can only be done at
     /// time of creation). Create a blank state in the partition, write an
     /// empty snapshot to the provided `PartIO`, and mark self as *ready
@@ -75,10 +75,10 @@ impl<E: Element> Partition<E> {
     /// use pippin::pip::{Partition, PartId, PartIO, DefaultPartControl, DummyPartIO};
     /// 
     /// let part_id = PartId::from_num(1);
-    /// let control = Box::new(DefaultPartControl::new(DummyPartIO::new()));
-    /// let partition = Partition::<String>::create(part_id, control, "example repo");
+    /// let control = DefaultPartControl::<String, _>::new(DummyPartIO::new());
+    /// let partition = Partition::create(part_id, control, "example repo");
     /// ```
-    pub fn create(part_id: PartId, control: Box<PartControl>, name: &str) -> Result<Partition<E>> {
+    pub fn create(part_id: PartId, control: P, name: &str) -> Result<Partition<P>> {
         validate_repo_name(name)?;
         let ss = 0;
         info!("Creating partiton {}; writing snapshot {}", part_id, ss);
@@ -129,10 +129,10 @@ impl<E: Element> Partition<E> {
     /// 
     /// let path = Path::new("./my-partition");
     /// let (part_id, io) = part_from_path(path, None).unwrap();
-    /// let control = Box::new(DefaultPartControl::new(io));
-    /// let partition = Partition::<String>::open(part_id, control);
+    /// let control = DefaultPartControl::<String, _>::new(io);
+    /// let partition = Partition::open(part_id, control);
     /// ```
-    pub fn open(part_id: PartId, control: Box<PartControl>) -> Result<Partition<E>> {
+    pub fn open(part_id: PartId, control: P) -> Result<Partition<P>> {
         trace!("Opening partition {}", part_id);
         Ok(Partition {
             control: control,
@@ -395,7 +395,7 @@ impl<E: Element> Partition<E> {
     /// This destroys all states held internally, but states may be cloned
     /// before unwrapping. Since `Element`s are copy-on-write, cloning
     /// shouldn't be too expensive.
-    pub fn unwrap_control(self) -> Box<PartControl> {
+    pub fn unwrap_control(self) -> P {
         self.control
     }
     
@@ -406,13 +406,13 @@ impl<E: Element> Partition<E> {
 }
 
 // Methods accessing or modifying a partition's data
-impl<E: Element> Partition<E> {
+impl<P: PartControl> Partition<P> {
     /// Get a reference to the PartState of the current tip. You can read
     /// this directly or make a clone in order to make your modifications.
     /// 
     /// This operation will fail if no data has been loaded yet or if a merge
     /// is required (i.e. it fails if the number of tips is not exactly one).
-    pub fn tip(&self) -> result::Result<&PartState<E>, TipError> {
+    pub fn tip(&self) -> result::Result<&PartState<P::Element>, TipError> {
         Ok(self.states.get(self.tip_key()?).unwrap())
     }
     
@@ -455,21 +455,21 @@ impl<E: Element> Partition<E> {
     /// Items are unordered (actually, they follow the order of an internal
     /// hash map, which is randomised and usually different each time the
     /// program is loaded).
-    pub fn states_iter(&self) -> StateIter<E> {
+    pub fn states_iter(&self) -> StateIter<P::Element> {
         StateIter { iter: self.states.iter(), tips: &self.tips }
     }
     
     /// Get a read-only reference to a state by its statesum, if found.
     /// 
     /// If you want to keep a copy, clone it.
-    pub fn state(&self, key: &Sum) -> Option<&PartState<E>> {
+    pub fn state(&self, key: &Sum) -> Option<&PartState<P::Element>> {
         self.states.get(key)
     }
     
     /// Try to find a state given a string representation of the key (as a byte array).
     /// 
     /// Like git, we accept partial keys (so long as they uniquely resolve a key).
-    pub fn state_from_string(&self, string: String) -> Result<&PartState<E>, MatchError> {
+    pub fn state_from_string(&self, string: String) -> Result<&PartState<P::Element>, MatchError> {
         let string = string.to_uppercase().replace(" ", "");
         let mut matching: Option<&Sum> = None;
         for state in self.states.iter() {
@@ -498,7 +498,7 @@ impl<E: Element> Partition<E> {
     /// 
     /// If `auto_load` is true, additional history will be loaded as necessary
     /// to find a common ancestor.
-    pub fn merge<S: TwoWaySolver<E>>(&mut self, solver: &S, auto_load: bool) -> Result<()> {
+    pub fn merge<S: TwoWaySolver<P::Element>>(&mut self, solver: &S, auto_load: bool) -> Result<()> {
         let mut start_ss = self.ss0;
         while self.tips.len() > 1 {
             if start_ss < self.ss0 {
@@ -552,7 +552,7 @@ impl<E: Element> Partition<E> {
     /// Note that this can fail with `MergeError::NoCommonAncestor` if not enough history is
     /// available. In this case you might try calling `part.load_all()?;` or
     /// `let ss0 = part.oldest_ss_loaded(); part.load_range(ss0 - 1, ss0);`, then retrying.
-    pub fn merge_two(&self, tip1: &Sum, tip2: &Sum) -> Result<TwoWayMerge<E>, MergeError> {
+    pub fn merge_two(&self, tip1: &Sum, tip2: &Sum) -> Result<TwoWayMerge<P::Element>, MergeError> {
         let common = match self.latest_common_ancestor(tip1, tip2) {
             Ok(sum) => sum,
             Err(e) => return Err(e),
@@ -579,7 +579,7 @@ impl<E: Element> Partition<E> {
     /// 
     /// Returns `Ok(true)` on success or `Ok(false)` if the commit matches an
     /// already known state.
-    pub fn push_commit(&mut self, commit: Commit<E>) -> Result<bool, PatchOp> {
+    pub fn push_commit(&mut self, commit: Commit<P::Element>) -> Result<bool, PatchOp> {
         let state = {
             let parent = self.states.get(commit.first_parent())
                 .ok_or(PatchOp::NoParent)?;
@@ -600,7 +600,7 @@ impl<E: Element> Partition<E> {
     /// 
     /// Returns `Ok(true)` on success, or `Ok(false)` if the state matches its
     /// parent (i.e. hasn't been changed) or another already known state.
-    pub fn push_state(&mut self, state: MutPartState<E>) -> Result<bool, PatchOp> {
+    pub fn push_state(&mut self, state: MutPartState<P::Element>) -> Result<bool, PatchOp> {
         let parent_sum = state.parent().clone();
         let new_state = PartState::from_mut(state, self.control.as_mcm_ref_mut());
         
@@ -738,7 +738,7 @@ impl<E: Element> Partition<E> {
 }
 
 // Internal support functions
-impl<E: Element> Partition<E> {
+impl<P: PartControl> Partition<P> {
     // Take self and two sums. Return a copy of a key to avoid lifetime issues.
     fn latest_common_ancestor(&self, k1: &Sum, k2: &Sum) -> Result<Sum, MergeError> {
         // #0019: there are multiple strategies here; we just find all
@@ -790,7 +790,7 @@ impl<E: Element> Partition<E> {
     /// reset afterwards, hence n_edits does not matter.
     /// 
     /// Returns true unless the given state's sum equals an existing one.
-    fn add_state(&mut self, state: PartState<E>, n_edits: usize) {
+    fn add_state(&mut self, state: PartState<P::Element>, n_edits: usize) {
         trace!("Partition {}: add state {}", self.part_id, state.statesum());
         if self.states.contains(state.statesum()) {
             trace!("Partition {} already contains state {}", self.part_id, state.statesum());
@@ -816,7 +816,7 @@ impl<E: Element> Partition<E> {
     
     /// Creates a state from the commit and adds to self. Updates tip if this
     /// state is new.
-    pub fn add_commit(&mut self, commit: Commit<E>) -> Result<(), PatchOp> {
+    pub fn add_commit(&mut self, commit: Commit<P::Element>) -> Result<(), PatchOp> {
         if self.states.contains(commit.statesum()) { return Ok(()); }
         
         let state = {
@@ -837,7 +837,7 @@ impl<E: Element> Partition<E> {
     /// 
     /// Returns true unless the given state (including metadata) equals a
     /// stored one (in which case nothing happens and false is returned).
-    fn add_pair(&mut self, mut commit: Commit<E>, mut state: PartState<E>) -> bool {
+    fn add_pair(&mut self, mut commit: Commit<P::Element>, mut state: PartState<P::Element>) -> bool {
         trace!("Partition {}: add commit {}", self.part_id, commit.statesum());
         assert_eq!(commit.parents(), state.parents());
         assert_eq!(commit.statesum(), state.statesum());
@@ -972,7 +972,7 @@ mod tests {
         queue.push(commit);
         
         let part_id = PartId::from_num(1);
-        let control = Box::new(DefaultPartControl::new(DummyPartIO::new()));
+        let control = DefaultPartControl::<String, _>::new(DummyPartIO::new());
         let mut part = Partition::create(part_id, control, "replay part").unwrap();
         part.add_state(state_a, 0);
         for commit in queue {
@@ -987,8 +987,8 @@ mod tests {
     #[test]
     fn on_new_partition() {
         let part_id = PartId::from_num(7);
-        let control = Box::new(DefaultPartControl::new(DummyPartIO::new()));
-        let mut part = Partition::<String>::create(part_id, control, "on_new_partition")
+        let control = DefaultPartControl::<String, _>::new(DummyPartIO::new());
+        let mut part = Partition::create(part_id, control, "on_new_partition")
                 .expect("partition creation");
         assert_eq!(part.tips.len(), 1);
         

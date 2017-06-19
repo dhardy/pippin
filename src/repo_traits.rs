@@ -76,6 +76,9 @@ pub enum ClassifyFallback {
 /// recovered from headers, a correct version is built even if multiple
 /// partitions had been modified independently.
 pub trait RepoControl<C: Classify+Sized> {
+    /// Type implementing `part::PartControl`
+    type PartControl: PartControl<Element=C::Element>;
+    
     /// Get access to the I/O provider. This could be an instance of
     /// `DiscoverRepoFiles` or could be self (among other possibilities).
     fn io(&self) -> &RepoIO;
@@ -85,7 +88,7 @@ pub trait RepoControl<C: Classify+Sized> {
     fn io_mut(&mut self) -> &mut RepoIO;
     
     /// Get a `PartControl` object for existing partition `num`.
-    fn make_part_control(&mut self, num: PartId) -> Result<Box<PartControl>>;
+    fn make_part_control(&mut self, num: PartId) -> Result<Self::PartControl>;
     
     /// Make a copy of the classifier. This should be independent (for use with
     /// `Repository::clone_state()`) and be unaffected by repartitioning (e.g.
@@ -128,7 +131,7 @@ pub trait RepoControl<C: Classify+Sized> {
     /// working version could base its decision on the number of elements
     /// contained, e.g.
     /// `part.tip().map_or(false, |state| state.num_avail()) > 10_000`.
-    fn should_divide(&mut self, _part_id: PartId, _part: &Partition<C::Element>)
+    fn should_divide(&mut self, _part_id: PartId, _part: &Partition<Self::PartControl>)
             -> bool
     {
         false
@@ -174,7 +177,7 @@ pub trait RepoControl<C: Classify+Sized> {
     /// each partition which gets touched. This may not be all partitions, so
     /// code handling loading of `UserFields` needs to use per-partition
     /// versioning to determine which information is up-to-date.
-    fn divide(&mut self, part: &Partition<C::Element>) ->
+    fn divide(&mut self, part: &Partition<Self::PartControl>) ->
         Result<(Vec<PartId>, Vec<PartId>), RepoDivideError>;
 }
 

@@ -4,12 +4,13 @@
 
 //! Pippin: partition traits
 
-use std::any::Any;
+use std::marker::PhantomData;
 
 use readwrite::{FileHeader, UserData};
 use io::PartIO;
 use error::Result;
 use commit::{MakeCommitMeta};
+use elt::Element;
 
 
 /// Allows the user to control various partition operations. Library-provided implementations
@@ -21,8 +22,8 @@ use commit::{MakeCommitMeta};
 /// Each commit carries metadata: a timestamp and an "extra metadata" field; these can be set
 /// by the user. (They can be read by retrieving and examining a `Commit`).
 pub trait PartControl: MakeCommitMeta {
-    /// Convert self to a `&Any`
-    fn as_any(&self) -> &Any;
+    /// User-defined type of elements stored
+    type Element: Element;
     
     /// Get access to an I/O provider.
     /// 
@@ -76,19 +77,27 @@ pub trait PartControl: MakeCommitMeta {
 /// 
 /// Uses `DefaultSnapshot` snapshot policy.
 #[derive(Debug)]
-pub struct DefaultPartControl<IO: PartIO + 'static> {
+pub struct DefaultPartControl<E: Element, IO: PartIO + 'static> {
+    _elt_type: PhantomData<E>,
     io: IO,
     ss_policy: DefaultSnapshot,
 }
-impl<IO: PartIO> DefaultPartControl<IO> {
+impl<E: Element, IO: PartIO> DefaultPartControl<E, IO> {
     /// Create, given I/O provider
-    pub fn new(io: IO) -> Self {
-        DefaultPartControl { io: io, ss_policy: Default::default() }
+    pub fn new(io: IO) -> DefaultPartControl<E, IO> {
+        DefaultPartControl { _elt_type: Default::default(), io: io, ss_policy: Default::default() }
     }
+    
+    /// Get direct access to the held `IO`
+    pub fn io(&self) -> &IO { &self.io }
+    /// Get direct mutable access to the held `IO`
+    pub fn io_mut(&mut self) -> &mut IO { &mut self.io }
+    /// Unwrap the held `IO`
+    pub fn unwrap_io(self) -> IO { self.io }
 }
-impl<IO: PartIO> MakeCommitMeta for DefaultPartControl<IO> {}
-impl<IO: PartIO> PartControl for DefaultPartControl<IO> {
-    fn as_any(&self) -> &Any { self }
+impl<E: Element, IO: PartIO> MakeCommitMeta for DefaultPartControl<E, IO> {}
+impl<E: Element, IO: PartIO> PartControl for DefaultPartControl<E, IO> {
+    type Element = E;
     fn io(&self) -> &PartIO {
         &self.io
     }

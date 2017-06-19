@@ -4,7 +4,6 @@
 
 //! Pippin: I/O traits
 
-use std::any::Any;
 use std::io::{Read, Write};
 
 use elt::PartId;
@@ -20,9 +19,6 @@ pub mod file;
 /// necessary; this is to allow an implementation which reads and writes to
 /// internal streams.
 pub trait PartIO {
-    /// Convert self to a `&Any`
-    fn as_any(&self) -> &Any;
-    
     /// Return one greater than the snapshot number of the latest snapshot file
     /// or log file found.
     /// 
@@ -124,7 +120,6 @@ impl DummyPartIO {
 }
 
 impl PartIO for DummyPartIO {
-    fn as_any(&self) -> &Any { self }
     fn ss_len(&self) -> usize { 0 }
     fn ss_cl_len(&self, _ss_num: usize) -> usize { 0 }
     fn has_ss(&self, _ss_num: usize) -> bool { false }
@@ -155,9 +150,6 @@ impl PartIO for DummyPartIO {
 
 /// Provides file discovery and creation for a repository.
 pub trait RepoIO {
-    /// Convert self to a `&Any`
-    fn as_any(&self) -> &Any;
-    
     /// Get the number of partitions found.
     fn num_parts(&self) -> usize;
     

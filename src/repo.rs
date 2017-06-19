@@ -24,10 +24,10 @@ use std::mem::swap;
 
 // Re-export these. We pretend these are part of the same module while keeping files smaller.
 pub use repo_traits::{Classify, ClassifyFallback, RepoControl, DummyClassifier};
-use part::Partition;
+use part::{Partition, PartControl};
 use state::{StateRead, StateWrite, MutPartState};
 use merge::TwoWaySolver;
-use elt::{EltId, PartId, Element};
+use elt::{EltId, PartId};
 use error::{Result, OtherError, TipError, ElementOp, RepoDivideError};
 
 /// Handle on a repository.
@@ -51,7 +51,7 @@ pub struct Repository<C: Classify, R: RepoControl<C>> {
     /// Descriptive identifier for the repository
     name: String,
     /// List of loaded partitions, by their `PartId`.
-    partitions: HashMap<PartId, Partition<C::Element>>,
+    partitions: HashMap<PartId, Partition<R::PartControl>>,
 }
 
 // Non-member functions on Repository
@@ -131,7 +131,7 @@ impl<C: Classify, R: RepoControl<C>> Repository<C, R> {
     /// 
     /// These do not necessarily have data loaded; use `load_latest()`
     /// or one of the `Partition::load_...()` operations.
-    pub fn partitions(&self) -> PartIter<C::Element> {
+    pub fn partitions(&self) -> PartIter<R::PartControl> {
         PartIter { iter: self.partitions.values() }
     }
     
@@ -139,7 +139,7 @@ impl<C: Classify, R: RepoControl<C>> Repository<C, R> {
     /// 
     /// These do not necessarily have data loaded; use `load_latest()`
     /// or one of the `Partition::load_...()` operations.
-    pub fn partitions_mut(&mut self) -> PartIterMut<C::Element> {
+    pub fn partitions_mut(&mut self) -> PartIterMut<R::PartControl> {
         PartIterMut { iter: self.partitions.values_mut() }
     }
     
@@ -594,11 +594,11 @@ impl<C: Classify> StateWrite<C::Element> for RepoState<C> {
 }
 
 /// Iterator over partitions.
-pub struct PartIter<'a, E: Element+'a> {
-    iter: Values<'a, PartId, Partition<E>>
+pub struct PartIter<'a, P: PartControl+'a> {
+    iter: Values<'a, PartId, Partition<P>>
 }
-impl<'a, E: Element> Iterator for PartIter<'a, E> {
-    type Item = &'a Partition<E>;
+impl<'a, P: PartControl> Iterator for PartIter<'a, P> {
+    type Item = &'a Partition<P>;
     fn next(&mut self) -> Option<Self::Item> {
         self.iter.next()
     }
@@ -606,11 +606,11 @@ impl<'a, E: Element> Iterator for PartIter<'a, E> {
 }
 
 /// Mutating iterator over partitions.
-pub struct PartIterMut<'a, E: Element+'a> {
-    iter: ValuesMut<'a, PartId, Partition<E>>
+pub struct PartIterMut<'a, P: PartControl+'a> {
+    iter: ValuesMut<'a, PartId, Partition<P>>
 }
-impl<'a, E: Element> Iterator for PartIterMut<'a, E> {
-    type Item = &'a mut Partition<E>;
+impl<'a, P: PartControl> Iterator for PartIterMut<'a, P> {
+    type Item = &'a mut Partition<P>;
     fn next(&mut self) -> Option<Self::Item> {
         self.iter.next()
     }
