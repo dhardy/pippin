@@ -24,7 +24,7 @@ use error::{Result, ElementOp, OtherError};
 /// 
 /// Currently the only supported non-empty type is UTF-8 text (designated XMTT
 /// in files), but the file format and API allows for future extensions.
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub enum ExtraMeta {
     /// No extra metadata
     None,
@@ -38,7 +38,8 @@ const FLAG_ESSENTIAL: u16 = 0b01010101_01010101;
 const FLAG_UNKNOWN: u16 = 0b11111111_11111100;
 
 /// Abstraction around metadata flags.
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+// TODO: should this be `Eq`? What does equality mean on unknown flags anyway?
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub struct MetaFlags {
     flags: u16,
 }
@@ -278,7 +279,7 @@ pub struct Commit<E: Element> {
 }
 
 /// Per-element changes
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Eq, Debug)]
 pub enum EltChange<E: Element> {
     /// Element was deleted
     Deletion,

@@ -27,7 +27,7 @@ pub type R = f64;
 /// Type is a wrapper around a vector of f64. The reason for this is that we
 /// can only implement `Element` for new types, thus cannot use the vector type
 /// directly (see #44).
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Eq, Debug)]
 pub struct Sequence {
     v: Vec<R>,
 }

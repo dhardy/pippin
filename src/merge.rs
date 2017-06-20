@@ -390,7 +390,7 @@ impl<'a, E: Element> TwoWayMerge<'a, E> {
 /// Note that there is no direct way to specify the ancestor value, but this
 /// can be replicated via `EltMerge::Value(...)` and `EltMerge::Delete`. This
 /// significantly simplifies code in `TwoWayMerge::merge()`.
-#[derive(PartialEq)]
+#[derive(PartialEq, Eq)]
 pub enum EltMerge<E: Element> {
     /// Use the value from first state
     A,

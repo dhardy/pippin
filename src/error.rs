@@ -134,7 +134,7 @@ impl<'a> fmt::Display for ReadErrorFormatter<'a> {
 
 // —————  ArgError  ————
 /// Any error where an invalid argument was supplied
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Eq, Debug)]
 pub struct ArgError {
     msg: &'static str
 }
@@ -236,7 +236,7 @@ impl From<ElementOp> for PatchOp {
 
 // —————  PathError  —————
 /// Error messages about some path on the file system
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Eq, Debug)]
 pub struct PathError {
     msg: &'static str,
     path: PathBuf,
@@ -264,7 +264,7 @@ impl fmt::Display for PathError {
 
 // —————  MatchError  —————
 /// Error messages about some path on the file system
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Eq, Debug)]
 pub enum MatchError {
     /// No matching string found
     NoMatch,
