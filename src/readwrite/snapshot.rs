@@ -11,6 +11,7 @@ use std::collections::hash_map::{HashMap, Entry};
 
 use byteorder::{ByteOrder, BigEndian, WriteBytesExt};
 
+use classify::Classification;
 use readwrite::{sum, read_meta, write_meta};
 use state::{PartState, StateRead};
 use elt::{Element, PartId};
@@ -28,7 +29,7 @@ use error::{Result, ReadError, ElementOp};
 /// The file version affects how data is read. Get it from a header with
 /// `header.ftype.ver()`.
 pub fn read_snapshot<T: Element>(reader: &mut Read, part_id: PartId,
-        format_ver: u32) -> Result<PartState<T>>
+        csf: Classification, format_ver: u32) -> Result<PartState<T>>
 {
     // A reader which calculates the checksum of what was read:
     let mut r = sum::HashReader::new(reader);
@@ -115,7 +116,7 @@ pub fn read_snapshot<T: Element>(reader: &mut Read, part_id: PartId,
         r.read_exact(&mut buf[0..16])?;
     }
     
-    let state = PartState::new_explicit(part_id, parents,
+    let state = PartState::new_explicit(part_id, csf, parents,
             elts, moves, meta, combined_elt_sum);
     
     if buf[0..8] != *b"STATESUM" {
@@ -233,7 +234,8 @@ fn snapshot_writing() {
     }
     
     let part_id = PartId::from_num(1);
-    let mut state = PartState::<String>::new(part_id, &mut MMNone {}).clone_mut();
+    let csf = Classification::all();    // not used here: stored in header
+    let mut state = PartState::<String>::new(part_id, csf.clone(), &mut MMNone {}).clone_mut();
     let data = "But I must explain to you how all this \
         mistaken idea of denouncing pleasure and praising pain was born and I \
         will give you a complete account of the system, and expound the \
@@ -266,6 +268,6 @@ fn snapshot_writing() {
     let mut result = Vec::new();
     assert!(write_snapshot(&state, &mut result).is_ok());
     
-    let state2 = read_snapshot(&mut &result[..], part_id, HEAD_VERSIONS[HEAD_VERSIONS.len() - 1]).unwrap();
+    let state2 = read_snapshot(&mut &result[..], part_id, csf, HEAD_VERSIONS[HEAD_VERSIONS.len() - 1]).unwrap();
     assert_eq!(state, state2);
 }

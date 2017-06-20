@@ -6,11 +6,11 @@
 
 use std::marker::PhantomData;
 
-use readwrite::{FileHeader, UserData};
-use io::PartIO;
-use error::Result;
 use commit::{MakeCommitMeta};
 use elt::Element;
+use error::Result;
+use io::PartIO;
+use readwrite::{FileHeader, UserData};
 
 
 /// Allows the user to control various partition operations. Library-provided implementations
@@ -84,7 +84,7 @@ pub struct DefaultPartControl<E: Element, IO: PartIO + 'static> {
 }
 impl<E: Element, IO: PartIO> DefaultPartControl<E, IO> {
     /// Create, given I/O provider
-    pub fn new(io: IO) -> DefaultPartControl<E, IO> {
+    pub fn new(io: IO) -> Self {
         DefaultPartControl { _elt_type: Default::default(), io: io, ss_policy: Default::default() }
     }
     

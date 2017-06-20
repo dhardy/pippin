@@ -81,6 +81,7 @@ extern crate walkdir;
 #[macro_use]
 extern crate log;
 
+pub mod classify;
 pub mod commit;
 pub mod elt;
 pub mod error;

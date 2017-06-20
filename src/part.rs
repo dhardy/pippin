@@ -13,6 +13,7 @@ use std::usize;
 use std::cmp::min;
 use hashindexed::{HashIndexed, Iter};
 
+use classify::Classification;
 use readwrite::{FileHeader, FileType, read_head, write_head, validate_repo_name};
 use readwrite::{read_snapshot, write_snapshot};
 use readwrite::{read_log, start_log, write_commit};
@@ -42,12 +43,16 @@ pub use part_traits::{DefaultSnapshot, DefaultPartControl, PartControl, Snapshot
 /// successor. Normally there is exactly one tip, but see `is_ready`,
 /// `is_loaded` and `merge_required`.
 pub struct Partition<P: PartControl> {
-    // User control trait
+    // User control trait object
     control: P,
     // Partition name. Used to identify loaded files.
     repo_name: String,
     // Partition identifier
     part_id: PartId,
+    // Classification ranges
+    // TODO: this is only defined after loading the partition data. Put everything below in a
+    // state machine?
+    csf: Option<Classification>,
     // Number of first snapshot file loaded (equal to ss1 if nothing is loaded)
     ss0: usize,
     // Number of latest snapshot file loaded + 1; 0 if nothing loaded and never less than ss0
@@ -78,15 +83,18 @@ impl<P: PartControl> Partition<P> {
     /// let control = DefaultPartControl::<String, _>::new(DummyPartIO::new());
     /// let partition = Partition::create(part_id, control, "example repo");
     /// ```
-    pub fn create(part_id: PartId, control: P, name: &str) -> Result<Partition<P>> {
+    pub fn create(part_id: PartId, mut control: P, name: &str) -> Result<Partition<P>> {
         validate_repo_name(name)?;
         let ss = 0;
         info!("Creating partiton {}; writing snapshot {}", part_id, ss);
         
+        let csf = Classification::all();
+        let state = PartState::new(part_id, csf.clone(), control.as_mcm_ref_mut());
         let mut part = Partition {
             control: control,
             repo_name: name.into(),
             part_id: part_id,
+            csf: Some(csf),
             ss0: ss,
             ss1: ss + 1,
             states: HashIndexed::new(),
@@ -94,8 +102,6 @@ impl<P: PartControl> Partition<P> {
             tips: HashSet::new(),
             unsaved: VecDeque::new(),
         };
-        
-        let state = PartState::new(part_id, part.control.as_mcm_ref_mut());
         let header = part.make_header(FileType::Snapshot(0))?;
         
          if let Some(mut writer) = part.control.io_mut().new_ss(ss)? {
@@ -138,6 +144,7 @@ impl<P: PartControl> Partition<P> {
             control: control,
             repo_name: "".to_string() /*temporary value; checked before usage elsewhere*/,
             part_id: part_id,
+            csf: None,
             ss0: 0,
             ss1: 0,
             states: HashIndexed::new(),
@@ -237,7 +244,9 @@ impl<P: PartControl> Partition<P> {
         if ss0 == 0 && !self.control.io().has_ss(ss0) {
             assert!(self.states.is_empty());
             // No initial snapshot; assume a blank state
-            let state = PartState::new(self.part_id, self.control.as_mcm_ref_mut());
+            // FIXME we need to get the classification from somewhere!
+            panic!("TODO: get classification");
+            let state = PartState::new(self.part_id, self.csf.as_ref().expect("has csf").clone(), self.control.as_mcm_ref_mut());
             self.tips.insert(state.statesum().clone());
             self.states.insert(state);
         }
@@ -250,7 +259,10 @@ impl<P: PartControl> Partition<P> {
             
             let opt_result = if let Some(mut r) = self.control.io().read_ss(ss)? {
                 let head = read_head(&mut r)?;
-                let state = read_snapshot(&mut r, self.part_id, head.ftype.ver())?;
+                // TODO: it's not neat creating Classification twice (here and in `read_head`).
+                // TODO: It's also not very neat storing it in states. Can we improve?
+                let csf = Classification::from_ranges(&head.csf_ranges);
+                let state = read_snapshot(&mut r, self.part_id, csf, head.ftype.ver())?;
                 Some((head, state))
             } else {
                 None
@@ -267,6 +279,7 @@ impl<P: PartControl> Partition<P> {
                         self.ancestors.insert(parent.clone());
                     }
                 }
+                // TODO: check that classification in state equals that of this partition? (Already done in this case.)
                 self.states.insert(state);
                 
                 require_ss = false;
@@ -357,15 +370,30 @@ impl<P: PartControl> Partition<P> {
         if self.repo_name.is_empty() {
             self.repo_name = header.name;
         }
+        
+        let csf = Classification::from_ranges(&header.csf_ranges);
+        if let Some(existing_csf) = self.csf.as_ref() {
+            if csf != *existing_csf {
+                return OtherError::err("partition classification differs from previous value");
+            }
+            return Ok(());
+        }
+        
+        self.csf = Some(csf);
         Ok(())
     }
     
     /// Create a header
     fn make_header(&mut self, file_type: FileType) -> Result<FileHeader> {
+        let csf_ranges = {
+            // TODO: don't use expect here
+            self.csf.as_ref().expect("csf not set").make_ranges()
+        };
         let mut header = FileHeader {
             ftype: file_type,
             name: self.repo_name.clone(),
             part_id: self.part_id,
+            csf_ranges: csf_ranges,
             user: vec![],
         };
         let user_fields = self.control.make_user_data(&header)?;
@@ -402,6 +430,11 @@ impl<P: PartControl> Partition<P> {
     /// Get the partition's number
     pub fn part_id(&self) -> PartId {
         self.part_id
+    }
+    
+    /// Access this partition's classification
+    pub fn csf(&self) -> &Classification {
+        self.csf.as_ref().expect("has classification")  // TODO: use of expect is not acceptable
     }
 }
 
@@ -811,6 +844,7 @@ impl<P: PartControl> Partition<P> {
             self.control.snapshot_policy().count(1, n_edits);
             self.tips.insert(state.statesum().clone());
         }
+        // TODO: check that classification in state equals that of this partition?
         self.states.insert(state);
     }
     
@@ -935,6 +969,7 @@ mod tests {
     #[test]
     fn commit_creation_and_replay(){
         let p = PartId::from_num(1);
+        let csf = Classification::all();
         let mut queue = vec![];
         let mut mcm = MCM;
         
@@ -942,7 +977,7 @@ mod tests {
             state.insert(p.elt_id(num), string.to_string())
         };
         
-        let mut state = PartState::new(p, &mut mcm).clone_mut();
+        let mut state = PartState::new(p, csf, &mut mcm).clone_mut();
         insert(&mut state, 1, "one").unwrap();
         insert(&mut state, 2, "two").unwrap();
         let state_a = PartState::from_mut(state, &mut mcm);

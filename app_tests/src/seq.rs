@@ -16,7 +16,7 @@ use rand::distributions::{IndependentSample, Range, Normal, LogNormal};
 use byteorder::{ByteOrder, LittleEndian, ReadBytesExt, WriteBytesExt};
 
 use pippin::*;
-use pippin::repo::{ClassifyFallback, RepoDivideError};
+use pippin::repo::RepoDivideError;
 use pippin::error::{ReadError, OtherError};
 
 
@@ -208,10 +208,6 @@ impl Classify for SeqClassifier {
                 }
             }
         }
-    }
-    fn fallback(&self) -> ClassifyFallback {
-        // classify() only returns None if something is broken; stop
-        ClassifyFallback::Fail
     }
 }
 

@@ -4,63 +4,12 @@
 
 //! Traits for Pippin's `Repository` type
 
-use std::marker::PhantomData;
-
-use io::RepoIO;
-use part::{Partition, PartControl};
+use classify::{PropId, Property};
 use elt::{Element, PartId};
 use error::{Result, RepoDivideError};
+use io::RepoIO;
+use part::{Partition, PartControl};
 
-
-/// A classifier assigns each element to a partition. A repository may have
-/// only a single partition, or it may have some fixed partitioning, or it may
-/// have dynamic partitioning. This trait exposes the partitioning.
-/// 
-/// Expected usage is that the `RepoControl` type will determine classification and
-/// yield an object implementing this trait when `RepoControl::clone_classifier()` is
-/// called.
-pub trait Classify {
-    /// The user-specified element type.
-    type Element: Element;
-    
-    /// Get the classification of an element.
-    /// 
-    /// If this returns `None`, the library assumes classification of the
-    /// element is temporarily unavailable. In this case it might call
-    /// `fallback`.
-    /// 
-    /// The return value must not be zero (see `Classify` documentation on
-    /// numbers).
-    /// 
-    /// This function is only called when inserting/replacing an element and
-    /// when repartitioning, so it doesn't need to be super fast.
-    fn classify(&self, elt: &Self::Element) -> Option<PartId>;
-    
-    /// This is used only when `classify` returns `None` for an element.
-    /// 
-    /// This is only needed for cases where some operations should be supported
-    /// despite classification not being available in all cases. The default
-    /// implementation returns `ClassifyFallback::Fail`.
-    fn fallback(&self) -> ClassifyFallback { ClassifyFallback::Fail }
-}
-
-/// Specifies what to do when classification fails and an element is to be
-/// inserted or replaced.
-pub enum ClassifyFallback {
-    /// Use the given classification for an insertion or replacement.
-    Default(PartId),
-    /// In the case of a replacement, assume the replacing element has the
-    /// same classification as the element being replaced. If not a
-    /// replacement, use the default specified.
-    ReplacedOrDefault(PartId),
-    /// In the case of a replacement, assume the replacing element has the
-    /// same classification as the element being replaced. If not a
-    /// replacement, fail.
-    ReplacedOrFail,
-    /// Fail the operation. The insertion or replacement operation will fail
-    /// with an error.
-    Fail,
-}
 
 /// Encapsulates a `RepoIO` and a `Classify`, handling repartitioning and
 /// serialisation.
@@ -75,9 +24,12 @@ pub enum ClassifyFallback {
 /// is versioned independently for *each partition* so that when metadata is
 /// recovered from headers, a correct version is built even if multiple
 /// partitions had been modified independently.
-pub trait RepoControl<C: Classify+Sized> {
+pub trait RepoControl {
+    /// User-defined type of elements stored
+    type Element: Element;
+    
     /// Type implementing `part::PartControl`
-    type PartControl: PartControl<Element=C::Element>;
+    type PartControl: PartControl<Element = Self::Element>;
     
     /// Get access to the I/O provider. This could be an instance of
     /// `DiscoverRepoFiles` or could be self (among other possibilities).
@@ -90,12 +42,10 @@ pub trait RepoControl<C: Classify+Sized> {
     /// Get a `PartControl` object for existing partition `num`.
     fn make_part_control(&mut self, num: PartId) -> Result<Self::PartControl>;
     
-    /// Make a copy of the classifier. This should be independent (for use with
-    /// `Repository::clone_state()`) and be unaffected by repartitioning (e.g.
-    /// `divide()`) of this object. Assuming this object is not repartitioned,
-    /// both self and the returned object should return the same
-    /// classifications.
-    fn clone_classifier(&self) -> C;
+    /// Get a property function by identifier, if available.
+    /// 
+    /// TODO: how should missing functions be handled?
+    fn prop_fn(&self, id: PropId) -> Option<&Property<Element = Self::Element>>;
     
     /// This method is called once by `Repository::create()`. It should
     /// initialise the classifier for a new repository (if the classifier
@@ -179,22 +129,4 @@ pub trait RepoControl<C: Classify+Sized> {
     /// versioning to determine which information is up-to-date.
     fn divide(&mut self, part: &Partition<Self::PartControl>) ->
         Result<(Vec<PartId>, Vec<PartId>), RepoDivideError>;
-}
-
-/// Trivial implementation for testing purposes. Always returns the same value,
-/// 1, thus there will only ever be a single 'partition'.
-pub struct DummyClassifier<E: Element> {
-    p: PhantomData<E>,
-}
-impl<E: Element> DummyClassifier<E> {
-    /// Create an instance
-    pub fn new() -> DummyClassifier<E> {
-        DummyClassifier { p: PhantomData }
-    }
-}
-impl<E: Element> Classify for DummyClassifier<E> where DummyClassifier<E> : Clone {
-    type Element = E;
-    fn classify(&self, _elt: &Self::Element) -> Option<PartId> {
-        Some(PartId::from_num(1))
-    }
 }

@@ -23,12 +23,12 @@ use std::rc::Rc;
 use std::mem::swap;
 
 // Re-export these. We pretend these are part of the same module while keeping files smaller.
-pub use repo_traits::{Classify, ClassifyFallback, RepoControl, DummyClassifier};
+pub use repo_traits::RepoControl;
 use part::{Partition, PartControl};
 use state::{StateRead, StateWrite, MutPartState};
 use merge::TwoWaySolver;
-use elt::{EltId, PartId};
-use error::{Result, OtherError, TipError, ElementOp, RepoDivideError};
+use elt::{EltId, PartId, Element};
+use error::{ClassifyError, Result, OtherError, TipError, ElementOp, RepoDivideError};
 
 /// Handle on a repository.
 /// 
@@ -43,7 +43,7 @@ use error::{Result, OtherError, TipError, ElementOp, RepoDivideError};
 /// and used to read and write elements. The copy may be accessed without
 /// blocking other operations on the underlying repository. Changes made to
 /// the copy may be merged back into the repository.
-pub struct Repository<C: Classify, R: RepoControl<C>> {
+pub struct Repository<R: RepoControl> {
     /// Classifier. This must use compile-time polymorphism since it gives us
     /// the element type, and we do not want element look-ups to involve a
     /// run-time conversion.
@@ -55,7 +55,7 @@ pub struct Repository<C: Classify, R: RepoControl<C>> {
 }
 
 // Non-member functions on Repository
-impl<C: Classify, R: RepoControl<C>> Repository<C, R> {
+impl<R: RepoControl> Repository<R> {
     /// Create a new repository with the given name.
     /// 
     /// The name must be UTF-8 and not more than 16 bytes long. It allows a
@@ -66,7 +66,7 @@ impl<C: Classify, R: RepoControl<C>> Repository<C, R> {
     /// 
     /// This creates an initial 'partition' ready for use (all contents must
     /// be kept within a `Partition`).
-    pub fn create<S: Into<String>>(mut control: R, name: S) -> Result<Repository<C, R>>
+    pub fn create<S: Into<String>>(mut control: R, name: S) -> Result<Repository<R>>
     {
         let name: String = name.into();
         info!("Creating repository: {}", name);
@@ -89,7 +89,7 @@ impl<C: Classify, R: RepoControl<C>> Repository<C, R> {
     /// 
     /// This does not automatically load partition data, however it must load
     /// at least one header in order to identify the repository.
-    pub fn open(mut control: R)-> Result<Repository<C, R>> {
+    pub fn open(mut control: R)-> Result<Repository<R>> {
         let (name, parts) = {
             let mut part_nums = control.io().parts().into_iter();
             let num0 = if let Some(num) = part_nums.next() {
@@ -123,7 +123,7 @@ impl<C: Classify, R: RepoControl<C>> Repository<C, R> {
 }
 
 // Member functions on Repository — a set of elements.
-impl<C: Classify, R: RepoControl<C>> Repository<C, R> {
+impl<R: RepoControl> Repository<R> {
     /// Get the repo name
     pub fn name(&self) -> &str { &self.name }
     
@@ -172,7 +172,9 @@ impl<C: Classify, R: RepoControl<C>> Repository<C, R> {
             part.write_full()?;
         }
         
-        // Maintenance: do any division needed, then do any reclassification needed.
+        // Maintenance: this is where repartitioning happens. Two steps are involved:
+        // (1) creating the new classifications and (2) moving elements from the old partition.
+        // TODO: create new partitions first? Delete old partition afterwards?
         
         // This is tricky due to lifetime analysis preventing re-use of partitions. So,
         // 1) we collect partition numbers of any partition needing repartitioning.
@@ -253,18 +255,22 @@ impl<C: Classify, R: RepoControl<C>> Repository<C, R> {
         while let Some(old_id) = need_reclassify.pop() {
             // extract from partitions so as not to block it
             let mut old_part = self.partitions.remove(&old_id).expect("remove old part");
-            let classifier = self.control.clone_classifier();
             
-            // Check where elements need to be moved
-            // for each partition, the elements to be moved there (old element ids)
+            // Check all elements and record each that needs moving (where, list of elements):
             let mut target_part_elts = HashMap::<PartId, Vec<EltId>>::new();
             for (elt_id, elt) in old_part.tip()?.elts_iter() {
-                if let Some(part_id) = classifier.classify(&*elt) {
+                // TODO: find_part_id_for_elt will probably be expensive; would it be better to
+                // check each element against each possible destination? Possibly not if
+                // classifiers are slow?
+                if let Ok(part_id) = self.find_part_id_for_elt(&*elt) {
                     target_part_elts.entry(part_id).or_insert(vec![])
                             .push(elt_id);
                 } // else: don't move anything we can't reclassify
+                // TODO: if we can't classify an element, should we still remove the reclassify
+                // flag below?
             }
             
+            // For each destination, move elements needing to go there:
             for (part_id, old_elt_ids) in target_part_elts {
                 let mut part = match self.partitions.get_mut(&part_id) {
                     Some(p) => p,
@@ -349,7 +355,7 @@ impl<C: Classify, R: RepoControl<C>> Repository<C, R> {
     /// to find a common ancestor.
     /// 
     /// TODO: clearer names, maybe move some of the work around.
-    pub fn merge<S: TwoWaySolver<C::Element>>(&mut self, solver: &S, auto_load: bool) -> Result<()>
+    pub fn merge<S: TwoWaySolver<R::Element>>(&mut self, solver: &S, auto_load: bool) -> Result<()>
     {
         for part in &mut self.partitions.values_mut() {
             part.merge(solver, auto_load)?;
@@ -370,8 +376,8 @@ impl<C: Classify, R: RepoControl<C>> Repository<C, R> {
     /// loaded are omitted from the resulting `RepoState`.
     /// 
     /// TODO: a way to copy only some of the loaded partitions.
-    pub fn clone_state(&self) -> result::Result<RepoState<C>, TipError> {
-        let mut rs = RepoState::new(self.control.clone_classifier());
+    pub fn clone_state(&self) -> result::Result<RepoState<R::Element>, TipError> {
+        let mut rs = RepoState::new();
         for (num, part) in &self.partitions {
             if part.is_loaded() {
                 rs.add_part(*num, part.tip()?.clone_mut());
@@ -385,7 +391,7 @@ impl<C: Classify, R: RepoControl<C>> Repository<C, R> {
     /// 
     /// Returns true when any further merge work is required. In this case
     /// `merge()` should be called.
-    pub fn merge_in(&mut self, state: RepoState<C>) -> Result<bool> {
+    pub fn merge_in(&mut self, state: RepoState<R::Element>) -> Result<bool> {
         let mut merge_required = false;
         for (num, pstate) in state.states {
             let mut part = if let Some(p) = self.partitions.get_mut(&num) {
@@ -406,7 +412,7 @@ impl<C: Classify, R: RepoControl<C>> Repository<C, R> {
     /// Returns true if further merge work is required. In this case, `merge()`
     /// should be called on the `Repository`, then `sync()` again (until then, the
     /// `RepoState` will have no access to any partitions with conflicts).
-    pub fn sync(&mut self, state: &mut RepoState<C>) -> Result<bool> {
+    pub fn sync(&mut self, state: &mut RepoState<R::Element>) -> Result<bool> {
         let mut states = HashMap::new();
         swap(&mut states, &mut state.states);
         
@@ -444,6 +450,20 @@ impl<C: Classify, R: RepoControl<C>> Repository<C, R> {
         }
         Ok(merge_required)
     }
+    
+    // TODO: should this be on a repostate?
+    fn find_part_id_for_elt(&self, elt: &R::Element) -> Result<PartId, ClassifyError> {
+        // TODO: improve algorithm. Cache classifier outputs locally? Search by partition instead
+        // of by element? Or search by element then by classifier, using some type of tree to
+        // narrow down the result?
+        // TODO: should we check anywhere that partition classifications don't overlap?
+        for (part_id, part) in &self.partitions {
+            if part.csf().matches_elt(elt, &self.control)? {
+                return Ok(*part_id);
+            }
+        }
+        Err(ClassifyError::NoPartMatches)
+    }
 }
 
 /// Provides read-write access to some or all partitions in a non-blocking
@@ -453,19 +473,18 @@ impl<C: Classify, R: RepoControl<C>> Repository<C, R> {
 /// 
 /// This should be merged back in to the repo in order to record and
 /// synchronise edits.
-pub struct RepoState<C: Classify> {
-    classifier: C,
-    states: HashMap<PartId, MutPartState<C::Element>>,
+pub struct RepoState<E: Element> {
+    states: HashMap<PartId, MutPartState<E>>,
 }
 
-impl<C: Classify> RepoState<C> {
+impl<E: Element> RepoState<E> {
     /// Create new, with no partition states (use `add_part()`)
-    fn new(classifier: C) -> RepoState<C> {
-        RepoState { classifier: classifier, states: HashMap::new() }
+    fn new() -> RepoState<E> {
+        RepoState { states: HashMap::new() }
     }
     
     /// Add a state from some partition
-    fn add_part(&mut self, num: PartId, state: MutPartState<C::Element>) {
+    fn add_part(&mut self, num: PartId, state: MutPartState<E>) {
         self.states.insert(num, state);
     }
     
@@ -541,7 +560,7 @@ impl<C: Classify> RepoState<C> {
     }
 }
 
-impl<C: Classify> StateRead<C::Element> for RepoState<C> {
+impl<E: Element> StateRead<E> for RepoState<E> {
     fn any_avail(&self) -> bool {
         self.states.values().any(|v| v.any_avail())
     }
@@ -552,7 +571,7 @@ impl<C: Classify> StateRead<C::Element> for RepoState<C> {
         let part_id = id.part_id();
         self.states.get(&part_id).map_or(false, |state| state.is_avail(id))
     }
-    fn get_rc(&self, id: EltId) -> Result<&Rc<C::Element>, ElementOp> {
+    fn get_rc(&self, id: EltId) -> Result<&Rc<E>, ElementOp> {
         let part_id = id.part_id();
         match self.states.get(&part_id) {
             Some(state) => state.get_rc(id),
@@ -560,8 +579,8 @@ impl<C: Classify> StateRead<C::Element> for RepoState<C> {
         }
     }
 }
-impl<C: Classify> StateWrite<C::Element> for RepoState<C> {
-    fn insert_rc(&mut self, id: EltId, elt: Rc<C::Element>) -> Result<EltId, ElementOp> {
+impl<E: Element> StateWrite<E> for RepoState<E> {
+    fn insert_rc(&mut self, id: EltId, elt: Rc<E>) -> Result<EltId, ElementOp> {
         if let Some(mut state) = self.states.get_mut(&id.part_id()) {
             state.insert_rc(id, elt)
         } else {
@@ -570,12 +589,13 @@ impl<C: Classify> StateWrite<C::Element> for RepoState<C> {
         }
     }
     
-    fn insert_new_rc(&mut self, elt: Rc<C::Element>) -> Result<EltId, ElementOp> {
-        // TODO: classification
+    fn insert_new_rc(&mut self, _elt: Rc<E>) -> Result<EltId, ElementOp> {
+        // TODO: we can't implement this without a reference to the property functions or a derived
+        // classification checker in the `RepoState`. Do we want that?
         unimplemented!()
     }
     
-    fn replace_rc(&mut self, id: EltId, elt: Rc<C::Element>) -> Result<Rc<C::Element>, ElementOp> {
+    fn replace_rc(&mut self, id: EltId, elt: Rc<E>) -> Result<Rc<E>, ElementOp> {
         if let Some(mut state) = self.states.get_mut(&id.part_id()) {
             state.replace_rc(id, elt)
         } else {
@@ -584,7 +604,7 @@ impl<C: Classify> StateWrite<C::Element> for RepoState<C> {
         }
     }
     
-    fn remove(&mut self, id: EltId) -> Result<Rc<C::Element>, ElementOp> {
+    fn remove(&mut self, id: EltId) -> Result<Rc<E>, ElementOp> {
         if let Some(mut state) = self.states.get_mut(&id.part_id()) {
             state.remove(id)
         } else {
