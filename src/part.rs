@@ -11,20 +11,84 @@ use std::result;
 use std::ops::Deref;
 use std::usize;
 use std::cmp::min;
+use std::marker::PhantomData;
+
 use hashindexed::{HashIndexed, Iter};
 
 use classify::Classification;
-use readwrite::{FileHeader, FileType, read_head, write_head, validate_repo_name};
-use readwrite::{read_snapshot, write_snapshot};
-use readwrite::{read_log, start_log, write_commit};
-use state::{PartState, MutPartState, PartStateSumComparator};
-use commit::{Commit};
-use merge::{TwoWayMerge, TwoWaySolver};
+use commit::{Commit, MakeCommitMeta};
 use elt::{Element, PartId};
-use sum::Sum;
 use error::{Result, TipError, PatchOp, MatchError, MergeError, OtherError, make_io_err};
+use io::PartIO;
+use merge::{TwoWayMerge, TwoWaySolver};
+use rw::header::{FileType, UserData, FileHeader, validate_repo_name, read_head, write_head};
+use rw::snapshot::{read_snapshot, write_snapshot};
+use rw::commitlog::{read_log, start_log, write_commit};
+use state::{PartState, MutPartState, PartStateSumComparator};
+use sum::Sum;
 
-pub use part_traits::{DefaultSnapshot, DefaultPartControl, PartControl, SnapshotPolicy};
+
+
+
+/// Allows the user to control various partition operations. Library-provided implementations
+/// should be sufficient for many use-cases, but can be overridden or replaced if necessary.
+/// 
+/// Pippin data files allow arbitrary *user fields* in the headers; these can be set and read on
+/// file creation / loading.
+/// 
+/// Each commit carries metadata: a timestamp and an "extra metadata" field; these can be set
+/// by the user. (They can be read by retrieving and examining a `Commit`).
+pub trait PartControl: MakeCommitMeta {
+    /// User-defined type of elements stored
+    type Element: Element;
+    
+    /// Get access to an I/O provider.
+    /// 
+    /// This layer of indirection allows use of `PartFileIO`, which should be sufficient
+    /// for many use cases.
+    fn io(&self) -> &PartIO;
+    
+    /// Get mutable access to an I/O provider.
+    fn io_mut(&mut self) -> &mut PartIO;
+    
+    /// Get access to the snapshot policy.
+    /// 
+    /// This layer of indirection allows use of the `DefaultSnapshot`.
+    fn snapshot_policy(&mut self) -> &mut SnapshotPolicy;
+    
+    /// Cast self to a `&MakeCommitMeta`
+    // #0018: shouldn't be needed when Rust finally supports upcasting
+    fn as_mcm_ref(&self) -> &MakeCommitMeta;
+    
+    /// Cast self to a `&mut MakeCommitMeta`
+    // #0018: shouldn't be needed when Rust finally supports upcasting
+    fn as_mcm_ref_mut(&mut self) -> &mut MakeCommitMeta;
+    
+    // #0040: inform user of file name and/or SS&CL numbers when reading/writing user data
+    
+    /// This function allows population of the *user fields* of a header. This function is passed
+    /// a reference to a `FileHeader` struct, where all fields have been set excepting `user`,
+    /// the user fields (this should be an empty container). This function should return a set of
+    /// user data to be added to the `FileHeader`.
+    /// 
+    /// The partition identifier and file type can be read from the passed `FileHeader`.
+    /// 
+    /// Returning an error will abort creation of the corresponding file.
+    /// 
+    /// The default implementation does not make any user data (returns an empty `Vec`).
+    fn make_user_data(&mut self, _header: &FileHeader) -> Result<Vec<UserData>> {
+        Ok(vec![])
+    }
+    
+    /// This function allows the user to read data from a header when a file is loaded.
+    /// 
+    /// Returning an error will abort reading of this file.
+    /// 
+    /// The default implementation does nothing.
+    fn read_header(&mut self, _header: &FileHeader) -> Result<()> {
+        Ok(())
+    }
+}
 
 /// A *partition* is a sub-set of the entire set such that (a) each element is
 /// in exactly one partition, (b) a partition is small enough to be loaded into
@@ -525,6 +589,26 @@ impl<P: PartControl> Partition<P> {
     /// Merge all latest states into a single tip.
     /// This is a convenience wrapper around `merge_two(...)`.
     /// 
+    /// Example:
+    /// 
+    /// ```no_run
+    /// use std::path::Path;
+    /// use pippin::pip::{Partition, PartId, DefaultPartControl, part_from_path,
+    ///         TwoWaySolverChain, AncestorSolver2W, RenamingSolver2W};
+    /// 
+    /// let path = Path::new("./my-partition");
+    /// let (part_id, io) = part_from_path(path, None).unwrap();
+    /// let control = DefaultPartControl::<String, _>::new(io);
+    /// let mut partition = Partition::open(part_id, control).expect("failed to open partition");
+    /// 
+    /// // Customise with your own solver:
+    /// let ancestor_solver = AncestorSolver2W::new();
+    /// let renaming_solver = RenamingSolver2W::new();
+    /// let solver = TwoWaySolverChain::new(&ancestor_solver, &renaming_solver);
+    /// 
+    /// partition.merge(&solver, true).expect("merge failed");
+    /// ```
+    /// 
     /// This works through all 'tip' states in an order determined by a
     /// `HashSet`'s random keying, thus the exact result may not be repeatable
     /// if the program were run multiple times with the same initial state.
@@ -569,21 +653,19 @@ impl<P: PartControl> Partition<P> {
     /// Creates a `TwoWayMerge` for two given states (presumably tip states,
     /// but not required).
     /// 
-    /// In order to merge multiple tips, either use `self.merge(solver)` or
-    /// proceed step-by-step:
+    /// It is recommended to use `merge` instead unless you need control over merge order with more
+    /// than two tips. In order to use this function, you'll need code like:
     /// 
-    /// *   find two tip states (probably from `self.tips()`)
-    /// *   call `part.merge_two(tip1, tip2)` to get a `merger`
-    /// *   call `merger.solve(solver)` or solve manually
-    /// *   call `merger.make_commit(...)` to obtain a `commit`
-    /// *   call `part.push_commit(commit)`
-    /// *   repeat while `part.merge_required()` remains true
+    /// ```no_compile
+    /// let commit = partition.merge_two(&tip1, &tip2)?
+    ///         .solve_inline(&solver)
+    ///         .make_commit(&mcm)
+    ///         .expect("merge failed");
+    /// partition.add_commit(commit)?;
+    /// ```
     /// 
-    /// This is not eligant, but provides the user full control over the merge.
-    /// Alternatively, use `self.merge(solver)`.
-    /// 
-    /// Note that this can fail with `MergeError::NoCommonAncestor` if not enough history is
-    /// available. In this case you might try calling `part.load_all()?;` or
+    /// Note that this function can fail with `MergeError::NoCommonAncestor` if not enough history
+    /// is available. In this case you might try calling `part.load_all()?;` or
     /// `let ss0 = part.oldest_ss_loaded(); part.load_range(ss0 - 1, ss0);`, then retrying.
     pub fn merge_two(&self, tip1: &Sum, tip2: &Sum) -> Result<TwoWayMerge<P::Element>, MergeError> {
         let common = match self.latest_common_ancestor(tip1, tip2) {
@@ -890,6 +972,95 @@ impl<P: PartControl> Partition<P> {
         self.add_state(state, commit.num_changes());
         self.unsaved.push_back(commit);
         true
+    }
+}
+
+/// A convenient implementation of `PartControl`.
+/// 
+/// Uses `DefaultSnapshot` snapshot policy.
+#[derive(Debug)]
+pub struct DefaultPartControl<E: Element, IO: PartIO + 'static> {
+    _elt_type: PhantomData<E>,
+    io: IO,
+    ss_policy: DefaultSnapshot,
+}
+impl<E: Element, IO: PartIO> DefaultPartControl<E, IO> {
+    /// Create, given I/O provider
+    pub fn new(io: IO) -> Self {
+        DefaultPartControl { _elt_type: Default::default(), io: io, ss_policy: Default::default() }
+    }
+    
+    /// Get direct access to the held `IO`
+    pub fn io(&self) -> &IO { &self.io }
+    /// Get direct mutable access to the held `IO`
+    pub fn io_mut(&mut self) -> &mut IO { &mut self.io }
+    /// Unwrap the held `IO`
+    pub fn unwrap_io(self) -> IO { self.io }
+}
+impl<E: Element, IO: PartIO> MakeCommitMeta for DefaultPartControl<E, IO> {}
+impl<E: Element, IO: PartIO> PartControl for DefaultPartControl<E, IO> {
+    type Element = E;
+    fn io(&self) -> &PartIO {
+        &self.io
+    }
+    fn io_mut(&mut self) -> &mut PartIO {
+        &mut self.io
+    }
+    fn snapshot_policy(&mut self) -> &mut SnapshotPolicy {
+        &mut self.ss_policy
+    }
+    fn as_mcm_ref(&self) -> &MakeCommitMeta { self }
+    fn as_mcm_ref_mut(&mut self) -> &mut MakeCommitMeta { self }
+}
+
+/// An interface allowing configuration of snapshot policy.
+/// 
+/// It is assumed that one or more internal counters are incremented when `count` is called and
+/// used to determine when `want_snapshot` returns true.
+pub trait SnapshotPolicy {
+    /// Reset internal counters (we have an up-to-date snapshot).
+    fn reset(&mut self);
+    
+    /// Declare that a snapshot is required (i.e. force `want_snapshot` to be true until `reset` is
+    /// next called).
+    fn force_snapshot(&mut self);
+    
+    /// Increment an internal counter/counters to record this many `commits` and `edits`.
+    fn count(&mut self, commits: usize, edits: usize);
+    
+    /// Defines our snapshot policy: this should return true when a new snapshot is required.
+    /// 
+    /// The number of commits and edits saved since the last snapshot 
+    /// The default implementation is
+    /// ```rust
+    /// commits * 5 + edits > 150
+    /// ```
+    fn want_snapshot(&self) -> bool;
+}
+
+/// Default snapshot policy: snapshot when `commits * 5 + edits > 150`.
+/// 
+/// Can be constructed with `Default`.
+#[derive(Debug, Default)]
+pub struct DefaultSnapshot {
+    counter: usize,
+}
+
+impl SnapshotPolicy for DefaultSnapshot {
+    fn reset(&mut self) {
+        self.counter = 0;
+    }
+    
+    fn force_snapshot(&mut self) {
+        self.counter = 1000;
+    }
+    
+    fn count(&mut self, commits: usize, edits: usize) {
+        self.counter += commits * 5 + edits;
+    }
+    
+    fn want_snapshot(&self) -> bool {
+        self.counter > 150
     }
 }
 

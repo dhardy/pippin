@@ -19,7 +19,7 @@ use error::{Result, ReadOnly, OtherError};
 // —————  Partition  —————
 
 /// Data structure used in a `PartFileIO` to actually store file paths.
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug, Default)]
 pub struct PartPaths {
     // First key is snapshot number. Value is (if found) a path to the snapshot
     // file and a map of log paths.

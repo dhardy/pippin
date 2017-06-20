@@ -14,7 +14,7 @@ use walkdir::WalkDir;
 use io::RepoIO;
 use elt::PartId;
 use io::file::{PartFileIO, RepoFileIO, PartPaths};
-use readwrite::read_head;
+use rw::header::read_head;
 use error::{Result, PathError};
 
 

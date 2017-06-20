@@ -106,7 +106,7 @@ pub trait PartIO {
 /// 
 /// Can be used for testing but big fat warning: this does not provide any
 /// method to save your data. Write operations succeed but forget the data.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct DummyPartIO {
     // The internal buffer allows us to accept write operations. Data gets
     // written over on the next write.

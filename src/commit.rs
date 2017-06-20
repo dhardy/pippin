@@ -19,13 +19,13 @@ use sum::Sum;
 use error::{Result, ElementOp, OtherError};
 
 
-/// The type of the user-specified *extra* metadata field. This allows users
-/// to store extra information about commits (e.g. author, place, comment).
+/// User-specified extra commit metadata. This allows users to tag commits with extra information
+/// (e.g. author, comment).
 /// 
 /// Currently the only supported non-empty type is UTF-8 text (designated XMTT
 /// in files), but the file format and API allows for future extensions.
 #[derive(Clone, PartialEq, Eq, Debug)]
-pub enum ExtraMeta {
+pub enum UserMeta {
     /// No extra metadata
     None,
     /// Extra metadata as a simple text field
@@ -94,7 +94,7 @@ impl BitOr<MetaFlags> for MetaFlags {
 ///     of ancestors leading back to the initial commit)
 /// *   A time-stamp (usually the UTC time of creation)
 /// 
-/// Additionally, users may attach information via the `ExtraMeta` struct.
+/// Additionally, users may attach information via the `UserMeta` struct.
 #[derive(Debug, PartialEq, Clone)]
 pub struct CommitMeta {
     /// Commit number. First (real) commit has number 1, each subsequent commit
@@ -112,7 +112,7 @@ pub struct CommitMeta {
     /// Extension flags. These are inherited verbatim, so stored in this format.
     ext_flags: MetaFlags,
     /// User-provided extra metadata
-    extra: ExtraMeta,
+    extra: UserMeta,
 }
 
 /// Partial version of metadata (used by some functions on `CommitMeta`).
@@ -137,7 +137,7 @@ impl CommitMeta {
     }
     /// Create, explicitly providing all fields.
     pub fn new_explicit(number: u32, timestamp: i64, ext_flags: MetaFlags,
-            _ext_data: Vec<u8>, extra: ExtraMeta) -> Result<Self, OtherError>
+            _ext_data: Vec<u8>, extra: UserMeta) -> Result<Self, OtherError>
     {
         if (ext_flags.unknown_essential()) {
             return Err(OtherError::new("found essential unknown commit meta flag"));
@@ -210,7 +210,7 @@ impl CommitMeta {
     }
     
     /// Get the commit's extra data.
-    pub fn extra(&self) -> &ExtraMeta {
+    pub fn extra(&self) -> &UserMeta {
         &self.extra
     }
 }
@@ -250,13 +250,13 @@ pub trait MakeCommitMeta {
     }
     
     /// Make an extra-metadata item. The default implementation simply
-    /// returns `ExtraMeta::None`.
+    /// returns `UserMeta::None`.
     /// 
     /// Arguments: this commit's number, and the commit identifier and metadata for each parent
     /// commit.
     /// The commit number and the sum of each parent commit is passed.
-    fn make_commit_extra(&self, _number: u32, _parents: Vec<(&Sum, &CommitMeta)>) -> ExtraMeta {
-        ExtraMeta::None
+    fn make_commit_extra(&self, _number: u32, _parents: Vec<(&Sum, &CommitMeta)>) -> UserMeta {
+        UserMeta::None
     }
 }
 

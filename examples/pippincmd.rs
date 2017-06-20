@@ -20,6 +20,7 @@ use std::error::Error;
 
 use docopt::Docopt;
 use pippin::pip::*;
+use pippin::rw::header::read_head;
 
 const USAGE: &'static str = "
 Pippin command-line UI. This program is designed to demonstrate Pippin's

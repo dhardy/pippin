@@ -24,6 +24,8 @@ use std::error::Error as ErrorTrait;
 
 /// This is a variant of the core `try!(...)` macro which adds position data
 /// in a stream to the error, on failure. Return type is `Result<_, ReadError>`.
+/// 
+/// Usage: `try_read!(expr, pos, offset)`. See documentation of `ReadError::new` for details.
 #[macro_export]
 macro_rules! try_read {
     ($expr:expr, $pos:expr, $offset:expr) => (match $expr {

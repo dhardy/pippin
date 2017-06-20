@@ -7,24 +7,41 @@
 //! Many code patterns shamelessly lifted from Alex Crichton's flate2 library.
 
 mod sum;
-mod header;
-mod snapshot;
-mod commitlog;
-
-pub use self::header::{UserData, FileHeader, FileType, read_head, write_head, validate_repo_name};
-pub use self::snapshot::{read_snapshot, write_snapshot};
-pub use self::commitlog::{CommitReceiver, read_log, start_log, write_commit};
+pub mod header;
+pub mod snapshot;
+pub mod commitlog;
 
 use std::io::{Read, Write};
-use std::u32;
 use std::iter::repeat;
+use std::u32;
 
 use byteorder::{ByteOrder, BigEndian, WriteBytesExt};
 
-use commit::{CommitMeta, ExtraMeta, MetaFlags};
+use commit::{CommitMeta, UserMeta, MetaFlags};
 use error::{Result, ReadError};
 
-// —————  private utility functions  —————
+// —————  module-private data and functions  —————
+
+// Versions of header (all versions, including latest), encoded as an integer.
+// All restrictions to specific versions should mention `HEAD_VERSIONS` in
+// comments to aid searches.
+// 
+// Note: new versions can be implemented just by updating the three HEAD_...
+// constants and updating code, so long as the code will still read old
+// versions. The file format documentation should also be updated.
+const HEAD_VERSIONS : [u32; 3] = [
+    /* unsupported versions:
+    2015_09_29, // initial standardisation
+    2016_01_05, // add 'PARTID' to header blocks (snapshot only)
+    2016_02_01, // add memory of new names of moved elements
+    2016_02_21, // add metadata to commits (logs only)
+    2016_02_22, // add metadata to snapshots (snapshots only)
+    2016_02_27, // add parent state-sums to snapshots (snapshots only)
+    */
+    2016_03_10, // new element and state sums break compatibility
+    2016_05_16, // support Bbbb header sections
+    2016_08_15, // allow non-breaking extensions to commit-meta
+];
 
 /// Read metadata
 /// 
@@ -65,11 +82,11 @@ fn read_meta(mut r: &mut Read, mut buf: &mut [u8], mut pos: &mut usize, format_v
     let mut xm_data = vec![0; xm_len];
     r.read_exact(&mut xm_data)?;
     let xm = if xm_type_txt {
-        ExtraMeta::Text(String::from_utf8(xm_data)
+        UserMeta::Text(String::from_utf8(xm_data)
             .map_err(|_| ReadError::new("content not valid UTF-8", *pos, (0, xm_len)))?)
     } else {
         // even if xm_len > 0 we ignore it
-        ExtraMeta::None
+        UserMeta::None
     };
     
     (*pos) += xm_len;
@@ -94,11 +111,11 @@ fn write_meta(w: &mut Write, meta: &CommitMeta) -> Result<()> {
     // extension data would go here, but we don't currently have any
     
     match *meta.extra() {
-        ExtraMeta::None => {
+        UserMeta::None => {
             // last four zeros is 0u32 encoded in bytes
             w.write_all(b"XM\x00\x00\x00\x00\x00\x00")?;
         },
-        ExtraMeta::Text(ref txt) => {
+        UserMeta::Text(ref txt) => {
             w.write_all(b"XMTT")?;
             assert!(txt.len() <= u32::MAX as usize);
             w.write_u32::<BigEndian>(txt.len() as u32)?;

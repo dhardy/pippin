@@ -12,8 +12,8 @@ use byteorder::{ByteOrder, BigEndian, WriteBytesExt};
 
 use classify::ClassificationRanges;
 use elt::PartId;
-use readwrite::sum;
 use error::{Result, ArgError, ReadError, make_io_err};
+use rw::{HEAD_VERSIONS, sum};
 use sum::SUM_BYTES;
 use util::rtrim;
 
@@ -21,26 +21,7 @@ use util::rtrim;
 const HEAD_SNAPSHOT : [u8; 16] = *b"PIPPINSS20160815";
 // Commit log header. This is the latest version.
 const HEAD_COMMITLOG : [u8; 16] = *b"PIPPINCL20160815";
-// Versions of header (all versions, including latest), encoded as an integer.
-// All restrictions to specific versions should mention `HEAD_VERSIONS` in
-// comments to aid searches.
-// 
-// Note: new versions can be implemented just by updating the three HEAD_...
-// constants and updating code, so long as the code will still read old
-// versions. The file format documentation should also be updated.
-pub const HEAD_VERSIONS : [u32; 3] = [
-    /* unsupported versions:
-    2015_09_29, // initial standardisation
-    2016_01_05, // add 'PARTID' to header blocks (snapshot only)
-    2016_02_01, // add memory of new names of moved elements
-    2016_02_21, // add metadata to commits (logs only)
-    2016_02_22, // add metadata to snapshots (snapshots only)
-    2016_02_27, // add parent state-sums to snapshots (snapshots only)
-    */
-    2016_03_10, // new element and state sums break compatibility
-    2016_05_16, // support Bbbb header sections
-    2016_08_15, // allow non-breaking extensions to commit-meta
-];
+
 const SUM_SHA256 : [u8; 16] = *b"HSUM SHA-2 256\x00\x00";
 const SUM_BLAKE2_16 : [u8; 16] = *b"HSUM BLAKE2 16\x00\x00";
 const PARTID : [u8; 8] = *b"HPARTID ";

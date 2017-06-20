@@ -12,11 +12,11 @@ use std::collections::hash_map::{HashMap, Entry};
 use byteorder::{ByteOrder, BigEndian, WriteBytesExt};
 
 use classify::Classification;
-use readwrite::{sum, read_meta, write_meta};
-use state::{PartState, StateRead};
 use elt::{Element, PartId};
-use sum::{Sum, SUM_BYTES};
 use error::{Result, ReadError, ElementOp};
+use rw::{sum, read_meta, write_meta};
+use state::{PartState, StateRead};
+use sum::{Sum, SUM_BYTES};
 
 /// Read a snapshot of a set of elements from a stream.
 /// 
@@ -223,13 +223,13 @@ pub fn write_snapshot<T: Element>(state: &PartState<T>,
 #[test]
 fn snapshot_writing() {
     use state::StateWrite;
-    use readwrite::header::HEAD_VERSIONS;
-    use commit::{CommitMeta, ExtraMeta, MakeCommitMeta};
+    use rw::HEAD_VERSIONS;
+    use commit::{CommitMeta, UserMeta, MakeCommitMeta};
     
     struct MMNone {}
     impl MakeCommitMeta for MMNone {
-        fn make_commit_extra(&self, _number: u32, _parents: Vec<(&Sum, &CommitMeta)>) -> ExtraMeta {
-            ExtraMeta::Text("text".to_string())
+        fn make_commit_extra(&self, _number: u32, _parents: Vec<(&Sum, &CommitMeta)>) -> UserMeta {
+            UserMeta::Text("text".to_string())
         }
     }
     
@@ -259,8 +259,8 @@ fn snapshot_writing() {
     
     struct MMTT {}
     impl MakeCommitMeta for MMTT {
-        fn make_commit_extra(&self, _number: u32, _parents: Vec<(&Sum, &CommitMeta)>) -> ExtraMeta {
-            ExtraMeta::Text("text".to_string())
+        fn make_commit_extra(&self, _number: u32, _parents: Vec<(&Sum, &CommitMeta)>) -> UserMeta {
+            UserMeta::Text("text".to_string())
         }
     }
     let state = PartState::from_mut(state, &mut MMTT {});

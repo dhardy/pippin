@@ -12,7 +12,7 @@ use crypto::blake2b::Blake2b;
 use byteorder::{ByteOrder, BigEndian};
 
 use elt::{EltId, PartId};
-use commit::{CommitMeta, ExtraMeta};
+use commit::{CommitMeta, UserMeta};
 use sum::{Sum, SUM_BYTES};
 
 
@@ -53,8 +53,8 @@ impl Sum {
             hasher.input(&buf);
         }
         match *meta.extra() {
-            ExtraMeta::None => {},
-            ExtraMeta::Text(ref text) => {
+            UserMeta::None => {},
+            UserMeta::Text(ref text) => {
                 hasher.input(text.as_bytes());
             },
         }

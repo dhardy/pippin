@@ -13,7 +13,7 @@ use std::u32;
 
 use byteorder::{ByteOrder, BigEndian, WriteBytesExt};
 
-use readwrite::{sum, read_meta, write_meta};
+use rw::{sum, read_meta, write_meta};
 use commit::{Commit, EltChange};
 use elt::Element;
 use sum::{Sum, SUM_BYTES};
@@ -29,7 +29,7 @@ pub trait CommitReceiver<E: Element> {
     fn receive(&mut self, commit: Commit<E>) -> bool;
 }
 impl<E: Element> CommitReceiver<E> for Vec<Commit<E>> {
-    /// Implement function required by readwrite::read_log().
+    /// Implement function required by `read_log`.
     fn receive(&mut self, commit: Commit<E>) -> bool {
         self.push(commit);
         true    // continue reading to EOF
@@ -264,8 +264,8 @@ pub fn write_commit<E: Element>(commit: &Commit<E>, writer: &mut Write) -> Resul
 
 #[test]
 fn commit_write_read(){
-    use readwrite::header::HEAD_VERSIONS;
-    use commit::{CommitMeta, ExtraMeta, MetaFlags};
+    use rw::HEAD_VERSIONS;
+    use commit::{CommitMeta, UserMeta, MetaFlags};
     use elt::PartId;
     
     // Note that we can make up completely nonsense commits here. Element
@@ -285,14 +285,14 @@ fn commit_write_read(){
     changes.insert(p.elt_id(3), EltChange::insertion(Rc::new("three".to_string())));
     changes.insert(p.elt_id(4), EltChange::insertion(Rc::new("four".to_string())));
     changes.insert(p.elt_id(5), EltChange::insertion(Rc::new("five".to_string())));
-    let meta1 = CommitMeta::new_explicit(1, 123456, MetaFlags::zero(), vec![], ExtraMeta::None).expect("new meta");
+    let meta1 = CommitMeta::new_explicit(1, 123456, MetaFlags::zero(), vec![], UserMeta::None).expect("new meta");
     let commit_1 = Commit::new_explicit(seq, vec![squares], changes, meta1);
     
     changes = HashMap::new();
     changes.insert(p.elt_id(1), EltChange::deletion());
     changes.insert(p.elt_id(9), EltChange::replacement(Rc::new("NINE!".to_string())));
     changes.insert(p.elt_id(5), EltChange::insertion(Rc::new("five again?".to_string())));
-    let meta2 = CommitMeta::new_explicit(1, 321654, MetaFlags::zero(), vec![], ExtraMeta::Text("123".to_string())).expect("new meta");
+    let meta2 = CommitMeta::new_explicit(1, 321654, MetaFlags::zero(), vec![], UserMeta::Text("123".to_string())).expect("new meta");
     let commit_2 = Commit::new_explicit(nonsense, vec![quadr], changes, meta2);
     
     let mut obj = Vec::new();

@@ -90,13 +90,11 @@ pub mod merge;
 pub mod part;
 pub mod pip;
 pub mod repo;
+pub mod rw;
 pub mod state;
 pub mod sum;
 pub mod util;
 
-mod part_traits;
-mod readwrite;
-mod repo_traits;
 
 /// Version. The low 16 bits are patch number, next 16 are the minor version
 /// number, the next are the major version number. The top 16 are zero.
