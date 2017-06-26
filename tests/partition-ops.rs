@@ -19,6 +19,7 @@ type Data = Vec<u8>;
 
 /// Allows writing to in-memory streams. Refers to external data so that it
 /// can be recovered after the `Partition` is destroyed in the tests.
+#[derive(Debug)]
 struct PartitionStreams {
     // Map of snapshot-number to pair (snapshot, map of log number to log)
     ss: VecMap<(Option<Data>, VecMap<Data>)>,
