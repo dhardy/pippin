@@ -7,6 +7,7 @@
 // use std::marker::PhantomData;
 use std::collections::BTreeMap;
 
+use elt::{Element, PartId};
 use error::{Result, ClassifyError};
 use repo::RepoControl;
 
@@ -40,7 +41,7 @@ pub struct Classification {
     // 
     // An element matches this classification if for all properties used, the
     // value is included in (at least) one of the associated ranges.
-    rules: BTreeMap<PropId, Vec<(u32, u32)>>,
+    rules: BTreeMap<PropId, Vec<(PropDomain, PropDomain)>>,
 }
 
 impl Classification {
@@ -72,6 +73,8 @@ impl Classification {
     }
     
     /// Checks whether an element matches this classification.
+    /// 
+    /// For frequent uses, building a checker with `make_checker` and reusing it should be faster.
     pub fn matches_elt<R: RepoControl>(&self, elt: &R::Element, control: &R) -> Result<bool, ClassifyError> {
         'outer: for (cfr, ranges) in &self.rules {
             let v = (control.prop_fn(*cfr).ok_or(ClassifyError::UnknownProperty)?)(elt);
@@ -85,5 +88,100 @@ impl Classification {
         }
         // all properties match some range
         Ok(true)
+    }
+    
+    /// Build a checker for this classification
+    pub fn make_checker<R: RepoControl>(&self, control: &R) ->
+            Result<CsfChecker<R::Element>, ClassifyError>
+    {
+        // #0019: is it worth reordering rules? If nearly all elements match the
+        // first rule it might be better to test that last, but how do we know?
+        let mut rules = Vec::with_capacity(self.rules.len());
+        for (cfr, ranges) in &self.rules {
+            rules.push((control.prop_fn(*cfr).ok_or(ClassifyError::UnknownProperty)?, ranges.clone()));
+        }
+        Ok(CsfChecker {
+            rules: rules
+        })
+    }
+}
+
+/// Tool for testing whether an element fits the given classification.
+pub struct CsfChecker<E: Element> {
+    rules: Vec<(Property<E>, Vec<(PropDomain, PropDomain)>)>,
+}
+impl<E: Element> CsfChecker<E> {
+    /// Checks whether an element matches this classification.
+    pub fn matches(&self, elt: &E) -> bool {
+        'outer: for &(ref prop, ref ranges) in &self.rules {
+            let v = (prop)(elt);
+            for &(min, max) in ranges {
+                if min <= v && v <= max {
+                    continue 'outer;
+                }
+            }
+            return false;   // no range matches
+        }
+        true    // each property matches a range
+    }
+}
+impl<E: Element> Clone for CsfChecker<E> {
+    fn clone(&self) -> Self {
+        CsfChecker {
+            rules: self.rules.iter().map(|x| (x.0, x.1.clone())).collect()
+        }
+    }
+}
+
+/// Tool for finding a matching classification given an element
+#[derive(Clone)]
+pub struct CsfFinder<E: Element> {
+    checkers: Vec<(PartId, CsfChecker<E>)>,
+}
+impl<E: Element> CsfFinder<E> {
+    /// Create a new finder. Populate classifications with `add_csf`.
+    pub fn new() -> Self {
+        CsfFinder { checkers: Vec::new() }
+    }
+    
+    /// Add a new classification.
+    pub fn add_csf<R: RepoControl<Element = E>>(&mut self, part_id: PartId, csf: Classification,
+            control: &R) -> Result<(), ClassifyError>
+    {
+        let checker = csf.make_checker(control)?;
+        self.checkers.push((part_id, checker));
+        Ok(())
+    }
+    
+    /// Remove a classification
+    /// 
+    /// Returns true if and only if a classification was removed
+    pub fn remove_csf(&mut self, part_id: PartId) -> bool {
+        if let Some(index) = self.checkers.iter().position(|x| x.0 == part_id) {
+            self.checkers.remove(index);
+            true
+        } else {
+            false
+        }
+    }
+    
+    /// Looks for a matching classification.
+    /// 
+    /// Returns `None` if and only if no known classifications match.
+    pub fn find(&self, elt: &E) -> Option<PartId> {
+        // TODO: more efficient implementation. We should only need to test each property of the
+        // element once if we test by property first instead of classification. We could also
+        // optimise the order of properties over time by predictive power.
+        for &(part_id, ref checker) in &self.checkers {
+            if checker.matches(elt) {
+                return Some(part_id);
+            }
+        }
+        None
+    }
+}
+impl<E: Element> Default for CsfFinder<E> {
+    fn default() -> Self {
+        CsfFinder::new()
     }
 }
