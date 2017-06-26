@@ -114,9 +114,7 @@ pub struct Partition<P: PartControl> {
     // Partition identifier
     part_id: PartId,
     // Classification ranges
-    // TODO: this is only defined after loading the partition data. Put everything below in a
-    // state machine?
-    csf: Option<Classification>,
+    csf: Classification,
     // Number of first snapshot file loaded (equal to ss1 if nothing is loaded)
     ss0: usize,
     // Number of latest snapshot file loaded + 1; 0 if nothing loaded and never less than ss0
@@ -158,7 +156,7 @@ impl<P: PartControl> Partition<P> {
             control: control,
             repo_name: name.into(),
             part_id: part_id,
-            csf: Some(csf),
+            csf,
             ss0: ss,
             ss1: ss + 1,
             states: HashIndexed::new(),
@@ -187,10 +185,6 @@ impl<P: PartControl> Partition<P> {
     /// The partition will not be *ready to use* until data is loaded with one
     /// of the load operations. Until then most operations will fail.
     /// 
-    /// If the repository name is known (e.g. from another partition), then
-    /// setting this with `set_repo_name()` will ensure that the value is
-    /// checked when loading files.
-    /// 
     /// Example:
     /// 
     /// ```no_run
@@ -204,61 +198,39 @@ impl<P: PartControl> Partition<P> {
     /// ```
     pub fn open(part_id: PartId, control: P) -> Result<Partition<P>> {
         trace!("Opening partition {}", part_id);
-        Ok(Partition {
-            control: control,
-            repo_name: "".to_string() /*temporary value; checked before usage elsewhere*/,
-            part_id: part_id,
-            csf: None,
-            ss0: 0,
-            ss1: 0,
-            states: HashIndexed::new(),
-            ancestors: HashSet::new(),
-            tips: HashSet::new(),
-            unsaved: VecDeque::new(),
-        })
-    }
-    
-    /// Set the repo name. This is not set by `open()`, but is used to verify
-    /// loaded files belong to the correct partition. Once set, load operations
-    /// will fail if the name stored in the file does not match.
-    /// 
-    /// This is used by `Repository::open()` but should not normally be needed
-    /// otherwise.
-    /// 
-    /// This operation fails if the name has already been set *and* is not
-    /// equal to the `repo_name` parameter.
-    pub fn set_repo_name(&mut self, repo_name: &str) -> Result<()> {
-        if !self.repo_name.is_empty() {
-            self.repo_name = repo_name.to_string();
-        } else if self.repo_name != repo_name {
-            return OtherError::err("repository name does not match when loading (wrong repo?)");
-        }
-        Ok(())
-    }
-    
-    /// Get the repo name.
-    /// 
-    /// If this partition was created with `create()`, not `new()`, and no
-    /// partition has been loaded yet, then this function will read a snapshot
-    /// file header in order to find this name.
-    /// 
-    /// Returns the repo_name on success. Fails if it cannot read a header.
-    pub fn get_repo_name(&mut self) -> Result<&str> {
-        if !self.repo_name.is_empty() {
-            return Ok(&self.repo_name);
-        }
-        for ss in (0 .. self.control.io().ss_len()).rev() {
-            let opt_header = if let Some(mut ssf) = self.control.io().read_ss(ss)? {
+        // We need to read a header for classification purposes
+        
+        for ss in (0 .. control.io().ss_len()).rev() {
+            let opt_header = if let Some(mut ssf) = control.io().read_ss(ss)? {
                 Some(read_head(&mut *ssf)?)
             } else {
                 None
             };
             if let Some(header) = opt_header {
-                self.read_head(header)?;
-                return Ok(&self.repo_name);
+                if header.part_id != part_id {
+                    return OtherError::err("partition identifier differs from previous value");
+                }
+                
+                return Ok(Partition {
+                    control,
+                    repo_name: header.name,
+                    part_id,
+                    csf: Classification::from_ranges(&header.csf_ranges),
+                    ss0: 0,
+                    ss1: 0,
+                    states: HashIndexed::new(),
+                    ancestors: HashSet::new(),
+                    tips: HashSet::new(),
+                    unsaved: VecDeque::new(),
+                });
             }
         }
         OtherError::err("no snapshot found for first partition")
+    }
+    
+    /// Get the repo name, contained in each file's header.
+    pub fn repo_name(&self) -> &str {
+        &self.repo_name
     }
     
     /// Load all history. Shortcut for `load_range(0, usize::MAX, control)`.
@@ -308,9 +280,7 @@ impl<P: PartControl> Partition<P> {
         if ss0 == 0 && !self.control.io().has_ss(ss0) {
             assert!(self.states.is_empty());
             // No initial snapshot; assume a blank state
-            // FIXME we need to get the classification from somewhere!
-            panic!("TODO: get classification");
-            let state = PartState::new(self.part_id, self.csf.as_ref().expect("has csf").clone(), self.control.as_mcm_ref_mut());
+            let state = PartState::new(self.part_id, self.csf.clone(), self.control.as_mcm_ref_mut());
             self.tips.insert(state.statesum().clone());
             self.states.insert(state);
         }
@@ -421,7 +391,7 @@ impl<P: PartControl> Partition<P> {
     /// 
     /// This function is called for every file loaded.
     fn read_head(&mut self, header: FileHeader) -> Result<()> {
-        if !self.repo_name.is_empty() && self.repo_name != header.name {
+        if self.repo_name != header.name {
             return OtherError::err("repository name does not match when loading (wrong repo?)");
         }
         
@@ -431,27 +401,18 @@ impl<P: PartControl> Partition<P> {
         
         self.control.read_header(&header)?;
         
-        if self.repo_name.is_empty() {
-            self.repo_name = header.name;
-        }
-        
         let csf = Classification::from_ranges(&header.csf_ranges);
-        if let Some(existing_csf) = self.csf.as_ref() {
-            if csf != *existing_csf {
-                return OtherError::err("partition classification differs from previous value");
-            }
-            return Ok(());
+        if csf != self.csf {
+            return OtherError::err("partition classification differs from previous value");
         }
         
-        self.csf = Some(csf);
         Ok(())
     }
     
     /// Create a header
     fn make_header(&mut self, file_type: FileType) -> Result<FileHeader> {
         let csf_ranges = {
-            // TODO: don't use expect here
-            self.csf.as_ref().expect("csf not set").make_ranges()
+            self.csf.make_ranges()
         };
         let mut header = FileHeader {
             ftype: file_type,
@@ -498,7 +459,7 @@ impl<P: PartControl> Partition<P> {
     
     /// Access this partition's classification
     pub fn csf(&self) -> &Classification {
-        self.csf.as_ref().expect("has classification")  // TODO: use of expect is not acceptable
+        &self.csf
     }
 }
 

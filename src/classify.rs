@@ -134,7 +134,6 @@ impl<E: Element> Clone for CsfChecker<E> {
 }
 
 /// Tool for finding a matching classification given an element
-#[derive(Clone)]
 pub struct CsfFinder<E: Element> {
     checkers: Vec<(PartId, CsfChecker<E>)>,
 }
@@ -145,7 +144,8 @@ impl<E: Element> CsfFinder<E> {
     }
     
     /// Add a new classification.
-    pub fn add_csf<R: RepoControl<Element = E>>(&mut self, part_id: PartId, csf: Classification,
+    // TODO: can we check for overlaps here?
+    pub fn add_csf<R: RepoControl<Element = E>>(&mut self, part_id: PartId, csf: &Classification,
             control: &R) -> Result<(), ClassifyError>
     {
         let checker = csf.make_checker(control)?;
@@ -178,6 +178,13 @@ impl<E: Element> CsfFinder<E> {
             }
         }
         None
+    }
+}
+impl<E: Element> Clone for CsfFinder<E> {
+    fn clone(&self) -> Self {
+        CsfFinder {
+            checkers: self.checkers.clone()
+        }
     }
 }
 impl<E: Element> Default for CsfFinder<E> {

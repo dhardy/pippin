@@ -22,7 +22,7 @@ use std::collections::hash_map::{HashMap, Values, ValuesMut};
 use std::rc::Rc;
 use std::mem::swap;
 
-use classify::{PropId, Property};
+use classify::{PropId, Property, CsfFinder};
 use elt::{EltId, PartId, Element};
 use error::{ClassifyError, Result, OtherError, TipError, ElementOp, RepoDivideError};
 use io::RepoIO;
@@ -162,6 +162,8 @@ pub struct Repository<R: RepoControl> {
     name: String,
     /// List of loaded partitions, by their `PartId`.
     partitions: HashMap<PartId, Partition<R::PartControl>>,
+    /// Classification finder
+    csf_finder: CsfFinder<R::Element>,
 }
 
 // Non-member functions on Repository
@@ -180,18 +182,26 @@ impl<R: RepoControl> Repository<R> {
     {
         let name: String = name.into();
         info!("Creating repository: {}", name);
+        
         let part_id = control.init_first()?;
         let suggestion = control.suggest_part_prefix(part_id);
         let prefix = suggestion.unwrap_or_else(|| format!("pn{}", part_id));
+        
         control.io_mut().new_part(part_id, prefix)?;
         let part_control = control.make_part_control(part_id)?;
         let part = Partition::create(part_id, part_control, &name)?;
+        
+        let mut csf_finder = CsfFinder::new();
+        csf_finder.add_csf(part_id, part.csf(), &control)?;
+        
         let mut partitions = HashMap::new();
         partitions.insert(part.part_id(), part);
+        
         Ok(Repository{
-            control: control,
-            name: name,
-            partitions: partitions,
+            control,
+            name,
+            partitions,
+            csf_finder,
         })
     }
     
@@ -200,34 +210,40 @@ impl<R: RepoControl> Repository<R> {
     /// This does not automatically load partition data, however it must load
     /// at least one header in order to identify the repository.
     pub fn open(mut control: R)-> Result<Repository<R>> {
-        let (name, parts) = {
-            let mut part_nums = control.io().parts().into_iter();
-            let num0 = if let Some(num) = part_nums.next() {
-                num
+        let mut name = None;
+        let mut csf_finder = CsfFinder::new();
+        let mut partitions = HashMap::new();
+        for n in control.io().parts() {
+            let part_control = control.make_part_control(n)?;
+            let part = Partition::open(n, part_control)?;
+            // #0061: lifetime analysis sucks, or Option needs an Entry API
+            let has_name = if let Some(repo_name) = name.as_ref() {
+                if part.repo_name() != repo_name {
+                    return OtherError::err("repository name does not match when loading (wrong repo?)");
+                }
+                true
             } else {
-                return OtherError::err("No repository files found");
+                false
             };
-            
-            let part_control = control.make_part_control(num0)?;
-            let mut part0 = Partition::open(num0, part_control)?;
-            let name = part0.get_repo_name()?.to_string();
-            
-            let mut parts = HashMap::new();
-            parts.insert(num0, part0);
-            for n in part_nums {
-                let part_control = control.make_part_control(n)?;
-                let mut part = Partition::open(n, part_control)?;
-                part.set_repo_name(&name)?;
-                parts.insert(n, part);
+            if !has_name {
+                name = Some(part.repo_name().to_string());
             }
-            (name, parts)
+            csf_finder.add_csf(n, part.csf(), &control)?;
+            partitions.insert(n, part);
+        }
+        
+        let name = if let Some(repo_name) = name {
+            repo_name
+        } else {
+            return OtherError::err("No repository files found");
         };
         
-        info!("Opening repository with {} partitions: {}", parts.len(), name);
+        info!("Successfully opened repository with {} partitions: {}", partitions.len(), name);
         Ok(Repository{
-            control: control,
-            name: name,
-            partitions: parts,
+            control,
+            name,
+            partitions,
+            csf_finder,
         })
     }
 }
@@ -487,7 +503,7 @@ impl<R: RepoControl> Repository<R> {
     /// 
     /// TODO: a way to copy only some of the loaded partitions.
     pub fn clone_state(&self) -> result::Result<RepoState<R::Element>, TipError> {
-        let mut rs = RepoState::new();
+        let mut rs = RepoState::new(self.csf_finder.clone());
         for (num, part) in &self.partitions {
             if part.is_loaded() {
                 rs.add_part(*num, part.tip()?.clone_mut());
@@ -585,12 +601,14 @@ impl<R: RepoControl> Repository<R> {
 /// synchronise edits.
 pub struct RepoState<E: Element> {
     states: HashMap<PartId, MutPartState<E>>,
+    csf_finder: CsfFinder<E>,
 }
 
 impl<E: Element> RepoState<E> {
     /// Create new, with no partition states (use `add_part()`)
-    fn new() -> RepoState<E> {
-        RepoState { states: HashMap::new() }
+    // TODO: should we take a copy of the finder? Or a reference to Repo or to a boxed finder?
+    fn new(csf_finder: CsfFinder<E>) -> RepoState<E> {
+        RepoState { csf_finder: csf_finder, states: HashMap::new() }
     }
     
     /// Add a state from some partition

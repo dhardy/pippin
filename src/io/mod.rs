@@ -30,9 +30,9 @@ pub trait PartIO: Debug {
     /// Snapshots and commit logs with a number greater than or equal to this
     /// number probably won't exist and may in any case be ignored.
     /// 
-    /// Convention: snapshot "zero" may not be an actual snapshot but
-    /// either way the snapshot should be empty (no elements and the state-sum
-    /// should be zero).
+    /// Convention: snapshot "zero" is written with no elements when the partition is first
+    /// created. It can therefore be assumed that `ss_len` is at least 1, outside of
+    /// `Partition::create`.
     /// 
     /// This number must not change except to increase when write_snapshot()
     /// is called.
