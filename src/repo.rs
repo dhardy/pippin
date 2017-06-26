@@ -31,19 +31,7 @@ use merge::TwoWaySolver;
 use state::{StateRead, StateWrite, MutPartState};
 
 
-/// Encapsulates a `RepoIO` and a `Classify`, handling repartitioning and
-/// serialisation.
-/// 
-/// Implementations should also implement `UserFields` to store and retrieve
-/// metadata from file headers; e.g. if partitioning is not fixed, the
-/// classifier will have mutable state which needs to be written and
-/// reconstructed. It is up to the user to implement versioning for this data
-/// so that the latest version can be reconstructed.
-/// 
-/// It is recommended that information stored on partitions and partitioning
-/// is versioned independently for *each partition* so that when metadata is
-/// recovered from headers, a correct version is built even if multiple
-/// partitions had been modified independently.
+/// User-defined controls on repository operation.
 pub trait RepoControl {
     /// User-defined type of elements stored
     type Element: Element;

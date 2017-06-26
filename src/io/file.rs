@@ -257,6 +257,7 @@ impl PartIO for PartFileIO {
 /// This is not "live" and could get out-of-date if another process touches the
 /// files or if multiple `PartIO`s are requested for the same partition in this
 /// process.
+#[derive(Debug)]
 pub struct RepoFileIO {
     readonly: bool,
     // Top directory of partition (which paths are relative to)

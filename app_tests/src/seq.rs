@@ -5,9 +5,10 @@
 //! directly into a real application.
 
 use std::io::Write;
+use std::cell::Cell;
 use std::cmp::min;
 use std::u32;
-use std::collections::hash_map::{HashMap, Entry};
+use std::collections::hash_map::{HashMap};
 use std::mem::size_of;
 use std::fmt::Debug;
 
@@ -15,9 +16,7 @@ use rand::Rng;
 use rand::distributions::{IndependentSample, Range, Normal, LogNormal};
 use byteorder::{ByteOrder, LittleEndian, ReadBytesExt, WriteBytesExt};
 
-use pippin::*;
-use pippin::repo::RepoDivideError;
-use pippin::error::{ReadError, OtherError};
+use pippin::pip::*;
 
 
 // —————  Sequence type itself  —————
@@ -27,10 +26,11 @@ pub type R = f64;
 /// Type is a wrapper around a vector of f64. The reason for this is that we
 /// can only implement `Element` for new types, thus cannot use the vector type
 /// directly (see #44).
-#[derive(PartialEq, Eq, Debug)]
+#[derive(PartialEq, Debug)]
 pub struct Sequence {
     v: Vec<R>,
 }
+impl Eq for Sequence {}
 impl Sequence {
     // Get length of sequence
     pub fn len(&self) -> usize {
@@ -183,31 +183,62 @@ impl Generator for GeneratorEnum {
 }
 
 
+// —————  PartControl type  —————
+
+
+/// Type implementing pippin's `PartControl`.
+#[derive(Debug)]
+pub struct SeqPartControl {
+    time: Cell<i64>,
+    io: Box<PartIO>,
+    ss_policy: DefaultSnapshot,
+}
+impl SeqPartControl {
+    /// Create, given I/O provider
+    pub fn new(io: Box<PartIO>) -> Self {
+        // time is start of year 2000
+        SeqPartControl { time: Cell::new(946684800), io: io, ss_policy: Default::default() }
+    }
+}
+// We can't use the default meta-data, with a real timestamp, as tests need
+// to regenerate exactly the same data each time.
+impl MakeCommitMeta for SeqPartControl {
+    // add one hour
+    fn make_commit_timestamp(&self) -> i64 {
+        let time = self.time.get();
+        self.time.set(time + 3600);
+        time
+    }
+}
+impl PartControl for SeqPartControl {
+    type Element = Sequence;
+    fn io(&self) -> &PartIO {
+        &self.io
+    }
+    fn io_mut(&mut self) -> &mut PartIO {
+        &mut self.io
+    }
+    fn snapshot_policy(&mut self) -> &mut SnapshotPolicy {
+        &mut self.ss_policy
+    }
+    fn as_mcm_ref(&self) -> &MakeCommitMeta { self }
+    fn as_mcm_ref_mut(&mut self) -> &mut MakeCommitMeta { self }
+}
+
+
+
 // —————  RepoControl type and supporting types  —————
 
-/// Data type implementing pippin's `Classify` (stores information about
-/// classifications).
-#[derive(Clone)]
-pub struct SeqClassifier {
-    // For each class, the partition identifier and the min length of
-    // sequences in the class. Ordered by min length, increasing.
-    classes: Vec<(usize, PartId)>,
-}
-impl Classify for SeqClassifier {
+/// Defined property functions
+pub const PROP_LEN: u32 = 1;
+
+/// Property giving a sequence's length
+#[derive(Default)]
+pub struct SeqLengthProp {}
+impl Property for SeqLengthProp {
     type Element = Sequence;
-    fn classify(&self, elt: &Sequence) -> Option<PartId> {
-        let len = elt.v.len();
-        match self.classes.binary_search_by(|x| x.0.cmp(&len)) {
-            Ok(i) => Some(self.classes[i].1), // len equals lower bound
-            Err(i) => {
-                if i == 0 {
-                    None    // shouldn't happen, since we should have a class with lower bound 0
-                } else {
-                    // i is index such that self.classes[i-1].0 < len < self.classes[i].0
-                    Some(self.classes[i-1].1)
-                }
-            }
-        }
+    fn p(&self, elt: &Sequence) -> PropDomain {
+        elt.v.len() as u32
     }
 }
 
@@ -223,22 +254,22 @@ pub struct PartInfo {
     max_len: u32,
 }
 
-/// Type implementing pippin's `SeqRepo`.
-pub struct SeqRepo<IO: RepoIO> {
-    csf: SeqClassifier,
+/// Type implementing pippin's `RepoControl`.
+pub struct SeqControl<IO: RepoIO> {
+    prop_len: SeqLengthProp,
     io: IO,
     parts: HashMap<PartId, PartInfo>,
 }
-impl<IO: RepoIO> SeqRepo<IO> {
+impl<RIO: RepoIO> SeqControl<RIO> {
     /// Create an new `RepoControl` around a given I/O device.
-    pub fn new(r: IO) -> SeqRepo<IO> {
-        SeqRepo {
-            csf: SeqClassifier { classes: Vec::new() },
+    pub fn new(r: RIO) -> Self {
+        SeqControl {
+            prop_len: Default::default(),
             io: r,
             parts: HashMap::new(),
         }
     }
-    
+    /*
     fn set_classifier(&mut self) {
         let mut classes = Vec::with_capacity(self.parts.len());
         for (part_id, part) in &self.parts {
@@ -251,6 +282,7 @@ impl<IO: RepoIO> SeqRepo<IO> {
         classes.sort_by(|a, b| a.0.cmp(&b.0));
         self.csf.classes = classes;
     }
+    */
     fn read_ud(v: &Vec<u8>) -> Result<(PartId, PartInfo), ReadError> {
         if v.len() != 32 {
             return Err(ReadError::new("incorrect length", 0, (0, v.len())));
@@ -272,62 +304,30 @@ impl<IO: RepoIO> SeqRepo<IO> {
         Ok((id, pi))
     }
 }
-impl<IO: RepoIO> UserFields for SeqRepo<IO> {
-    fn write_user_fields(&mut self, _part_id: PartId, _is_log: bool) -> Vec<UserData> {
-        let mut ud = Vec::with_capacity(self.parts.len());
-        for (id,pi) in &self.parts {
-            let mut buf = Vec::from(&b"SCPI4...8...12..16..-...24..-..."[..]);
-            LittleEndian::write_u32(&mut buf[4..], pi.ver);
-            LittleEndian::write_u32(&mut buf[8..], pi.min_len);
-            LittleEndian::write_u32(&mut buf[12..], pi.max_len);
-            LittleEndian::write_u64(&mut buf[16..], (*id).into());
-            LittleEndian::write_u64(&mut buf[24..], pi.max_part_id.into());
-            ud.push(UserData::Data(buf));
-        }
-        ud
+
+impl<RIO: RepoIO> RepoControl for SeqControl<RIO> {
+    type PartControl = SeqPartControl;
+    type Element = Sequence;
+    
+    fn io(&self) -> &RepoIO {
+        &self.io
     }
-    fn read_user_fields(&mut self, user: Vec<UserData>, _part_id: PartId, _is_log: bool) {
-        for ud in user {
-            let (id, pi) = match ud {
-                UserData::Data(v) => {
-                    match Self::read_ud(&v) {
-                        Ok(result) => result,
-                        Err(e) => {
-                            warn!("Error parsing user data: {}", e.display(&v));
-                            continue;
-                        },
-                    }
-                },
-                UserData::Text(t) => {
-                    warn!("Encounted user text: {}", t);
-                    continue;
-                },
-            };
-            match self.parts.entry(id) {
-                Entry::Vacant(entry) => {
-                    entry.insert(pi);
-                },
-                Entry::Occupied(entry) => {
-                    if pi.ver > entry.get().ver {
-                        let e = entry.into_mut();
-                        e.max_part_id = pi.max_part_id;
-                        e.ver = pi.ver;
-                        e.min_len = pi.min_len;
-                        e.max_len = pi.max_len;
-                    }
-                },
-            }
-        }
-        self.set_classifier();
-    }
-}
-impl<IO: RepoIO> RepoControl<SeqClassifier> for SeqRepo<IO> {
-    fn io(&mut self) -> &mut RepoIO {
+    fn io_mut(&mut self) -> &mut RepoIO {
         &mut self.io
     }
-    fn clone_classifier(&self) -> SeqClassifier {
-        self.csf.clone()
+    
+    /// Get a `PartControl` object for existing partition `num`.
+    fn make_part_control(&mut self, num: PartId) -> Result<Self::PartControl> {
+        Ok(SeqPartControl::new(self.io.make_part_io(num)?))
     }
+    
+    fn prop_fn(&self, id: PropId) -> Option<&Property<Element = Self::Element>> {
+        match id {
+            PROP_LEN => Some(&self.prop_len),
+            _ => None
+        }
+    }
+    
     fn init_first(&mut self) -> Result<PartId> {
         assert!(self.parts.is_empty());
         let p_id = PartId::from_num(1);
@@ -337,10 +337,10 @@ impl<IO: RepoIO> RepoControl<SeqClassifier> for SeqRepo<IO> {
             min_len: 0,
             max_len: u32::MAX,
         });
-        self.set_classifier();
+        // self.set_classifier();
         Ok(p_id)
     }
-    fn divide(&mut self, part: &Partition<Sequence>) ->
+    fn divide(&mut self, part: &Partition<Self::PartControl>) ->
         Result<(Vec<PartId>, Vec<PartId>), RepoDivideError>
     {
         let tip = part.tip().map_err(|e| RepoDivideError::Other(Box::new(e)))?;
@@ -398,7 +398,7 @@ impl<IO: RepoIO> RepoControl<SeqClassifier> for SeqRepo<IO> {
             pi.ver = pi.ver + 1;
             pi.max_len = pi.min_len;    // mark as no longer in use
         }
-        self.set_classifier();
+        // self.set_classifier();
         //TODO: what happens with return value?
         Ok((vec![id1, id2], vec![]))
     }

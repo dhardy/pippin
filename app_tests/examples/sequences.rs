@@ -3,11 +3,8 @@
 extern crate byteorder;
 extern crate rustc_serialize;
 extern crate docopt;
-#[macro_use(try_read)]
 extern crate pippin;
 extern crate rand;
-#[macro_use]
-extern crate log;
 extern crate env_logger;
 extern crate pippin_app_tests;
 
@@ -18,11 +15,7 @@ use std::cmp::{min, max};
 use docopt::Docopt;
 use rand::distributions::{IndependentSample, LogNormal};
 
-use pippin::{PartId, Partition, StateRead, StateWrite, Result};
-use pippin::{discover, fileio};
-use pippin::repo::Repository;
-use pippin::merge::*;
-
+use pippin::pip::*;
 use pippin_app_tests::seq::*;
 
 
@@ -104,7 +97,7 @@ fn run(path: &Path, part_num: Option<u64>,
                 longest = max(longest, len);
                 total += len;
                 let seq = gen.generate(len).into();
-                state.insert(seq).expect("insert element");
+                state.insert_new(seq).expect("insert element");
             }
             println!("Generated {} sequences; longest length {}, average {}",
                     num, longest, (total as f64) / (num as f64));
@@ -114,21 +107,22 @@ fn run(path: &Path, part_num: Option<u64>,
     if let Some(pn) = part_num {
         let mut part = if create {
             // — Create partition —
-            // On creation we need a number; 0 here means "default":
             let part_id = PartId::from_num(if pn == 0 { 1 } else { pn });
-            let io = Box::new(fileio::PartFileIO::new_empty(part_id, path.join("seqdb")));
-            Partition::<Sequence>::create(io, "sequences db", None, None)?
+            let io = PartFileIO::new_empty(path.join("seqdb"));
+            let control = SeqPartControl::new(Box::new(io));
+            Partition::create(part_id, control, "sequences db")?
         } else {
             // — Open partition —
-            let part_id = if pn != 0 { Some(PartId::from_num(pn)) } else { None };
-            let io = Box::new(discover::part_from_path(path, part_id)?);
-            let mut part = Partition::<Sequence>::open(io)?;
-            part.load_latest(None, None)?;
+            let in_part_id = if pn != 0 { Some(PartId::from_num(pn)) } else { None };
+            let (part_id, io) = part_from_path(path, in_part_id)?;
+            let control = SeqPartControl::new(Box::new(io));
+            let mut part = Partition::<SeqPartControl>::open(part_id, control)?;
+            part.load_latest()?;
             part
         };
         
         if part.merge_required() {
-            part.merge(&merge_solver, true, None)?;
+            part.merge(&merge_solver, true)?;
         }
         
         if let Some(num) = list_n {
@@ -146,29 +140,29 @@ fn run(path: &Path, part_num: Option<u64>,
             };
             generate(&mut state);
             println!("Done modifying state");
-            part.push_state(state, None)?;
-            part.write(false, None)?;
+            part.push_state(state)?;
+            part.write_full()?;
         }
         
         if snapshot {
-            part.write_snapshot(None)?;
+            part.write_snapshot()?;
         }
     } else {
-        let discover = discover::repo_from_path(path)?;
-        let rt = SeqRepo::new(discover);
+        let discover = repo_from_path(path)?;
+        let control = SeqControl::new(discover);
         
         let mut repo = if create {
             // — Create repository —
-            Repository::create(rt, "sequences db", None)?
+            Repository::create(control, "sequences db")?
         } else {
             // — Open repository —
-            let mut repo = Repository::open(rt)?;
-            repo.load_latest(None)?;
+            let mut repo = Repository::open(control)?;
+            repo.load_latest()?;
             repo
         };
         
         if repo.merge_required() {
-            repo.merge(&merge_solver, true, None)?;
+            repo.merge(&merge_solver, true)?;
         }
         
         if let Some(_num) = list_n {
@@ -181,8 +175,8 @@ fn run(path: &Path, part_num: Option<u64>,
             println!("Found {} partitions with {} elements", state.num_parts(), state.num_avail());
             generate(&mut state);
             println!("Done modifying state");
-            repo.merge_in(state, None)?;
-            repo.write_all(false)?;
+            repo.merge_in(state)?;
+            repo.write_full()?;
         }
         
         if snapshot {

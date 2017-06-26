@@ -5,6 +5,7 @@
 //! Pippin: I/O traits
 
 use std::io::{Read, Write};
+use std::fmt::Debug;
 
 use elt::PartId;
 use error::Result;
@@ -18,7 +19,7 @@ pub mod file;
 /// Note: lifetimes on some functions are more restrictive than might seem
 /// necessary; this is to allow an implementation which reads and writes to
 /// internal streams.
-pub trait PartIO {
+pub trait PartIO: Debug {
     /// Return one greater than the snapshot number of the latest snapshot file
     /// or log file found.
     /// 
@@ -149,7 +150,7 @@ impl PartIO for DummyPartIO {
 
 
 /// Provides file discovery and creation for a repository.
-pub trait RepoIO {
+pub trait RepoIO: Debug {
     /// Get the number of partitions found.
     fn num_parts(&self) -> usize;
     
@@ -173,7 +174,43 @@ pub trait RepoIO {
     
     /// Get a `PartIO` for existing partition `num`.
     /// 
-    /// Fails if construction of the PartIO fails (file-system or regex
+    /// Fails if construction of the `PartIO` fails (file-system or regex
     /// errors) or if the partition isn't found.
     fn make_part_io(&mut self, num: PartId) -> Result<Box<PartIO>>;
+}
+
+impl PartIO for Box<PartIO> {
+    fn ss_len(&self) -> usize { (**self).ss_len() }
+    fn ss_cl_len(&self, ss_num: usize) -> usize { (**self).ss_cl_len(ss_num) }
+    fn has_ss(&self, ss_num: usize) -> bool { (**self).has_ss(ss_num) }
+    fn read_ss<'a>(&'a self, ss_num: usize) -> Result<Option<Box<Read+'a>>> {
+        (**self).read_ss(ss_num)
+    }
+    fn read_ss_cl<'a>(&'a self, ss_num: usize, cl_num: usize) -> Result<Option<Box<Read+'a>>> {
+        (**self).read_ss_cl(ss_num, cl_num)
+    }
+    fn new_ss<'a>(&'a mut self, ss_num: usize) -> Result<Option<Box<Write+'a>>> {
+        (**self).new_ss(ss_num)
+    }
+    fn append_ss_cl<'a>(&'a mut self, ss_num: usize, cl_num: usize) ->
+            Result<Option<Box<Write+'a>>>
+    {
+        (**self).append_ss_cl(ss_num, cl_num)
+    }
+    fn new_ss_cl<'a>(&'a mut self, ss_num: usize, cl_num: usize) -> Result<Option<Box<Write+'a>>>
+    {
+        (**self).new_ss_cl(ss_num, cl_num)
+    }
+}
+
+impl RepoIO for Box<RepoIO> {
+    fn num_parts(&self) -> usize { (**self).num_parts() }
+    fn parts(&self) -> Vec<PartId> { (**self).parts() }
+    fn has_part(&self, pn: PartId) -> bool { (**self).has_part(pn) }
+    fn new_part(&mut self, num: PartId, prefix: String) -> Result<()> {
+        (**self).new_part(num, prefix)
+    }
+    fn make_part_io(&mut self, num: PartId) -> Result<Box<PartIO>> {
+        (**self).make_part_io(num)
+    }
 }

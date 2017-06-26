@@ -9,7 +9,7 @@
 pub use ::LIB_VERSION;
 
 pub use classify::{PropId, PropDomain, Property, Classification};
-pub use commit::{UserMeta, CommitMeta, CommitMetaPartial, Commit, EltChange};
+pub use commit::{UserMeta, CommitMeta, CommitMetaPartial, Commit, MakeCommitMeta, EltChange};
 pub use elt::{EltId, PartId, Element};
 pub use error::{Result, Error, ReadError, ReadErrorFormatter, ArgError, ElementOp, PatchOp,
         PathError, MatchError, TipError, MergeError, ReadOnly, UserError, RepoDivideError,
