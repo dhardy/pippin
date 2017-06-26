@@ -53,7 +53,7 @@ pub trait RepoControl {
     /// Get a property function by identifier, if available.
     /// 
     /// TODO: how should missing functions be handled?
-    fn prop_fn(&self, id: PropId) -> Option<&Property<Element = Self::Element>>;
+    fn prop_fn(&self, id: PropId) -> Option<Property<Self::Element>>;
     
     /// This method is called once by `Repository::create()`. It should
     /// initialise the classifier for a new repository (if the classifier

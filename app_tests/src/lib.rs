@@ -6,7 +6,7 @@ extern crate log;
 extern crate rand;
 extern crate byteorder;
 extern crate mktemp;
-#[macro_use(try_read)]
+// #[macro_use(try_read)]
 extern crate pippin;
 
 

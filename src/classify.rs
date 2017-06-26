@@ -7,7 +7,6 @@
 // use std::marker::PhantomData;
 use std::collections::BTreeMap;
 
-use elt::Element;
 use error::{Result, ClassifyError};
 use repo::RepoControl;
 
@@ -22,20 +21,13 @@ pub type PropDomain = u32;
 
 /// A user-defined function mapping from an element to a value, used for partitioning and search.
 /// 
-/// Notation: an object implementing this trait is considered a *function*, in the mathematical
-/// sense, if not in terms of the language itself.
-/// 
 /// This could be anything from a property with intuitive meaning (e.g. the element's size or
 /// time of creation) to something with no intuitive meaning like a hash function. It must be
 /// deterministic and reproducible.
-pub trait Property {
-    /// The element type to be classified.
-    type Element: Element;
-    
-    /// The property function. The result must be an integer, but there are no requirements on
-    /// distribution within the representable range.
-    fn p(&self, elt: &Self::Element) -> PropDomain;
-}
+/// 
+/// The result must be an integer, but there are no requirements on distribution within the
+/// representable range.
+pub type Property<E> = fn(&E) -> PropDomain;
 
 /// Classification type stored in headers
 pub type ClassificationRanges = Vec<(PropId, u32, u32)>;
@@ -82,7 +74,7 @@ impl Classification {
     /// Checks whether an element matches this classification.
     pub fn matches_elt<R: RepoControl>(&self, elt: &R::Element, control: &R) -> Result<bool, ClassifyError> {
         'outer: for (cfr, ranges) in &self.rules {
-            let v = control.prop_fn(*cfr).ok_or(ClassifyError::UnknownProperty)?.p(elt);
+            let v = (control.prop_fn(*cfr).ok_or(ClassifyError::UnknownProperty)?)(elt);
             for &(min,max) in ranges {
                 if min <= v && v <= max {
                     continue 'outer;

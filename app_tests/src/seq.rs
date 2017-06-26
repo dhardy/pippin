@@ -14,7 +14,7 @@ use std::fmt::Debug;
 
 use rand::Rng;
 use rand::distributions::{IndependentSample, Range, Normal, LogNormal};
-use byteorder::{ByteOrder, LittleEndian, ReadBytesExt, WriteBytesExt};
+use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 
 use pippin::pip::*;
 
@@ -230,16 +230,11 @@ impl PartControl for SeqPartControl {
 // —————  RepoControl type and supporting types  —————
 
 /// Defined property functions
-pub const PROP_LEN: u32 = 1;
+pub const PROP_SEQ_LEN: u32 = 1;
 
 /// Property giving a sequence's length
-#[derive(Default)]
-pub struct SeqLengthProp {}
-impl Property for SeqLengthProp {
-    type Element = Sequence;
-    fn p(&self, elt: &Sequence) -> PropDomain {
-        elt.v.len() as u32
-    }
+fn prop_seq_len(elt: &Sequence) -> PropDomain {
+    elt.v.len() as u32
 }
 
 
@@ -256,7 +251,6 @@ pub struct PartInfo {
 
 /// Type implementing pippin's `RepoControl`.
 pub struct SeqControl<IO: RepoIO> {
-    prop_len: SeqLengthProp,
     io: IO,
     parts: HashMap<PartId, PartInfo>,
 }
@@ -264,7 +258,6 @@ impl<RIO: RepoIO> SeqControl<RIO> {
     /// Create an new `RepoControl` around a given I/O device.
     pub fn new(r: RIO) -> Self {
         SeqControl {
-            prop_len: Default::default(),
             io: r,
             parts: HashMap::new(),
         }
@@ -282,7 +275,6 @@ impl<RIO: RepoIO> SeqControl<RIO> {
         classes.sort_by(|a, b| a.0.cmp(&b.0));
         self.csf.classes = classes;
     }
-    */
     fn read_ud(v: &Vec<u8>) -> Result<(PartId, PartInfo), ReadError> {
         if v.len() != 32 {
             return Err(ReadError::new("incorrect length", 0, (0, v.len())));
@@ -303,6 +295,7 @@ impl<RIO: RepoIO> SeqControl<RIO> {
         };
         Ok((id, pi))
     }
+    */
 }
 
 impl<RIO: RepoIO> RepoControl for SeqControl<RIO> {
@@ -321,9 +314,9 @@ impl<RIO: RepoIO> RepoControl for SeqControl<RIO> {
         Ok(SeqPartControl::new(self.io.make_part_io(num)?))
     }
     
-    fn prop_fn(&self, id: PropId) -> Option<&Property<Element = Self::Element>> {
+    fn prop_fn(&self, id: PropId) -> Option<Property<Self::Element>> {
         match id {
-            PROP_LEN => Some(&self.prop_len),
+            PROP_SEQ_LEN => Some(prop_seq_len),
             _ => None
         }
     }
