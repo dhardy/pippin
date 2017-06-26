@@ -174,6 +174,7 @@ pub struct MutPartState<E: Element> {
     meta: CommitMetaPartial,
 }
 
+// Constructors
 impl<E: Element> PartState<E> {
     /// Create a new state, with no elements or history.
     /// 
@@ -251,7 +252,10 @@ impl<E: Element> PartState<E> {
             meta: commit.meta().clone()
         })
     }
-    
+}
+
+// Methods on PartState, not applicable to RepoState
+impl<E: Element> PartState<E> {
     /// Mutate the metadata in order to yield a new `statesum()` while
     /// otherwise not changing the state.
     /// 
@@ -286,17 +290,9 @@ impl<E: Element> PartState<E> {
     /// Get the commit meta-data associated with this state
     pub fn meta(&self) -> &CommitMeta { &self.meta }
     
-    /// Get the number of elements contained
-    pub fn elts_len(&self) -> usize {
-        self.elts.len()
-    }
     /// Iterate over all elements
     pub fn elts_iter(&self) -> EltIter<E> {
         EltIter { iter: self.elts.iter() }
-    }
-    /// Get a specific element, if contained
-    pub fn elt(&self, id: EltId) -> Option<&Rc<E>> {
-        self.elts.get(&id)
     }
     
     /// Get the number of "moved" elements.
@@ -392,17 +388,9 @@ impl<E: Element> MutPartState<E> {
     /// partition statesum is this XORed with the metadata sum.
     pub fn elt_sum(&self) -> &Sum { &self.elt_sum }
     
-    /// Get the number of elements contained
-    pub fn elts_len(&self) -> usize {
-        self.elts.len()
-    }
     /// Iterate over all elements
     pub fn elts_iter(&self) -> EltIter<E> {
         EltIter { iter: self.elts.iter() }
-    }
-    /// Get a specific element, if contained
-    pub fn elt(&self, id: EltId) -> Option<&Rc<E>> {
-        self.elts.get(&id)
     }
     
     /// Get the number of "moved" elements.

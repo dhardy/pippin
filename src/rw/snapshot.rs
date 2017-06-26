@@ -171,13 +171,15 @@ pub fn write_snapshot<T: Element>(state: &PartState<T>,
     }
     
     w.write_all(b"ELEMENTS")?;
-    let num_elts = state.elts_len() as u64;  // #0015
-    w.write_u64::<BigEndian>(num_elts)?;
     
     let mut elt_buf = Vec::new();
     
     let mut keys: Vec<_> = state.elts_iter().map(|(k,_)| k).collect();
     keys.sort();
+    
+    let num_elts = keys.len() as u64;  // #0015
+    w.write_u64::<BigEndian>(num_elts)?;
+    
     for ident in keys {
         w.write_all(b"ELEMENT\x00")?;
         w.write_u64::<BigEndian>(ident.into())?;
