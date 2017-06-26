@@ -5,6 +5,7 @@ extern crate pippin;
 extern crate pippin_app_tests;
 
 use std::cmp::min;
+use rand::Rng;
 use rand::distributions::{IndependentSample, LogNormal};
 use pippin::pip::*;
 use pippin_app_tests::util;
@@ -31,9 +32,8 @@ fn create() {
             let gen = GeneratorEnum::new_random(&mut rng);
             let len = min(len_range.ind_sample(&mut rng) as usize, max_len);
             let seq = gen.generate(len).into();
-            // FIXME: control randomness through repo API
-            // let id = state.free_id_near(rng.gen::<u32>() & 0xFF_FFFF).unwrap();
-            state.insert_new(seq).expect("insert element");
+            let initial = rng.gen::<u32>() & 0xFF_FFFF;
+            state.insert_near(initial, seq).expect("insert element");
         }
         repo.merge_in(state).expect("merge");
         repo.write_full().expect("write");
@@ -87,9 +87,8 @@ fn insert() {
         let gen = GeneratorEnum::new_random(&mut rng);
         let len = min(len_range.ind_sample(&mut rng) as usize, max_len);
         let seq = gen.generate(len).into();
-        // FIXME: control randomness through repo API
-        // let id = state.free_id_near(rng.gen::<u32>() & 0xFF_FFFF).unwrap();
-        state.insert_new(seq).expect("insert element");
+        let initial = rng.gen::<u32>() & 0xFF_FFFF;
+        state.insert_near(initial, seq).expect("insert element");
     }
     repo.merge_in(state).expect("merge");
     

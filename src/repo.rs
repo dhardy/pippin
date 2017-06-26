@@ -626,6 +626,19 @@ impl<E: Element> RepoState<E> {
         self.states.len()
     }
     
+    /// TODO: this is used by seq_create_small but is not a good API
+    pub fn insert_near(&mut self, initial: u32, elt: E) -> Result<EltId, ElementOp> {
+        if let Some(part_id) = self.csf_finder.find(&elt) {
+            if let Some(mut state) = self.states.get_mut(&part_id) {
+                let id = state.free_id_near(initial)?;
+                return state.insert(id, elt);
+            }
+        }
+        // In this case no classification matched; probably we just need to load a partition?
+        // TODO: try to find & load the partition? Change error code?
+        Err(ElementOp::PartNotFound)
+    }
+    
     /// Find an element that may have moved. This method returns an EltId on
     /// success which can then be used by other methods (`get()`, etc.).
     /// 
@@ -709,6 +722,7 @@ impl<E: Element> StateRead<E> for RepoState<E> {
 }
 impl<E: Element> StateWrite<E> for RepoState<E> {
     fn insert_rc(&mut self, id: EltId, elt: Rc<E>) -> Result<EltId, ElementOp> {
+        // TODO: verify classification?
         if let Some(mut state) = self.states.get_mut(&id.part_id()) {
             state.insert_rc(id, elt)
         } else {
@@ -717,13 +731,19 @@ impl<E: Element> StateWrite<E> for RepoState<E> {
         }
     }
     
-    fn insert_new_rc(&mut self, _elt: Rc<E>) -> Result<EltId, ElementOp> {
-        // TODO: we can't implement this without a reference to the property functions or a derived
-        // classification checker in the `RepoState`. Do we want that?
-        unimplemented!()
+    fn insert_new_rc(&mut self, elt: Rc<E>) -> Result<EltId, ElementOp> {
+        if let Some(part_id) = self.csf_finder.find(&*elt) {
+            if let Some(mut state) = self.states.get_mut(&part_id) {
+                return state.insert_new_rc(elt);
+            }
+        }
+        // In this case no classification matched; probably we just need to load a partition?
+        // TODO: try to find & load the partition? Change error code?
+        Err(ElementOp::PartNotFound)
     }
     
     fn replace_rc(&mut self, id: EltId, elt: Rc<E>) -> Result<Rc<E>, ElementOp> {
+        // TODO: verify classification?
         if let Some(mut state) = self.states.get_mut(&id.part_id()) {
             state.replace_rc(id, elt)
         } else {
