@@ -55,21 +55,13 @@ pub trait RepoControl {
     /// TODO: how should missing functions be handled?
     fn prop_fn(&self, id: PropId) -> Option<Property<Self::Element>>;
     
-    /// This method is called once by `Repository::create()`. It should
-    /// initialise the classifier for a new repository (if the classifier
-    /// requires this) and return an identifier for the first partition.
+    /// This method is called once by `Repository::create()`. It can do any initialisation required
+    /// and should return a partition number for the first partition.
     /// 
-    /// If no initialisation is needed, this may simply return a PartId:
-    /// 
-    /// ```no_compile
-    /// fn init_first(&mut self) -> Result<PartId> {
-    ///     Ok(PartId::from_num(1))
-    /// }
-    /// ```
-    /// 
-    /// It is allowed for this function to panic if it is called a second time
-    /// or after any method besides `io()` has been called.
-    fn init_first(&mut self) -> Result<PartId>;
+    /// The default implementation simply returns `Ok(PartId::from_num(1))`.
+    fn init_first(&mut self) -> Result<PartId> {
+        Ok(PartId::from_num(1))
+    }
     
     /// Allows users to pick human-readable prefixes for partition file names.
     /// The default implementation returns `None`.
@@ -135,8 +127,12 @@ pub trait RepoControl {
     /// each partition which gets touched. This may not be all partitions, so
     /// code handling loading of `UserFields` needs to use per-partition
     /// versioning to determine which information is up-to-date.
-    fn divide(&mut self, part: &Partition<Self::PartControl>) ->
-        Result<(Vec<PartId>, Vec<PartId>), RepoDivideError>;
+    /// 
+    /// The default implementation returns `Err(RepoDivideError::NotSubdivisible)`.
+    fn divide(&mut self, _part: &Partition<Self::PartControl>) ->
+            Result<(Vec<PartId>, Vec<PartId>), RepoDivideError> {
+        Err(RepoDivideError::NotSubdivisible)
+    }
 }
 
 
