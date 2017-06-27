@@ -244,7 +244,7 @@ fn inner(path: PathBuf, op: Operation, args: Rest) -> Result<()>
                 }
                 if list_commits {
                     let control = DefaultPartControl::<DataElt, _>::new(part.clone());
-                    let mut part = Partition::open(*part_id, control)?;
+                    let mut part = Partition::open(*part_id, control, true)?;
                     part.load_all()?;
                     let mut states: Vec<_> = part.states_iter().collect();
                     states.sort_by_key(|s| s.meta().number());
@@ -265,14 +265,13 @@ fn inner(path: PathBuf, op: Operation, args: Rest) -> Result<()>
             let (part_id, part_files) = part_from_path(&path, None)?;
             
             let control = DefaultPartControl::new(part_files);
-            let mut part = Partition::open(part_id, control)?;
+            let mut part = Partition::open(part_id, control, true)?;
             {
                 let (is_tip, mut state) = if let Some(ss) = args.commit {
                     part.load_all()?;
                     let state = part.state_from_string(ss)?;
                     (part.tip_key().map(|k| k == state.statesum()).unwrap_or(false), state.clone_mut())
                 } else {
-                    part.load_latest()?;
                     (true, part.tip()?.clone_mut())
                 };
                 match part_op {

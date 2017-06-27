@@ -14,8 +14,7 @@ fn inner() -> pip::Result<()> {
         Ok((part_id, io)) => {
             // Read the found files:
             let control = pip::DefaultPartControl::<String, _>::new(io);
-            let mut part = pip::Partition::open(part_id, control)?;
-            part.load_latest()?;
+            let part = pip::Partition::open(part_id, control, true)?;
             
             // Get access to the latest state:
             let tip = part.tip()?;

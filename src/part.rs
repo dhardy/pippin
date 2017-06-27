@@ -182,8 +182,10 @@ impl<P: PartControl> Partition<P> {
     /// Open a partition, assigning an IO provider (this can only be done at
     /// time of creation).
     /// 
-    /// The partition will not be *ready to use* until data is loaded with one
-    /// of the load operations. Until then most operations will fail.
+    /// If `read_data` is true, the latest state is read into memory immediately.
+    /// Otherwise, initialise the partition without reading data (currently requires reading a
+    /// snapshot header). In this case the partition will not be *ready to use* until data is
+    /// loaded with one of the load operations. Until then most operations will fail.
     /// 
     /// Example:
     /// 
@@ -194,35 +196,63 @@ impl<P: PartControl> Partition<P> {
     /// let path = Path::new("./my-partition");
     /// let (part_id, io) = part_from_path(path, None).unwrap();
     /// let control = DefaultPartControl::<String, _>::new(io);
-    /// let partition = Partition::open(part_id, control);
+    /// let partition = Partition::open(part_id, control, true);
     /// ```
-    pub fn open(part_id: PartId, control: P) -> Result<Partition<P>> {
+    pub fn open(part_id: PartId, control: P, read_data: bool) -> Result<Partition<P>> {
         trace!("Opening partition {}", part_id);
         // We need to read a header for classification purposes
         
-        for ss in (0 .. control.io().ss_len()).rev() {
-            let opt_header = if let Some(mut ssf) = control.io().read_ss(ss)? {
-                Some(read_head(&mut *ssf)?)
-            } else {
-                None
-            };
-            if let Some(header) = opt_header {
-                if header.part_id != part_id {
+        let ss_len = control.io().ss_len();
+        for ss in (0..ss_len).rev() {
+            debug!("Partition {}: reading snapshot {}", part_id, ss);
+            let result = if let Some(mut ssf) = control.io().read_ss(ss)? {
+                let head = read_head(&mut *ssf)?;
+                if head.part_id != part_id {
                     return OtherError::err("partition identifier differs from previous value");
                 }
                 
-                return Ok(Partition {
+                let csf = Classification::from_ranges(&head.csf_ranges);
+                
+                let state = if read_data {
+                    Some(read_snapshot(&mut *ssf, part_id, csf.clone(), head.ftype.ver())?)
+                } else {
+                    None
+                };
+                
+                Some((head.name, csf, state))
+            } else {
+                warn!("Partition {}: missing snapshot {}", part_id, ss);
+                None
+            };
+            if let Some((repo_name, csf, opt_state)) = result {
+                let mut part = Partition {
                     control,
-                    repo_name: header.name,
+                    repo_name,
                     part_id,
-                    csf: Classification::from_ranges(&header.csf_ranges),
+                    csf,
                     ss0: 0,
                     ss1: 0,
                     states: HashIndexed::new(),
                     ancestors: HashSet::new(),
                     tips: HashSet::new(),
                     unsaved: VecDeque::new(),
-                });
+                };
+                
+                if let Some(state) = opt_state {
+                    part.tips.insert(state.statesum().clone());
+                    for parent in state.parents() {
+                        part.ancestors.insert(parent.clone());
+                    }
+                    part.states.insert(state);
+                    part.control.snapshot_policy().reset();
+                    part.ss0 = ss;
+                    for ss2 in ss..ss_len {
+                        part.read_commits_for_ss(ss2)?;
+                    }
+                    part.ss1 = ss_len;
+                }
+                
+                return Ok(part);
             }
         }
         OtherError::err("no snapshot found for first partition")
@@ -252,6 +282,8 @@ impl<P: PartControl> Partition<P> {
     /// Special behaviour: if some snapshots are already loaded and the range
     /// does not overlap with this range, all snapshots in between will be
     /// loaded.
+    /// 
+    /// TODO: allow loading new & extended log files when snapshot is already loaded.
     pub fn load_range(&mut self, ss0: usize, ss1: usize) -> Result<()> {
         // We have to consider several cases: nothing previously loaded, that
         // we're loading data older than what was previously loaded, or newer,
@@ -275,10 +307,8 @@ impl<P: PartControl> Partition<P> {
         }
         // If snapshot files are missing, we need to load older files:
         while ss0 > 0 && !self.control.io().has_ss(ss0) { ss0 -= 1; }
-        debug!("Loading partition {} data with snapshot range ({}, {})", self.part_id, ss0, ss1);
         
         if ss0 == 0 && !self.control.io().has_ss(ss0) {
-            assert!(self.states.is_empty());
             // No initial snapshot; assume a blank state
             let state = PartState::new(self.part_id, self.csf.clone(), self.control.as_mcm_ref_mut());
             self.tips.insert(state.statesum().clone());
@@ -291,19 +321,19 @@ impl<P: PartControl> Partition<P> {
             if self.ss0 <= ss && ss < self.ss1 { continue; }
             let at_tip = ss >= self.ss1;
             
+            debug!("Partition {}: reading snapshot {}", self.part_id, ss);
             let opt_result = if let Some(mut r) = self.control.io().read_ss(ss)? {
                 let head = read_head(&mut r)?;
-                // TODO: it's not neat creating Classification twice (here and in `read_head`).
-                // TODO: It's also not very neat storing it in states. Can we improve?
-                let csf = Classification::from_ranges(&head.csf_ranges);
-                let state = read_snapshot(&mut r, self.part_id, csf, head.ftype.ver())?;
+                let state = read_snapshot(&mut r, self.part_id, self.csf.clone(),
+                        head.ftype.ver())?;
                 Some((head, state))
             } else {
+                warn!("Partition {}: missing snapshot {}", self.part_id, ss);
                 None
             };
             
             if let Some((header, state)) = opt_result {
-                self.read_head(header)?;
+                self.verify_header(header)?;
                 
                 if !self.ancestors.contains(state.statesum()) {
                     self.tips.insert(state.statesum().clone());
@@ -325,22 +355,7 @@ impl<P: PartControl> Partition<P> {
                 require_ss = at_tip;
             }
             
-            let mut queue = vec![];
-            for cl in 0..self.control.io().ss_cl_len(ss) {
-                let opt_header = if let Some(mut r) = self.control.io().read_ss_cl(ss, cl)? {
-                    let header = read_head(&mut r)?;
-                    read_log(&mut r, &mut queue, header.ftype.ver())?;
-                    Some(header)
-                } else {
-                    None
-                };
-                if let Some(header) = opt_header {
-                    self.read_head(header)?;
-                }
-            }
-            for commit in queue {
-                self.add_commit(commit)?;
-            }
+            self.read_commits_for_ss(ss)?;
             if at_tip {
                 self.ss1 = ss + 1;
             }
@@ -356,6 +371,29 @@ impl<P: PartControl> Partition<P> {
         
         if require_ss {
             self.control.snapshot_policy().force_snapshot();
+        }
+        Ok(())
+    }
+    
+    // Read commit logs for a snapshot
+    fn read_commits_for_ss(&mut self, ss: usize) -> Result<()> {
+        let mut queue = vec![];
+        for cl in 0..self.control.io().ss_cl_len(ss) {
+            debug!("Partition {}: reading commit log {}-{}", self.part_id, ss, cl);
+            let opt_header = if let Some(mut r) = self.control.io().read_ss_cl(ss, cl)? {
+                let header = read_head(&mut r)?;
+                read_log(&mut r, &mut queue, header.ftype.ver())?;
+                Some(header)
+            } else {
+                warn!("Partition {}: missing commit log {}-{}", self.part_id, ss, cl);
+                None
+            };
+            if let Some(header) = opt_header {
+                self.verify_header(header)?;
+            }
+        }
+        for commit in queue {
+            self.add_commit(commit)?;
         }
         Ok(())
     }
@@ -387,10 +425,8 @@ impl<P: PartControl> Partition<P> {
         self.tips.len() > 1
     }
     
-    /// Read and verify values in a header.
-    /// 
-    /// This function is called for every file loaded.
-    fn read_head(&mut self, header: FileHeader) -> Result<()> {
+    // Verify values in a header.
+    fn verify_header(&mut self, header: FileHeader) -> Result<()> {
         if self.repo_name != header.name {
             return OtherError::err("repository name does not match when loading (wrong repo?)");
         }
@@ -399,12 +435,12 @@ impl<P: PartControl> Partition<P> {
             return OtherError::err("partition identifier differs from previous value");
         }
         
-        self.control.read_header(&header)?;
-        
         let csf = Classification::from_ranges(&header.csf_ranges);
         if csf != self.csf {
             return OtherError::err("partition classification differs from previous value");
         }
+        
+        self.control.read_header(&header)?;
         
         Ok(())
     }
@@ -560,7 +596,8 @@ impl<P: PartControl> Partition<P> {
     /// let path = Path::new("./my-partition");
     /// let (part_id, io) = part_from_path(path, None).unwrap();
     /// let control = DefaultPartControl::<String, _>::new(io);
-    /// let mut partition = Partition::open(part_id, control).expect("failed to open partition");
+    /// let mut partition = Partition::open(part_id, control, true)
+    ///         .expect("failed to open partition");
     /// 
     /// // Customise with your own solver:
     /// let ancestor_solver = AncestorSolver2W::new();
@@ -722,11 +759,12 @@ impl<P: PartControl> Partition<P> {
             return Ok(false);
         }
         
-        trace!("Partition {}: writing {} commits to log", self.part_id, self.unsaved.len());
         let header = self.make_header(FileType::CommitLog(0))?;
         
         // #0012: extend existing logs instead of always writing a new log file.
         let mut cl_num = self.control.io().ss_cl_len(self.ss1 - 1);
+        debug!("Partition {}: writing {} commits to log {}-{}",
+                self.part_id, self.unsaved.len(), self.ss1-1, cl_num);
         loop {
             if let Some(mut writer) = self.control.io_mut().new_ss_cl(self.ss1 - 1, cl_num)? {
                 // Write a header since this is a new file:
@@ -790,7 +828,7 @@ impl<P: PartControl> Partition<P> {
             
             // Try to get a writer for this snapshot number:
             if let Some(mut writer) = self.control.io_mut().new_ss(ss_num)? {
-                info!("Partition {}: writing snapshot {}: {}",
+                debug!("Partition {}: writing snapshot {}: {}",
                     part_id, ss_num, tip_key);
                 
                 write_head(&header, &mut writer)?;

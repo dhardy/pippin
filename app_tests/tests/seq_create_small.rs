@@ -74,8 +74,7 @@ fn insert() {
     let mut io = repo_from_path(repo_dir.to_path_buf()).expect("discover");
     io.set_readonly(true);
     let control = SeqControl::new(io);
-    let mut repo = Repository::open(control).expect("open");
-    repo.load_latest().expect("load");
+    let mut repo = Repository::open(control, true).expect("open");
     
     // make some repeatable generator
     let mut rng = util::mk_rng(3168136158);

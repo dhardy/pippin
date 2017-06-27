@@ -161,7 +161,7 @@ fn create_small() {
     }
     
     // 5 Read streams back again and compare
-    let mut part2 = Partition::open(part_id, control).expect("opening partition");
+    let mut part2 = Partition::open(part_id, control, true).expect("opening partition");
     part2.load_all().expect("part2.load");
     assert_eq!(state1,
         *part2.state(state1.statesum()).expect("get state1 by sum"));

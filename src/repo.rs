@@ -201,17 +201,18 @@ impl<R: RepoControl> Repository<R> {
         })
     }
     
-    /// Open an existing repository.
+    /// Open an existing repository for read/write.
     /// 
-    /// This does not automatically load partition data, however it must load
-    /// at least one header in order to identify the repository.
-    pub fn open(mut control: R)-> Result<Repository<R>> {
+    /// If `read_data` is true, the latest state of each partition is read into memory immediately.
+    /// Otherwise, initialise each partition without reading data (currently requires reading a
+    /// snapshot header).
+    pub fn open(mut control: R, read_data: bool)-> Result<Repository<R>> {
         let mut name = None;
         let mut csf_finder = CsfFinder::new();
         let mut partitions = HashMap::new();
-        for n in control.io().parts() {
-            let part_control = control.make_part_control(n)?;
-            let part = Partition::open(n, part_control)?;
+        for part_id in control.io().parts() {
+            let part_control = control.make_part_control(part_id)?;
+            let part = Partition::open(part_id, part_control, read_data)?;
             // #0061: lifetime analysis sucks, or Option needs an Entry API
             let has_name = if let Some(repo_name) = name.as_ref() {
                 if part.repo_name() != repo_name {
@@ -224,8 +225,8 @@ impl<R: RepoControl> Repository<R> {
             if !has_name {
                 name = Some(part.repo_name().to_string());
             }
-            csf_finder.add_csf(n, part.csf(), &control)?;
-            partitions.insert(n, part);
+            csf_finder.add_csf(part_id, part.csf(), &control)?;
+            partitions.insert(part_id, part);
         }
         
         let name = if let Some(repo_name) = name {

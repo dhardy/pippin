@@ -116,9 +116,7 @@ fn run(path: &Path, part_num: Option<u64>,
             let in_part_id = if pn != 0 { Some(PartId::from_num(pn)) } else { None };
             let (part_id, io) = part_from_path(path, in_part_id)?;
             let control = SeqPartControl::new(Box::new(io));
-            let mut part = Partition::<SeqPartControl>::open(part_id, control)?;
-            part.load_latest()?;
-            part
+            Partition::<SeqPartControl>::open(part_id, control, true)?
         };
         
         if part.merge_required() {
@@ -156,9 +154,7 @@ fn run(path: &Path, part_num: Option<u64>,
             Repository::create(control, "sequences db")?
         } else {
             // — Open repository —
-            let mut repo = Repository::open(control)?;
-            repo.load_latest()?;
-            repo
+            Repository::open(control, true)?
         };
         
         if repo.merge_required() {

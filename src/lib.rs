@@ -42,6 +42,11 @@
 //! *   **part** — **partition** — one sub-set of objects determined by a
 //!     user-defined classifier, along with its history
 //! *   **elt** — **element** — an object stored in a repository / partition
+//! *   **state** — one *version* of a partition or repository's data
+//! *   **commit** — a change-set used to update one state to the next
+//! *   **snapshot** — a record of all data in a partition state
+//! *   **commit log** — a set of commits applying on top of a snapshot to
+//!     reach the latest state
 //!
 //! Usage should be via the `Repository` type or, for a simpler interface where
 //! classification and partitioning is not required, via the `Partition` type.
