@@ -22,9 +22,9 @@ use std::collections::hash_map::{HashMap, Values, ValuesMut};
 use std::rc::Rc;
 use std::mem::swap;
 
-use classify::{PropId, Property, CsfFinder};
+use classify::{PropId, Property, CsfFinder, Classification};
 use elt::{EltId, PartId, Element};
-use error::{ClassifyError, Result, OtherError, TipError, ElementOp, RepoDivideError};
+use error::{ClassifyError, Result, OtherError, TipError, ElementOp};
 use io::RepoIO;
 use part::{Partition, PartControl};
 use merge::TwoWaySolver;
@@ -75,7 +75,7 @@ pub trait RepoControl {
     
     /// Determines whether a partition should be divided.
     /// 
-    /// This is called by `Repository::write_all()` on all partitions.
+    /// This is called by `Repository::write_full()` on all partitions.
     /// 
     /// The default implementation returns `false` (never divide). A simple
     /// working version could base its decision on the number of elements
@@ -87,54 +87,42 @@ pub trait RepoControl {
         false
     }
     
-    /// This function is called when too many elements correspond to the given
-    /// classification (see `should_divide()`). The function should create new
-    /// partition numbers and update the classifier to reassign some or all
-    /// elements of the existing partition. Elements are moved only from the
-    /// source ("divided") partition, and can be moved to any partition.
+    /// Called when `should_divide` is true with the identifier of a single partition (`targets`)
+    /// to be repartitioned. The API allows multiple targets for flexibility. Implementations
+    /// may handle only the first target and ignore the rest, or may check all targets, divide
+    /// where necessary, and possibly rebalance between targets too.
     /// 
-    /// The divided partition cannot be destroyed or its number
-    /// reassigned, but it can still have elements assigned.
+    /// It is not wrong for this function to do nothing, but if `should_divide` continues to return
+    /// true, this function will be called again whenever maintenance operations are done
+    /// (`Repository::write_full`).
     /// 
-    /// The return value should be `Ok((new_ids, changed))` on success where
-    /// `new_ids` are the partition numbers of new partitions (to be created)
-    /// and `changed` are the numbers of partitions whose `UserFields` must be
-    /// updated (via a new snapshot or change log). Normally `changed` may be
-    /// empty, but this strategy allows assigning and "stealing" ranges of free
-    /// partition numbers.
+    /// To adjust partitioning, return a list of required changes. Classification should in theory
+    /// have no overlaps and no gaps, so that for any possible element, exactly one partition
+    /// may contain it. In practice, Pippin may not be able to ensure this (TODO).
     /// 
-    /// This may fail with `RepoDivideError::NotSubdivisible` if the partition
-    /// cannot be divided at this time. It may fail with
-    /// `RepoDivideError::LoadPart(num)`; this causes the numbered partition to
-    /// be loaded then this function called again (may be useful for "stealing"
-    /// partition numbers). Any other error will cause the operation doing the
-    /// division to fail.
+    /// The `self` reference is not passed directly, but can be obtained from `repo.control()`
+    /// and `repo.control_mut()`.
     /// 
-    /// After division, a special strategy is used to move elements safely:
+    /// The default implementation of this method returns an empty vector (no changes).
     /// 
-    /// 1.  the divided partition is saved with a special code noting that
-    ///     elements are being moved
-    /// 2.  new partitions are created (TODO: what if this fails?)
-    /// 3.  "changed" partitions are saved
-    /// 4.  a table is made listing where elements of the divided partition
-    ///     should go, then for each target partition elements are inserted,
-    ///     the partition saved, then the elements are removed from the divided
-    ///     partition and this saved (TODO: in multiple stages if large number?
-    ///     how to avoid duplication on failure?)
-    /// 5.  a new snapshot is written for the divided partition
-    /// 
-    /// Details of the new partitioning may be stored in the `UserFields` of
-    /// each partition which gets touched. This may not be all partitions, so
-    /// code handling loading of `UserFields` needs to use per-partition
-    /// versioning to determine which information is up-to-date.
-    /// 
-    /// The default implementation returns `Err(RepoDivideError::NotSubdivisible)`.
-    fn divide(&mut self, _part: &Partition<Self::PartControl>) ->
-            Result<(Vec<PartId>, Vec<PartId>), RepoDivideError> {
-        Err(RepoDivideError::NotSubdivisible)
+    /// TODO: write an implementation doing useful partitioning.
+    fn partition(_repo: &mut Repository<Self>, _targets: Vec<PartId>) ->
+            Result<Vec<PartitionAdjustment>> where Self: Sized
+    {
+        Ok(vec![])
     }
 }
 
+
+/// Change to a partition
+pub enum PartitionAdjustment {
+    /// Add a new partition
+    NewPartition(PartId, Classification),
+    /// Modify an existing partition (may add elements, remove elements, or both)
+    AdjustPartition(PartId, Classification),
+    /// Partitions cannot simply be deleted; instead this marks a partition as empty.
+    RemovePartition(PartId),
+}
 
 /// Handle on a repository.
 /// 
@@ -250,6 +238,12 @@ impl<R: RepoControl> Repository<R> {
     /// Get the repo name
     pub fn name(&self) -> &str { &self.name }
     
+    /// Get access to the contained `RepoControl`
+    pub fn control(&self) -> &R { &self.control }
+    
+    /// Get mutable access to the contained `RepoControl`
+    pub fn control_mut(&mut self) -> &mut R { &mut self.control }
+    
     /// Iterate over all partitions.
     /// 
     /// These do not necessarily have data loaded; use `load_latest()`
@@ -301,11 +295,11 @@ impl<R: RepoControl> Repository<R> {
         
         // This is tricky due to lifetime analysis preventing re-use of partitions. So,
         // 1) we collect partition numbers of any partition needing repartitioning.
-        let mut should_divide: Vec<PartId> = Vec::new();
+        let mut to_divide: Vec<PartId> = Vec::new();
         let mut need_reclassify: Vec<PartId> = Vec::new();
         for (id, part) in &self.partitions {
             if self.control.should_divide(*id, part) && part.is_ready() {
-                should_divide.push(*id);
+                to_divide.push(*id);
             }
             if let Ok(state) = part.tip() {
                 if state.meta().ext_flags().flag_reclassify() {
@@ -314,9 +308,16 @@ impl<R: RepoControl> Repository<R> {
             }
         }
         
-        while let Some(old_id) = should_divide.pop() {
+        let changes = R::partition(self, to_divide)?;
+        if changes.len() > 0 {
+            // TODO: should we try to check that new partitioning has no overlaps, and covers
+            // exactly the classifications previously covered? Should we warn or abort on error —
+            // are there legitimate reasons not to have perfect partitioning?
+            unimplemented!();
+        }
+        /*
+        while let Some(old_id) = to_divide.pop() {
             // Get new partition numbers and update classifiers. This gets saved later if successful.
-            let result = self.control.divide(self.partitions.get(&old_id).expect("get partition"));
             let (new_parts, changed) = match result {
                 Ok(result) => result,
                 Err(RepoDivideError::NotSubdivisible) => {
@@ -325,7 +326,7 @@ impl<R: RepoControl> Repository<R> {
                 Err(RepoDivideError::LoadPart(pid)) => {
                     if let Some(mut part) = self.partitions.get_mut(&pid) {
                         part.load_latest()?;
-                        should_divide.push(old_id); // try again
+                        to_divide.push(old_id); // try again
                         continue;
                     } else {
                         error!("Division requested load of partition {}, but partition was not found", pid);
@@ -429,6 +430,7 @@ impl<R: RepoControl> Repository<R> {
             old_part.write_full()?;
             self.partitions.insert(old_id, old_part);
         }
+        */
         
         Ok(())
     }

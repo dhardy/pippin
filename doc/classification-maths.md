@@ -33,6 +33,9 @@ Should the program check that `union Li` covers `D`?
 
 Should classification `Li` be a fixed property of each partition `Pi`, or should it be allowed to
 change (thus being a property of the partition state)?
+It should at least be possible for a commit to mark a partition as "being closed" and for a
+snapshot to record the new state; possibly this can be extended to allow arbitrary reclassification
+by a "marker commit" + new snapshot.
 
 
 ## Requirements

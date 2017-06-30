@@ -8,7 +8,6 @@ use std::{io, fmt, result};
 use std::path::PathBuf;
 use std::cmp::{min, max};
 
-use elt::PartId;
 use util::HexFormatter;
 
 /// Our custom result type
@@ -398,48 +397,6 @@ impl fmt::Display for UserError {
 }
 impl ErrorTrait for UserError {
     fn description(&self) -> &str { self.msg }
-}
-
-
-// —————  RepoDivideError  —————
-/// Failures allowed for `Classify::divide`.
-#[derive(Debug)]
-pub enum RepoDivideError {
-    /// No logic is available allowing subdivision of the category.
-    NotSubdivisible,
-    /// Used when another partition needs to be loaded before division, e.g.
-    /// to steal allocated numbers.
-    LoadPart(PartId),
-    /// Any other error.
-    Other(Error),
-}
-impl RepoDivideError {
-    /// Create an `Other(box OtherError::new(msg))`; this is just a convenient
-    /// way to create with an error message.
-    pub fn msg(msg: &'static str) -> RepoDivideError {
-        RepoDivideError::Other(Box::new(OtherError::new(msg)))
-    }
-}
-impl ErrorTrait for RepoDivideError {
-    fn description(&self) -> &str {
-        match *self {
-            RepoDivideError::NotSubdivisible => "divide: partition is not divisible",
-            RepoDivideError::LoadPart(_) => "divide: another partition needs loading",
-            RepoDivideError::Other(ref e) => e.description(),
-        }
-    }
-}
-impl fmt::Display for RepoDivideError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> result::Result<(), fmt::Error> {
-        match *self {
-            RepoDivideError::NotSubdivisible =>
-                write!(f, "divide: partition is not divisible"),
-            RepoDivideError::LoadPart(id) =>
-                write!(f, "divide: another partition, {}, needs loading", id),
-            RepoDivideError::Other(ref e) =>
-                write!(f, "divide: other error: {}", e.description()),
-        }
-    }
 }
 
 
