@@ -267,7 +267,7 @@ impl<RIO: RepoIO> RepoControl for SeqControl<RIO> {
     
     fn prop_fn(&self, id: PropId) -> Option<Property<Self::Element>> {
         match id {
-            PROP_SEQ_LEN => Some(prop_seq_len),
+            PROP_SEQ_LEN => Some(Property{ id, f: prop_seq_len }),
             _ => None
         }
     }

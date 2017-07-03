@@ -6,9 +6,10 @@
 
 // use std::marker::PhantomData;
 use std::collections::BTreeMap;
+use std::u32;
 
 use elt::{Element, PartId};
-use error::{Result, ClassifyError};
+use error::{Result, ClassifyError, OtherError};
 use repo::RepoControl;
 
 
@@ -28,7 +29,12 @@ pub type PropDomain = u32;
 /// 
 /// The result must be an integer, but there are no requirements on distribution within the
 /// representable range.
-pub type Property<E> = fn(&E) -> PropDomain;
+pub struct Property<E: Element> {
+    /// Unique identifier. (Should never change; this number is stored in data files.)
+    pub id: PropId,
+    /// A pointer to the actual function
+    pub f: fn(&E) -> PropDomain,
+}
 
 /// Classification type stored in headers
 pub type ClassificationRanges = Vec<(PropId, u32, u32)>;
@@ -48,6 +54,41 @@ impl Classification {
     /// Create a new classification matching all elements
     pub fn all() -> Self {
         Classification { rules: Default::default() }
+    }
+    
+    /// Split an existing classification into two. `prop` is the property used to differentiate
+    /// between the two new classifications, and `pivot` is the largest value of this property
+    /// accepted in the first classification.
+    pub fn split(&self, prop: PropId, pivot: PropDomain) -> Result<(Classification, Classification)> {
+        let mut rules = self.rules.clone();
+        let opt_ranges = rules.remove(&prop);
+        let (r1, r2) = if let Some(ranges) = opt_ranges {
+            let mut pos = None;
+            for (i, r) in ranges.iter().enumerate() {
+                if r.0 <= pivot && r.1 >= pivot {
+                    if r.1 == pivot {
+                        return OtherError::err("Classification::split: one half would be empty");
+                    }
+                    pos = Some(i);
+                    break;
+                }
+            }
+            let pos = if let Some(p) = pos {
+                p
+            } else {
+                return OtherError::err("Classification::split: pivot not in source classification");
+            };
+            let (mut r1, mut r2) = (ranges.clone(), ranges);
+            r1[pos].1 = pivot;
+            r2[pos].0 = pivot + 1;
+            (r1, r2)
+        } else {
+            (vec![(0, pivot)], vec![(pivot + 1, u32::MAX)])
+        };
+        let (mut rules1, mut rules2) = (rules.clone(), rules);
+        rules1.insert(prop, r1);
+        rules2.insert(prop, r2);
+        Ok((Classification{ rules: rules1 }, Classification { rules: rules2 }))
     }
     
     /// Create from header ranges
@@ -77,7 +118,7 @@ impl Classification {
     /// For frequent uses, building a checker with `make_checker` and reusing it should be faster.
     pub fn matches_elt<R: RepoControl>(&self, elt: &R::Element, control: &R) -> Result<bool, ClassifyError> {
         'outer: for (cfr, ranges) in &self.rules {
-            let v = (control.prop_fn(*cfr).ok_or(ClassifyError::UnknownProperty)?)(elt);
+            let v = (control.prop_fn(*cfr).ok_or(ClassifyError::UnknownProperty)?.f)(elt);
             for &(min,max) in ranges {
                 if min <= v && v <= max {
                     continue 'outer;
@@ -98,7 +139,7 @@ impl Classification {
         // first rule it might be better to test that last, but how do we know?
         let mut rules = Vec::with_capacity(self.rules.len());
         for (cfr, ranges) in &self.rules {
-            rules.push((control.prop_fn(*cfr).ok_or(ClassifyError::UnknownProperty)?, ranges.clone()));
+            rules.push((control.prop_fn(*cfr).ok_or(ClassifyError::UnknownProperty)?.f, ranges.clone()));
         }
         Ok(CsfChecker {
             rules: rules
@@ -108,7 +149,7 @@ impl Classification {
 
 /// Tool for testing whether an element fits the given classification.
 pub struct CsfChecker<E: Element> {
-    rules: Vec<(Property<E>, Vec<(PropDomain, PropDomain)>)>,
+    rules: Vec<(fn(&E) -> PropDomain, Vec<(PropDomain, PropDomain)>)>,
 }
 impl<E: Element> CsfChecker<E> {
     /// Checks whether an element matches this classification.

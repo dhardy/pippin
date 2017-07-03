@@ -22,7 +22,8 @@ pub use merge::{TwoWayMerge, EltMerge, TwoWaySolver, TwoWaySolveUseA, TwoWaySolv
         TwoWaySolveUseC, TwoWaySolveFail, TwoWaySolverChain, AncestorSolver2W, RenamingSolver2W};
 pub use part::{Partition, DefaultSnapshot, DefaultPartControl, PartControl, SnapshotPolicy,
         TipIter, StateItem, StateIter};
-pub use repo::{Repository, RepoControl, RepoState, PartIter, PartIterMut, PartitionAdjustment};
+pub use repo::{Repository, RepoControl, RepoState, PartIter, PartIterMut, PartitionAdjustment,
+        simple_partitioner};
 pub use rw::header::{FileType, UserData, FileHeader, validate_repo_name};
 pub use state::{PartState, MutPartState, StateRead, StateWrite, EltIter, EltIdIter};
 pub use sum::{Sum, SUM_BYTES};

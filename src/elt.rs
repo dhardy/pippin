@@ -182,7 +182,7 @@ impl fmt::Display for EltId {
 ///     }
 /// }
 /// ```
-pub trait Element where Self: Sized+PartialEq+Eq+Debug {
+pub trait Element where Self: Sized+PartialEq+Eq+Debug+'static {
     // #0025: provide a choice of how to implement IO via a const bool?
 //     /// If this is set true, the `read_buf` and `write_buf` functions must be
 //     /// implemented. These are easier to use but potentially less efficient. If

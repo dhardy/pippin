@@ -17,6 +17,7 @@
 //!     objects, saving and discovering partitioning information, and provide
 //!     the `RepoIO` implementation
 
+use std::iter;
 use std::result;
 use std::collections::hash_map::{HashMap, Values, ValuesMut};
 use std::rc::Rc;
@@ -50,9 +51,14 @@ pub trait RepoControl {
     /// Get a `PartControl` object for existing partition `num`.
     fn make_part_control(&mut self, num: PartId) -> Result<Self::PartControl>;
     
-    /// Get a property function by identifier, if available.
+    /// Iterate through available `Property` functions.
     /// 
-    /// TODO: how should missing functions be handled?
+    /// The default implementation returns `std::iter::empty()`.
+    fn props_iter(&self) -> Box<Iterator<Item=Property<Self::Element>>> {
+        Box::new(iter::empty())
+    }
+    
+    /// Get a property function by identifier, if available.
     fn prop_fn(&self, id: PropId) -> Option<Property<Self::Element>>;
     
     /// This method is called once by `Repository::create()`. It can do any initialisation required
@@ -88,9 +94,12 @@ pub trait RepoControl {
     }
     
     /// Called when `should_divide` is true with the identifier of a single partition (`targets`)
-    /// to be repartitioned. The API allows multiple targets for flexibility. Implementations
-    /// may handle only the first target and ignore the rest, or may check all targets, divide
-    /// where necessary, and possibly rebalance between targets too.
+    /// to be repartitioned.
+    /// 
+    /// The API allows multiple targets for flexibility. Implementations may handle only the first
+    /// target and ignore the rest. There are no restrictions on modifying partitions not included
+    /// in this list; the only requirement is that at least one of the listed targets should be
+    /// repartioned if this implementation is able to do anything at all.
     /// 
     /// It is not wrong for this function to do nothing, but if `should_divide` continues to return
     /// true, this function will be called again whenever maintenance operations are done
@@ -104,8 +113,7 @@ pub trait RepoControl {
     /// and `repo.control_mut()`.
     /// 
     /// The default implementation of this method returns an empty vector (no changes).
-    /// 
-    /// TODO: write an implementation doing useful partitioning.
+    /// To enable partitioning, either wrap `simple_partitioner` or write your own implementation.
     fn partition(_repo: &mut Repository<Self>, _targets: Vec<PartId>) ->
             Result<Vec<PartitionAdjustment>> where Self: Sized
     {
@@ -113,15 +121,73 @@ pub trait RepoControl {
     }
 }
 
-
 /// Change to a partition
 pub enum PartitionAdjustment {
-    /// Add a new partition
-    NewPartition(PartId, Classification),
+    /// Add a new partition. A unique `PartId` will be generated if none is specified.
+    NewPartition(Option<PartId>, Classification),
     /// Modify an existing partition (may add elements, remove elements, or both)
     AdjustPartition(PartId, Classification),
     /// Partitions cannot simply be deleted; instead this marks a partition as empty.
     RemovePartition(PartId),
+}
+
+/// An implementation for `RepoControl::partition` which tries to partition its first target in a
+/// reasonable way using the available `Property` functions.
+/// 
+/// Note: this will ignore any properties where the middle-half of the sorted values are equal;
+/// for well distributed properties this should be sufficient.
+/// 
+/// Note: this is not especially fast, since each available property is checked on each value until
+/// a suitable division is found; if none are suitable this function could take a long time to do
+/// nothing, and then be recalled with exactly the same parameters later.
+/// 
+/// TODO: investigate better generic partitioners.
+pub fn simple_partitioner<R: RepoControl>(repo: &mut Repository<R>, targets: Vec<PartId>) ->
+        Result<Vec<PartitionAdjustment>> where R: Sized
+{
+    let props: Vec<_> = repo.control().props_iter().collect();
+    let mut action = vec![];
+    'targets: for target in targets {
+        let part = repo.get(target)
+                .ok_or_else(|| OtherError::new("simple_partitioner: unknown target"))?;
+        let num_elts = part.tip()?.num_avail();
+        // This shouldn't be called on small partitions anyway. Logic protection.
+        if num_elts < 2 { continue; }
+        'props: for prop in &props {
+            let mut values = Vec::with_capacity(num_elts);
+            for elt in part.tip()?.elts_iter() {
+                values.push((prop.f)(elt.1));
+            }
+            // TODO: use sort_unstable when feature is stabilised
+            values.sort();
+            let len = values.len() as isize;
+            let mid = len / 2;
+            let mid_v = values[mid as usize];
+            let mut step = 1isize;
+            loop {
+                let i = mid + step;
+                if i < 0 || i > len {
+                    continue 'props;
+                }
+                let x = values[i as usize];
+                if x != mid_v {
+                    let csf = part.csf();
+                    let pivot = if x < mid_v {
+                        mid_v - 1
+                    } else {
+                        mid_v
+                    };
+                    let (csf1, csf2) = csf.split(prop.id, pivot)?;
+                    action.push(PartitionAdjustment::NewPartition(None, csf1));
+                    action.push(PartitionAdjustment::NewPartition(None, csf2));
+                    action.push(PartitionAdjustment::RemovePartition(target));
+                    continue 'targets;
+                }
+                step *= -2;
+            }
+        }
+    }
+    Ok(action)
 }
 
 /// Handle on a repository.
@@ -243,6 +309,16 @@ impl<R: RepoControl> Repository<R> {
     
     /// Get mutable access to the contained `RepoControl`
     pub fn control_mut(&mut self) -> &mut R { &mut self.control }
+    
+    /// Get access to a partition, if existant
+    pub fn get(&self, part_id: PartId) -> Option<&Partition<R::PartControl>> {
+        self.partitions.get(&part_id)
+    }
+    
+    /// Get mutable access to a partition, if existant
+    pub fn get_mut(&mut self, part_id: PartId) -> Option<&mut Partition<R::PartControl>> {
+        self.partitions.get_mut(&part_id)
+    }
     
     /// Iterate over all partitions.
     /// 
