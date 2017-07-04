@@ -23,6 +23,8 @@ use std::collections::hash_map::{HashMap, Values, ValuesMut};
 use std::rc::Rc;
 use std::mem::swap;
 
+use rand::random;
+
 use classify::{PropId, Property, CsfFinder, Classification};
 use elt::{EltId, PartId, Element};
 use error::{ClassifyError, Result, OtherError, TipError, ElementOp};
@@ -33,6 +35,8 @@ use state::{StateRead, StateWrite, MutPartState};
 
 
 /// User-defined controls on repository operation.
+/// 
+/// Most methods have default implementations sufficient for basic usage (without partitioning).
 pub trait RepoControl {
     /// User-defined type of elements stored
     type Element: Element;
@@ -48,10 +52,14 @@ pub trait RepoControl {
     /// `DiscoverRepoFiles` or could be self (among other possibilities).
     fn io_mut(&mut self) -> &mut RepoIO;
     
-    /// Get a `PartControl` object for existing partition `num`.
-    fn make_part_control(&mut self, num: PartId) -> Result<Self::PartControl>;
-    
     /// Iterate through available `Property` functions.
+    /// 
+    /// This method allows discovery of properties available for partitioning. Partitioning
+    /// prioritises use of properties in the order listed by this function.
+    /// 
+    /// All properties accessible through this method should be accessible through `prop_fn` too.
+    /// The reverse is not required, e.g. properties retained for backwards compatibility should
+    /// remain available through `prop_fn` but need not be listed by `props_iter`.
     /// 
     /// The default implementation returns `std::iter::empty()`.
     fn props_iter(&self) -> Box<Iterator<Item=Property<Self::Element>>> {
@@ -59,14 +67,24 @@ pub trait RepoControl {
     }
     
     /// Get a property function by identifier, if available.
-    fn prop_fn(&self, id: PropId) -> Option<Property<Self::Element>>;
-    
-    /// This method is called once by `Repository::create()`. It can do any initialisation required
-    /// and should return a partition number for the first partition.
     /// 
-    /// The default implementation simply returns `Ok(PartId::from_num(1))`.
-    fn init_first(&mut self) -> Result<PartId> {
-        Ok(PartId::from_num(1))
+    /// This method allows access to properties already used for partitioning. Any properties used
+    /// must remain available with the same `PropId`.
+    /// 
+    /// Default implementation returns `None`.
+    fn prop_fn(&self, _id: PropId) -> Option<Property<Self::Element>> {
+        None
+    }
+    
+    /// Generate a new partition identifier. This could do something as simple as incrementing a
+    /// number.
+    /// 
+    /// A classification may be available. TODO: make always available or remove.
+    /// 
+    /// If this returns `None`, a unique `PartId` is selected automatically. Default implementation
+    /// returns `None`.
+    fn new_part_id(&mut self, _csf: Option<&Classification>) -> Option<PartId> {
+        None
     }
     
     /// Allows users to pick human-readable prefixes for partition file names.
@@ -78,6 +96,9 @@ pub trait RepoControl {
     fn suggest_part_prefix(&mut self, _part_id: PartId) -> Option<String> {
         None
     }
+    
+    /// Get a `PartControl` object for existing partition `num`.
+    fn make_part_control(&mut self, num: PartId) -> Result<Self::PartControl>;
     
     /// Determines whether a partition should be divided.
     /// 
@@ -233,7 +254,7 @@ impl<R: RepoControl> Repository<R> {
         let name: String = name.into();
         info!("Creating repository: {}", name);
         
-        let part_id = control.init_first()?;
+        let part_id = control.new_part_id(None).unwrap_or(PartId::from_num(1));
         let suggestion = control.suggest_part_prefix(part_id);
         let prefix = suggestion.unwrap_or_else(|| format!("pn{}", part_id));
         
@@ -356,6 +377,16 @@ impl<R: RepoControl> Repository<R> {
     /// Write commits to the disk for all partitions and do any needed
     /// maintenance operations.
     /// 
+    /// Maintenance consists of splitting large partitions and moving elements from partitions
+    /// marked as "needing reclassification".
+    /// 
+    /// This function does not guarantee that all maintenance jobs will be done; since there are no
+    /// requirements on timeliness of these operations it is sufficient simply to call this method
+    /// sometimes.
+    /// 
+    /// Maintenance does not include merging in partitions with multiple tips; such partitions
+    /// have their data saved but no maintenance done.
+    /// 
     /// This should be called at least occasionally, but such calls could be
     /// scheduled during less busy periods.
     pub fn write_full(&mut self) -> Result<()> {
@@ -369,8 +400,7 @@ impl<R: RepoControl> Repository<R> {
         // (1) creating the new classifications and (2) moving elements from the old partition.
         // TODO: create new partitions first? Delete old partition afterwards?
         
-        // This is tricky due to lifetime analysis preventing re-use of partitions. So,
-        // 1) we collect partition numbers of any partition needing repartitioning.
+        // Collect partition numbers of any partition needing repartitioning:
         let mut to_divide: Vec<PartId> = Vec::new();
         let mut need_reclassify: Vec<PartId> = Vec::new();
         for (id, part) in &self.partitions {
@@ -385,70 +415,54 @@ impl<R: RepoControl> Repository<R> {
         }
         
         let changes = R::partition(self, to_divide)?;
-        if changes.len() > 0 {
-            // TODO: should we try to check that new partitioning has no overlaps, and covers
-            // exactly the classifications previously covered? Should we warn or abort on error —
-            // are there legitimate reasons not to have perfect partitioning?
-            unimplemented!();
-        }
-        /*
-        while let Some(old_id) = to_divide.pop() {
-            // Get new partition numbers and update classifiers. This gets saved later if successful.
-            let (new_parts, changed) = match result {
-                Ok(result) => result,
-                Err(RepoDivideError::NotSubdivisible) => {
-                    continue;
+        // TODO: should we try to check that new partitioning has no overlaps, and covers
+        // exactly the classifications previously covered? Should we warn or abort on error —
+        // are there legitimate reasons not to have perfect partitioning?
+        for adjustment in changes {
+            match adjustment {
+                PartitionAdjustment::NewPartition(opt_part_id, csf) => {
+                    let part_id = opt_part_id
+                            .or_else(|| self.control.new_part_id(Some(&csf)))
+                            .unwrap_or_else(|| self.unique_part_id());
+                    let suggestion = self.control.suggest_part_prefix(part_id);
+                    let prefix = suggestion.unwrap_or_else(|| format!("pn{}", part_id));
+                    self.control.io_mut().new_part(part_id, prefix)?;
+                    let part_control = self.control.make_part_control(part_id)?;
+                    let mut part = Partition::create(part_id, part_control, &self.name)?;
+                    part.write_full()?;
+                    self.partitions.insert(part_id, part);
                 },
-                Err(RepoDivideError::LoadPart(pid)) => {
-                    if let Some(mut part) = self.partitions.get_mut(&pid) {
-                        part.load_latest()?;
-                        to_divide.push(old_id); // try again
-                        continue;
-                    } else {
-                        error!("Division requested load of partition {}, but partition was not found", pid);
-                        return OtherError::err("requested partition not found during division");
+                PartitionAdjustment::AdjustPartition(part_id, csf) => {
+                    let mut part = self.get_mut(part_id)
+                            .ok_or_else(|| OtherError::new("adjustment to unknown partition"))?;
+                    // TODO: classification adjustment
+                    // part.set_csf(csf);
+                    
+                    let mut tip = part.tip()?.clone_mut();
+                    tip.meta_mut().ext_flags_mut().set_flag_reclassify(true);
+                    part.push_state(tip)?;
+                    if !need_reclassify.contains(&part_id) {
+                        need_reclassify.push(part_id);
                     }
+                    
+                    part.write_fast()?;
                 },
-                Err(e) => {
-                    return Err(Box::new(e));
-                }
-            };
-            
-            // Mark partition as needing reclassification:
-            {
-                let old_part = self.partitions.get_mut(&old_id).expect("has old part");
-                let mut tip = old_part.tip()?.clone_mut();
-                tip.meta_mut().ext_flags_mut().set_flag_reclassify(true);
-                old_part.push_state(tip)?;
-                old_part.write_fast()?;
-                if !need_reclassify.contains(&old_id) {
-                    need_reclassify.push(old_id);
-                }
-            }
-            
-            // Create new partitions:
-            for new_id in new_parts {
-                let suggestion = self.control.suggest_part_prefix(new_id);
-                let prefix = suggestion.unwrap_or_else(|| format!("pn{}", new_id));
-                self.control.io_mut().new_part(new_id, prefix)?;
-                let part_control = self.control.make_part_control(new_id)?;
-                let mut part = Partition::create(new_id, part_control, &self.name)?;
-                part.write_full()?;
-                self.partitions.insert(new_id, part);
-            }
-            
-            // Save all changed partitions:
-            for id in changed {
-                match self.partitions.get_mut(&id) {
-                    Some(part) => {
-                        //TODO: snapshot or log?
-                        //TODO: continue on fail (i.e. require write later)?
-                        part.write_snapshot()?;
-                    },
-                    None => {
-                        warn!("Was notified that partition {} changed, but couldn't find it!", id);
-                    },
-                }
+                PartitionAdjustment::RemovePartition(part_id) => {
+                    let mut part = self.get_mut(part_id)
+                            .ok_or_else(|| OtherError::new("removal of unknown partition"))?;
+                    // TODO: classification adjustment
+                    // let csf = Classification::none();
+                    // self.get_mut(&part_id).set_csf(csf);
+                    
+                    let mut tip = part.tip()?.clone_mut();
+                    tip.meta_mut().ext_flags_mut().set_flag_reclassify(true);
+                    part.push_state(tip)?;
+                    if !need_reclassify.contains(&part_id) {
+                        need_reclassify.push(part_id);
+                    }
+                    
+                    part.write_fast()?;
+                },
             }
         }
         
@@ -506,7 +520,6 @@ impl<R: RepoControl> Repository<R> {
             old_part.write_full()?;
             self.partitions.insert(old_id, old_part);
         }
-        */
         
         Ok(())
     }
@@ -650,6 +663,15 @@ impl<R: RepoControl> Repository<R> {
             }
         }
         Ok(merge_required)
+    }
+    
+    fn unique_part_id(&self) -> PartId {
+        loop {
+            let part_id = PartId::from_num(random::<u64>() & PartId::max_num());
+            if !self.partitions.contains_key(&part_id) {
+                return part_id;
+            }
+        }
     }
     
     // TODO: should this be on a repostate?

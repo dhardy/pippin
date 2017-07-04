@@ -47,6 +47,9 @@ pub struct Classification {
     // 
     // An element matches this classification if for all properties used, the
     // value is included in (at least) one of the associated ranges.
+    // 
+    // Special case: if any `PropId` is listed with an empty vector, this classification matches no
+    // elements. In this case the `PropId` does not need to match any `Property`.
     rules: BTreeMap<PropId, Vec<(PropDomain, PropDomain)>>,
 }
 
@@ -54,6 +57,13 @@ impl Classification {
     /// Create a new classification matching all elements
     pub fn all() -> Self {
         Classification { rules: Default::default() }
+    }
+    
+    /// Create a new classification matching nothing
+    pub fn none() -> Self {
+        let mut csf = Classification::all();
+        csf.rules.insert(0, vec![]);
+        csf
     }
     
     /// Split an existing classification into two. `prop` is the property used to differentiate

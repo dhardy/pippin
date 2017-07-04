@@ -324,7 +324,7 @@ impl<E: Element> PartState<E> {
     pub fn gen_id_binary(&self, s2: &PartState<E>) -> Result<EltId, ElementOp> {
         assert_eq!(self.part_id, s2.part_id);
         // #0049: configurable source of randomness?
-        let initial = self.part_id.elt_id(random::<u32>() & 0xFF_FFFF);
+        let initial = self.part_id.elt_id(random::<u32>() & EltId::max());
         let mut id = initial;
         for _ in 0..10000 {
             if !self.elts.contains_key(&id) && !s2.elts.contains_key(&id) &&
