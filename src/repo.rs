@@ -288,18 +288,13 @@ impl<R: RepoControl> Repository<R> {
         for part_id in control.io().parts() {
             let part_control = control.make_part_control(part_id)?;
             let part = Partition::open(part_id, part_control, read_data)?;
-            // #0061: lifetime analysis sucks, or Option needs an Entry API
-            let has_name = if let Some(repo_name) = name.as_ref() {
-                if part.repo_name() != repo_name {
+            match name {
+                ref mut entry @ None => *entry = Some(part.repo_name().to_string()),
+                Some(ref entry) if *entry != part.repo_name() => {
                     return OtherError::err("repository name does not match when loading (wrong repo?)");
-                }
-                true
-            } else {
-                false
+                },
+                _ => (),
             };
-            if !has_name {
-                name = Some(part.repo_name().to_string());
-            }
             csf_finder.add_csf(part_id, part.csf(), &control)?;
             partitions.insert(part_id, part);
         }
