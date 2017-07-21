@@ -88,10 +88,9 @@ fn create_small() {
     
     env_logger::init().unwrap();
     
-    let part_id = PartId::from_num(56);
     let part_streams = PartitionStreams { ss: VecMap::new() };
     let control = PartControl::new(part_streams);
-    let mut part = Partition::create(part_id, control, "create_small")
+    let mut part = Partition::create(control, "create_small")
             .expect("creating partition");
     
     // 2 Add a few elements over multiple commits
@@ -156,12 +155,12 @@ fn create_small() {
         // in which elements occur can and does vary (thanks to Rust's hash
         // function randomisation). Instead we compare file length here and
         // read the files back below.
-        assert_eq!(ss_data.as_ref().map_or(0, |d| d.len()), 224);
-        assert_eq!(log.len(), 1184);
+        assert_eq!(ss_data.as_ref().map_or(0, |d| d.len()), 208);
+        assert_eq!(log.len(), 1168);
     }
     
     // 5 Read streams back again and compare
-    let mut part2 = Partition::open(part_id, control, true).expect("opening partition");
+    let mut part2 = Partition::open(control, true).expect("opening partition");
     part2.load_all().expect("part2.load");
     assert_eq!(state1,
         *part2.state(state1.statesum()).expect("get state1 by sum"));

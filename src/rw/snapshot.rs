@@ -11,7 +11,7 @@ use std::collections::hash_map::{HashMap, Entry};
 
 use byteorder::{ByteOrder, BigEndian, WriteBytesExt};
 
-use elt::{Element, PartId};
+use elt::Element;
 use error::{Result, ReadError, ElementOp};
 use rw::{sum, read_meta, write_meta};
 use state::{PartState, StateRead};
@@ -23,11 +23,9 @@ use sum::{Sum, SUM_BYTES};
 /// this is in fact the end of the file (or other data stream), though
 /// according to the specified file format this should be the case.
 /// 
-/// The `part_id` parameter is assigned to the `PartState` returned.
-/// 
 /// The file version affects how data is read. Get it from a header with
 /// `header.ftype.ver()`.
-pub fn read_snapshot<T: Element>(reader: &mut Read, part_id: PartId,
+pub fn read_snapshot<T: Element>(reader: &mut Read,
         format_ver: u32) -> Result<PartState<T>>
 {
     // A reader which calculates the checksum of what was read:
@@ -94,7 +92,6 @@ pub fn read_snapshot<T: Element>(reader: &mut Read, part_id: PartId,
         combined_elt_sum.permute(&elt_sum);
         
         let elt = T::from_vec_sum(data, elt_sum)?;
-        if ident.part_id() != part_id { return Err(Box::new(ElementOp::WrongPartId)); }
         match elts.entry(ident) {
             Entry::Occupied(_) => { return Err(Box::new(ElementOp::IdClash)); },
             Entry::Vacant(e) => e.insert(Rc::new(elt)),
@@ -115,7 +112,7 @@ pub fn read_snapshot<T: Element>(reader: &mut Read, part_id: PartId,
         r.read_exact(&mut buf[0..16])?;
     }
     
-    let state = PartState::new_explicit(part_id, parents,
+    let state = PartState::new_explicit(parents,
             elts, moves, meta, combined_elt_sum);
     
     if buf[0..8] != *b"STATESUM" {
@@ -141,8 +138,7 @@ pub fn read_snapshot<T: Element>(reader: &mut Read, part_id: PartId,
         return ReadError::err("checksum invalid", pos, (0, SUM_BYTES));
     }
     
-    trace!("Read snapshot (partition {} with {} elements): {}",
-        part_id, num_elts, state.statesum());
+    trace!("Read snapshot (with {} elements): {}", num_elts, state.statesum());
     Ok(state)
 }
 
@@ -153,8 +149,7 @@ pub fn read_snapshot<T: Element>(reader: &mut Read, part_id: PartId,
 pub fn write_snapshot<T: Element>(state: &PartState<T>,
     writer: &mut Write) -> Result<()>
 {
-    trace!("Writing snapshot (partition {} with {} elements): {}",
-        state.part_id(), state.num_avail(), state.statesum());
+    trace!("Writing snapshot (with {} elements): {}", state.num_avail(), state.statesum());
     
     // A writer which calculates the checksum of what was written:
     let mut w = sum::HashWriter::new(writer);
@@ -234,8 +229,7 @@ fn snapshot_writing() {
         }
     }
     
-    let part_id = PartId::from_num(1);
-    let mut state = PartState::<String>::new(part_id, &mut MMNone {}).clone_mut();
+    let mut state = PartState::<String>::new(&mut MMNone {}).clone_mut();
     let data = "But I must explain to you how all this \
         mistaken idea of denouncing pleasure and praising pain was born and I \
         will give you a complete account of the system, and expound the \
@@ -268,6 +262,6 @@ fn snapshot_writing() {
     let mut result = Vec::new();
     assert!(write_snapshot(&state, &mut result).is_ok());
     
-    let state2 = read_snapshot(&mut &result[..], part_id, HEAD_VERSIONS[HEAD_VERSIONS.len() - 1]).unwrap();
+    let state2 = read_snapshot(&mut &result[..], HEAD_VERSIONS[HEAD_VERSIONS.len() - 1]).unwrap();
     assert_eq!(state, state2);
 }

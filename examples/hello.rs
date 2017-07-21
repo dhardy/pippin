@@ -10,11 +10,11 @@ extern crate pippin;
 fn inner() -> pip::Result<()> {
     // We try to find Pippin files in '.':
     println!("Looking for Pippin files in the current directory ...");
-    match pip::part_from_path(".", None) {
-        Ok((part_id, io)) => {
+    match pip::part_from_path(".") {
+        Ok(io) => {
             // Read the found files:
             let control = pip::DefaultPartControl::<String, _>::new(io);
-            let part = pip::Partition::open(part_id, control, true)?;
+            let part = pip::Partition::open(control, true)?;
             
             // Get access to the latest state:
             let tip = part.tip()?;
@@ -30,9 +30,9 @@ fn inner() -> pip::Result<()> {
             println!("Creating a new partition instead (run again to see contents)");
             
             // Create a new partition, using PartFileIO:
-            let io = pip::PartFileIO::new_default("hello");
+            let io = pip::PartFileIO::new("hello");
             let control = pip::DefaultPartControl::<String, _>::new(io);
-            let mut part = pip::Partition::create(pip::PartId::from_num(1), control, "hello world")?;
+            let mut part = pip::Partition::create(control, "hello world")?;
             
             // Create a new state derived from the tip:
             let mut state = part.tip()?.clone_mut();

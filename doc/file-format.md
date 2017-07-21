@@ -135,39 +135,13 @@ the header.
 
 Format: `PARTID `, `u64`.
 
-Each partition has a unique 40-bit number, called the partition number. It is
-stored in the high 40 bits of a `u64` (where the low 24-bits are zero), and
-called a "partition identifier".
+Deprecated; ignored if encountered.
 
 #### Classification range
 
 Format: `CSF`, 4-byte identifier, `u32`, `u32`.
 
-The 4-byte identifier corresponds to a user-defined classifier function. Use
-of ASCII-readable characters is suggested (for readability in hex editors and
-code) but not required.
-
-The two `u32` numbers form a (min, max) pair specifying a closed (inclusive)
-range; the result of applying the classifier function to an element should be
-within this range for elements in this partition.
-
-The rule may be repeated with the same 4-byte identifier but another range;
-in this case the classifier result should be in any one of these ranges.
-
-When multiple classifiers (with distinct 4-byte identiers) are used, values
-from each classifier should be within one of the associated ranges for elements
-in this partition.
-
-#### Other partition identifier
-
-Format: `OTHERP`, `u64`, UTF-8 bytes.
-
-This is used to list other known partitions of the same repository. (It may not
-include all partitions, e.g. if this partition hasn't been updated since
-another partition split.)
-
-The `u64` encodes a partition identifier (high 40 bits, same as `PARTID`),
-and the UTF-8 bytes encode a path (TODO).
+Deprecated; ignored if encountered.
 
 
 Commit meta

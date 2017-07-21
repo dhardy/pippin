@@ -100,21 +100,13 @@ pub struct PartFileIO {
 }
 
 impl PartFileIO {
-    /// Create an empty partition IO with partition identifier 1.
-    /// 
-    /// *   `prefix` is a dir + partial-file-name; it is appended with
-    ///     something like `-ss1.pip` or `-ss2-cl3.piplog` to get a file name
-    pub fn new_default<P: Into<PathBuf>>(prefix: P) -> PartFileIO {
-        Self::new(prefix, PartPaths::new())
-    }
-    
-    /// Create an empty partition IO. This is equivalent to calling `new` with
-    /// `VecMap::new()` as the third argument.
+    /// Create for a new repository. This is equivalent to calling `for_paths` with
+    /// `PartPaths::new()` as the second argument.
     /// 
     /// *   `prefix` is a dir + partial-file-name; it is appended with
     ///     something like `-ss1.pip` or `-ss2-lf3.piplog` to get a file name
-    pub fn new_empty<P: Into<PathBuf>>(prefix: P) -> PartFileIO {
-        Self::new(prefix, PartPaths::new())
+    pub fn new<P: Into<PathBuf>>(prefix: P) -> PartFileIO {
+        Self::for_paths(prefix, PartPaths::new())
     }
     
     /// Create a partition IO with paths to some existing files.
@@ -122,7 +114,7 @@ impl PartFileIO {
     /// *   `prefix` is a dir + partial-file-name; it is appended with
     ///     something like `-ss1.pip` or `-ss2-lf3.piplog` to get a file name
     /// *   `paths` is a list of paths of all known partition files
-    pub fn new<P: Into<PathBuf>>(prefix: P, paths: PartPaths) -> PartFileIO
+    pub fn for_paths<P: Into<PathBuf>>(prefix: P, paths: PartPaths) -> PartFileIO
     {
         let prefix = prefix.into();
         trace!("New PartFileIO; prefix: {}, ss_len: {}", prefix.display(), paths.ss_len());

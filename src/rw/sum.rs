@@ -11,7 +11,7 @@ use crypto::digest::Digest;
 use crypto::blake2b::Blake2b;
 use byteorder::{ByteOrder, BigEndian};
 
-use elt::{EltId, PartId};
+use elt::EltId;
 use commit::{CommitMeta, UserMeta};
 use sum::{Sum, SUM_BYTES};
 
@@ -35,23 +35,23 @@ impl Sum {
         Sum::load_hasher(hasher)
     }
     /// Calculate a partition's meta-data sum
-    pub fn state_meta_sum(part_id: PartId, parents: &[Sum], meta: &CommitMeta) -> Sum {
+    pub fn state_meta_sum(parents: &[Sum], meta: &CommitMeta) -> Sum {
         let mut hasher = mk_hasher();
-        let mut buf = Vec::from("PpppPpppCNUMNnnnTtttTttt");
+        let mut buf = Vec::from("CNUMNnnnTtttTttt");
         if SUM_BYTES > buf.len() {
             // for second use of buf below
             buf.resize(SUM_BYTES, 0);
         }
-        BigEndian::write_u64(&mut buf[0..8], part_id.into());
-        assert_eq!(buf[8..12], *b"CNUM");
-        BigEndian::write_u32(&mut buf[12..16], meta.number());
-        BigEndian::write_i64(&mut buf[16..24], meta.timestamp());
+        assert_eq!(buf[0..4], *b"CNUM");
+        BigEndian::write_u32(&mut buf[4..8], meta.number());
+        BigEndian::write_i64(&mut buf[8..16], meta.timestamp());
+        hasher.input(&buf[0..16]);
         
-        hasher.input(&buf[0..24]);
         for parent in parents {
             parent.write_to(&mut &mut buf[..]).expect("writing to buf");
             hasher.input(&buf);
         }
+        
         match *meta.extra() {
             UserMeta::None => {},
             UserMeta::Text(ref text) => {

@@ -39,7 +39,6 @@ Options:
                         A default state (no elements) is created.
                         If -N is not provided, PREFIX is used as the repo name.
   -N --repo-name NAME   Specify the name of the repository (stored in header).
-  -i --part-num NUM     Specify the partition number (defaults to 1).
   -s --snapshot         Force writing of a snapshot after loading and applying
                         any changes, unless the state already has a snapshot.
   
@@ -74,7 +73,6 @@ struct Args {
     arg_PATH: Option<String>,
     flag_new: Option<String>,
     flag_repo_name: Option<String>,
-    flag_part_num: Option<String>,
     flag_snapshot: bool,
     flag_header: bool,
     flag_partitions: bool,
@@ -104,7 +102,7 @@ enum PartitionOp {
 enum Editor { Cmd, Visual }
 #[derive(Debug)]
 enum Operation {
-    NewPartition(String /*prefix*/, Option<String> /*repo name*/, Option<String> /* part num */),
+    NewPartition(String /*prefix*/, Option<String> /*repo name*/),
     Header,
     List(bool /*list snapshot files?*/, bool /*list log files?*/, bool /*list commits?*/),
     OnPartition(PartitionOp),
@@ -129,7 +127,7 @@ fn main() {
     } else {
         // Rely on docopt to spot invalid conflicting flags
         let op = if let Some(name) = args.flag_new {
-                Operation::NewPartition(name, args.flag_repo_name, args.flag_part_num)
+                Operation::NewPartition(name, args.flag_repo_name)
             } else if args.flag_header {
                 Operation::Header
             } else if args.flag_partitions || args.flag_snapshots || args.flag_logs || args.flag_commits {
@@ -175,7 +173,7 @@ struct Rest {
 fn inner(path: PathBuf, op: Operation, args: Rest) -> Result<()>
 {
     match op {
-        Operation::NewPartition(name, repo_name, part_num) => {
+        Operation::NewPartition(name, repo_name) => {
             assert_eq!(args.part, None);
             assert_eq!(args.commit, None);
             if !path.is_dir() {
@@ -188,15 +186,11 @@ fn inner(path: PathBuf, op: Operation, args: Rest) -> Result<()>
                 while !name.is_char_boundary(len) { len -= 1; }
                 name[0..len].to_string()
             });
-            let part_id = PartId::from_num(match part_num {
-                Some(n) => n.parse()?,
-                None => 1,
-            });
             
             let prefix = path.join(name);
-            let io = PartFileIO::new_empty(prefix);
+            let io = PartFileIO::new(prefix);
             let control = DefaultPartControl::<DataElt, _>::new(io);
-            Partition::create(part_id, control, &repo_name)?;
+            Partition::create(control, &repo_name)?;
             Ok(())
         },
         Operation::Header => {
@@ -206,7 +200,6 @@ fn inner(path: PathBuf, op: Operation, args: Rest) -> Result<()>
                 match head.ftype { FileType::Snapshot(_) => "Snapshot", FileType::CommitLog(_) => "Commit log" },
                 head.ftype.ver());
             println!("Repository name: {}", head.name);
-            print!("Partition number: {}", head.part_id.into_num());
             
             for ud in &*head.user {
                 match *ud {
@@ -222,8 +215,8 @@ fn inner(path: PathBuf, op: Operation, args: Rest) -> Result<()>
             assert_eq!(args.commit, None);
             println!("Scanning files ...");
             // #0017: this should print warnings generated in discover::*
-            let (part_id, part_files) = part_from_path(&path, None)?;
-            println!("Partition {}: {}*", part_id, part_files.prefix().display());
+            let part_files = part_from_path(&path)?;
+            println!("Partition: {}*", part_files.prefix().display());
             let ss_len = part_files.ss_len();
             if list_snapshots || list_logs {
                 for i in 0..ss_len {
@@ -243,7 +236,7 @@ fn inner(path: PathBuf, op: Operation, args: Rest) -> Result<()>
             }
             if list_commits {
                 let control = DefaultPartControl::<DataElt, _>::new(part_files.clone());
-                let mut part = Partition::open(part_id, control, true)?;
+                let mut part = Partition::open(control, true)?;
                 part.load_all()?;
                 let mut states: Vec<_> = part.states_iter().collect();
                 states.sort_by_key(|s| s.meta().number());
@@ -260,10 +253,10 @@ fn inner(path: PathBuf, op: Operation, args: Rest) -> Result<()>
                 panic!("No support for -p / --partition option");
             }
             println!("Scanning files ...");
-            let (part_id, part_files) = part_from_path(&path, None)?;
+            let part_files = part_from_path(&path)?;
             
             let control = DefaultPartControl::new(part_files);
-            let mut part = Partition::open(part_id, control, true)?;
+            let mut part = Partition::open(control, true)?;
             {
                 let (is_tip, mut state) = if let Some(ss) = args.commit {
                     part.load_all()?;

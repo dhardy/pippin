@@ -30,8 +30,6 @@ Usage:
 
 Options:
   -h --help             Show this message.
-  -p --partition PN     Create or read only a partition number PN. Use PN=0 for
-                        auto-detection but to still use single-partition mode.
   -c --create           Create a new repository
   -s --snapshot         Force creation of snapshot at end
   -l --list NUM         List NUM entries (in random order)
@@ -47,7 +45,6 @@ sure the repository name and partition number are correct.
 #[allow(non_snake_case)]
 struct Args {
     arg_PATH: String,
-    flag_partition: Option<u64>,
     flag_list: Option<usize>,
     flag_generate: Option<usize>,
     flag_create: bool,
@@ -64,7 +61,7 @@ fn main() {
     
     let repetitions = args.flag_repeat.unwrap_or(1);
     
-    let result = run(Path::new(&args.arg_PATH), args.flag_partition,
+    let result = run(Path::new(&args.arg_PATH),
             args.flag_list, args.flag_generate, args.flag_create,
             args.flag_snapshot, repetitions);
     if let Err(e) = result {
@@ -73,9 +70,7 @@ fn main() {
     }
 }
 
-// part_num: None for repo mode, Some(PN) for partition mode, where PN may be
-// 0 (auto mode) or a partition number
-fn run(path: &Path, part_num: Option<u64>,
+fn run(path: &Path,
          list_n: Option<usize>, generate_n: Option<usize>, create: bool,
         snapshot: bool, repetitions: usize) -> Result<()>
 {
@@ -104,49 +99,43 @@ fn run(path: &Path, part_num: Option<u64>,
         } else {}
     ;
     
-    if let Some(pn) = part_num {
-        let mut part = if create {
-            // — Create partition —
-            let part_id = PartId::from_num(if pn == 0 { 1 } else { pn });
-            let io = PartFileIO::new_empty(path.join("seqdb"));
-            let control = SeqPartControl::new(Box::new(io));
-            Partition::create(part_id, control, "sequences db")?
-        } else {
-            // — Open partition —
-            let in_part_id = if pn != 0 { Some(PartId::from_num(pn)) } else { None };
-            let (part_id, io) = part_from_path(path, in_part_id)?;
-            let control = SeqPartControl::new(Box::new(io));
-            Partition::<SeqPartControl>::open(part_id, control, true)?
-        };
-        
-        if part.merge_required() {
-            part.merge(&merge_solver, true)?;
-        }
-        
-        if let Some(num) = list_n {
-            let tip = part.tip()?;
-            for (id, ref elt) in tip.elts_iter().take(num) {
-                println!("Element {}: {:?}" , id, *elt);
-            }
-        }
-        
-        for _ in 0..repetitions {
-            let mut state = {
-                let tip = part.tip()?;
-                println!("Found state {}; have {} elements", tip.statesum(), tip.num_avail());
-                tip.clone_mut()
-            };
-            generate(&mut state);
-            println!("Done modifying state");
-            part.push_state(state)?;
-            part.write_full()?;
-        }
-        
-        if snapshot {
-            part.write_snapshot()?;
-        }
+    let mut part = if create {
+        // — Create partition —
+        let io = PartFileIO::new(path.join("seqdb"));
+        let control = SeqPartControl::new(Box::new(io));
+        Partition::create(control, "sequences db")?
     } else {
-        panic!("Multiple partitions not supported!");
+        // — Open partition —
+        let io = part_from_path(path)?;
+        let control = SeqPartControl::new(Box::new(io));
+        Partition::<SeqPartControl>::open(control, true)?
+    };
+    
+    if part.merge_required() {
+        part.merge(&merge_solver, true)?;
+    }
+    
+    if let Some(num) = list_n {
+        let tip = part.tip()?;
+        for (id, ref elt) in tip.elts_iter().take(num) {
+            println!("Element {}: {:?}" , id, *elt);
+        }
+    }
+    
+    for _ in 0..repetitions {
+        let mut state = {
+            let tip = part.tip()?;
+            println!("Found state {}; have {} elements", tip.statesum(), tip.num_avail());
+            tip.clone_mut()
+        };
+        generate(&mut state);
+        println!("Done modifying state");
+        part.push_state(state)?;
+        part.write_full()?;
+    }
+    
+    if snapshot {
+        part.write_snapshot()?;
     }
     
     Ok(())

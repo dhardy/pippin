@@ -9,13 +9,12 @@
 pub use ::LIB_VERSION;
 
 pub use commit::{UserMeta, CommitMeta, CommitMetaPartial, Commit, MakeCommitMeta, EltChange};
-pub use elt::{EltId, PartId, Element};
+pub use elt::{EltId, Element};
 pub use error::{Result, Error, ReadError, ReadErrorFormatter, ArgError, ElementOp, PatchOp,
         PathError, MatchError, TipError, MergeError, ReadOnly, UserError,
         OtherError, make_io_err};
 pub use io::{DummyPartIO, PartIO};
-pub use io::discover::{part_from_path, part_num_from_name, find_part_num,
-        discover_basename};
+pub use io::discover::{part_from_path, discover_basename};
 pub use io::file::{PartPaths, PartFileIO};
 pub use merge::{TwoWayMerge, EltMerge, TwoWaySolver, TwoWaySolveUseA, TwoWaySolveUseB,
         TwoWaySolveUseC, TwoWaySolveFail, TwoWaySolverChain, AncestorSolver2W, RenamingSolver2W};

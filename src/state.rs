@@ -21,9 +21,8 @@ use std::clone::Clone;
 use std::rc::Rc;
 
 use hashindexed::KeyComparator;
-use rand::random;
 
-use elt::{Element, PartId, EltId};
+use elt::{Element, EltId};
 use sum::Sum;
 use commit::*;
 use error::{ElementOp, PatchOp};
@@ -136,7 +135,6 @@ pub trait StateWrite<E: Element>: StateRead<E> {
 /// map of moved elements, partition-metadata and commit-metadata.
 #[derive(PartialEq, Debug)]
 pub struct PartState<E: Element> {
-    part_id: PartId,
     parents: Vec<Sum>,
     statesum: Sum,
     elts: HashMap<EltId, Rc<E>>,
@@ -159,7 +157,6 @@ pub struct PartState<E: Element> {
 /// #0021.
 #[derive(PartialEq, Debug)]
 pub struct MutPartState<E: Element> {
-    part_id: PartId,
     parent: Sum,
     elt_sum: Sum,
     elts: HashMap<EltId, Rc<E>>,
@@ -175,11 +172,10 @@ impl<E: Element> PartState<E> {
     /// element identifiers. Panics if the partition identifier is invalid.
     /// 
     /// Metadata can be customised via `mcm`.
-    pub fn new(part_id: PartId, mcm: &mut MakeCommitMeta) -> PartState<E> {
+    pub fn new(mcm: &mut MakeCommitMeta) -> PartState<E> {
         let meta = CommitMeta::new_parents(vec![], mcm);
-        let metasum = Sum::state_meta_sum(part_id, &[], &meta);
+        let metasum = Sum::state_meta_sum(&[], &meta);
         PartState {
-            part_id: part_id,
             parents: vec![],
             statesum: metasum /* no elts, so statesum = metasum */,
             elts: HashMap::new(),
@@ -192,12 +188,11 @@ impl<E: Element> PartState<E> {
     /// 
     /// This is for internal use; don't use externally unless you're really
     /// sure of what you're doing.
-    pub fn new_explicit(part_id: PartId, parents: Vec<Sum>,
+    pub fn new_explicit(parents: Vec<Sum>,
             elts: HashMap<EltId, Rc<E>>, moves: HashMap<EltId, EltId>,
             meta: CommitMeta, elt_sum: Sum) -> PartState<E> {
-        let metasum = Sum::state_meta_sum(part_id, &parents, &meta);
+        let metasum = Sum::state_meta_sum(&parents, &meta);
         PartState {
-            part_id: part_id,
             parents: parents,
             statesum: &metasum ^ &elt_sum,
             elts: elts,
@@ -210,9 +205,8 @@ impl<E: Element> PartState<E> {
     pub fn from_mut(mut_state: MutPartState<E>, mcm: &mut MakeCommitMeta) -> PartState<E> {
         let meta = CommitMeta::from_partial(mut_state.meta, mcm);
         let parents = vec![mut_state.parent.clone()];
-        let metasum = Sum::state_meta_sum(mut_state.part_id, &parents, &meta);
+        let metasum = Sum::state_meta_sum(&parents, &meta);
         PartState {
-            part_id: mut_state.part_id,
             parents: parents,
             statesum: &mut_state.elt_sum ^ &metasum,
             elts: mut_state.elts,
@@ -228,12 +222,11 @@ impl<E: Element> PartState<E> {
         let mut mut_state = parent.clone_mut();
         commit.apply_mut(&mut mut_state)?;
         
-        let metasum = Sum::state_meta_sum(mut_state.part_id, commit.parents(), commit.meta());
+        let metasum = Sum::state_meta_sum(commit.parents(), commit.meta());
         let statesum = &mut_state.elt_sum ^ &metasum;
         if statesum != *commit.statesum() { return Err(PatchOp::PatchApply); }
         
         Ok(PartState {
-            part_id: mut_state.part_id,
             parents: commit.parents().to_vec(),
             statesum: statesum,
             elts: mut_state.elts,
@@ -250,13 +243,13 @@ impl<E: Element> PartState<E> {
     /// 
     /// Output may be passed to `Commit::mutate_meta()`.
     pub fn mutate_meta(&mut self) -> (u32, Sum) {
-        let old_metasum = Sum::state_meta_sum(self.part_id, &self.parents, &self.meta);
+        let old_metasum = Sum::state_meta_sum(&self.parents, &self.meta);
         let old_number = self.meta.number();
         self.meta.incr_number();
         if self.meta.number() == old_number {
             panic!("Unable to mutate meta!");   // out of numbers; what can we do?
         }
-        let new_metasum = Sum::state_meta_sum(self.part_id, &self.parents, &self.meta);
+        let new_metasum = Sum::state_meta_sum(&self.parents, &self.meta);
         self.statesum = &(&self.statesum ^ &old_metasum) ^ &new_metasum;
         (self.meta.number(), self.statesum.clone())
     }
@@ -267,13 +260,11 @@ impl<E: Element> PartState<E> {
     /// 
     /// This is generated on-the-fly.
     pub fn metasum(&self) -> Sum {
-        Sum::state_meta_sum(self.part_id, &self.parents, &self.meta)
+        Sum::state_meta_sum(&self.parents, &self.meta)
     }
     /// Get the parents' sums. Normally a state has one parent, but the initial
     /// state has zero and merge outcomes have two (or more).
     pub fn parents(&self) -> &[Sum] { &self.parents }
-    /// Get the partition identifier
-    pub fn part_id(&self) -> PartId { self.part_id }
     /// Get the commit meta-data associated with this state
     pub fn meta(&self) -> &CommitMeta { &self.meta }
     
@@ -306,13 +297,9 @@ impl<E: Element> PartState<E> {
     }
     
     /// As `gen_id()`, but ensure the generated id is free in both self and
-    /// another state. Note that the other state is assumed to have the same
-    /// `part_id`.
+    /// another state.
     pub fn gen_id_binary(&self, s2: &PartState<E>) -> Result<EltId, ElementOp> {
-        assert_eq!(self.part_id, s2.part_id);
-        // #0049: configurable source of randomness?
-        let initial = self.part_id.elt_id(random::<u32>() & EltId::max());
-        let mut id = initial;
+        let mut id = EltId::random();;
         for _ in 0..10000 {
             if !self.elts.contains_key(&id) && !s2.elts.contains_key(&id) &&
                 !self.moved.contains_key(&id) && !s2.moved.contains_key(&id)
@@ -335,7 +322,6 @@ impl<E: Element> PartState<E> {
     /// state is not particularly expensive.
     pub fn clone_mut(&self) -> MutPartState<E> {
         MutPartState {
-            part_id: self.part_id,
             parent: self.statesum.clone(),
             elt_sum: self.statesum() ^ &self.metasum(),
             elts: self.elts.clone(),
@@ -352,7 +338,6 @@ impl<E: Element> PartState<E> {
     /// and a few other bits must still be copied).
     pub fn clone_exact(&self) -> Self {
         PartState {
-            part_id: self.part_id,
             parents: self.parents.clone(),
             statesum: self.statesum.clone(),
             elts: self.elts.clone(),
@@ -363,8 +348,6 @@ impl<E: Element> PartState<E> {
 }
     
 impl<E: Element> MutPartState<E> {
-    /// Get the partition identifier
-    pub fn part_id(&self) -> PartId { self.part_id }
     /// Get the parent's sum
     pub fn parent(&self) -> &Sum { &self.parent }
     /// Get the "element sum". This is all element sums combined via XOR. The
@@ -428,17 +411,14 @@ impl<E: Element> MutPartState<E> {
     /// Can fail if nearly all ids are used, but this is highly unlikely,
     /// assuming random distribution of ids.
     pub fn free_id(&mut self) -> Result<EltId, ElementOp> {
-        // #0049: configurable source of randomness?
-        let initial = random::<u32>() & 0xFF_FFFF;
-        self.free_id_near(initial)
+        self.free_id_near(EltId::random())
     }
     
     /// Looks for a free element identifier near the given starting point.
     /// 
     /// Can fail if nearly all ids are used, but this is highly unlikely,
     /// assuming random distribution of ids.
-    pub fn free_id_near(&mut self, initial: u32) -> Result<EltId, ElementOp> {
-        let mut id = self.part_id.elt_id(initial);
+    pub fn free_id_near(&mut self, mut id: EltId) -> Result<EltId, ElementOp> {
         for _ in 0..10000 {
             if !self.elts.contains_key(&id) && !self.moved.contains_key(&id) {
                 return Ok(id);
@@ -479,7 +459,6 @@ impl<E: Element> StateRead<E> for MutPartState<E> {
 }
 impl<E: Element> StateWrite<E> for MutPartState<E> {
     fn insert_rc(&mut self, id: EltId, elt: Rc<E>) -> Result<EltId, ElementOp> {
-        if id.part_id() != self.part_id { return Err(ElementOp::WrongPartId); }
         if self.elts.contains_key(&id) { return Err(ElementOp::IdClash); }
         self.elt_sum.permute(&elt.sum(id));
         self.elts.insert(id, elt);

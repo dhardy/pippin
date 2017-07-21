@@ -61,14 +61,9 @@ impl<'a, E: Element> TwoWayMerge<'a, E> {
     /// Operation is `O(A + B + X)` where `A` and `B` are the numbers of
     /// elements in states `a` and `b` respectively and `X` are the number of
     /// conflicts.
-    /// 
-    /// Assumption: all states have the same partition identifier.
     pub fn new<'b>(a: &'b PartState<E>, b: &'b PartState<E>,
         c: &'b PartState<E>) -> TwoWayMerge<'b, E>
     {
-        assert_eq!(a.part_id(), c.part_id());
-        assert_eq!(b.part_id(), c.part_id());
-        
         let mut v: Vec<(EltId, EltMerge<E>)> = Vec::new();
         // #0019: is using `collect()` for a HashMap efficient? Better to add a "clone_map" function to b?
         let mut map_b: HashMap<_,_> = b.elts_iter().collect();
@@ -275,9 +270,8 @@ impl<'a, E: Element> TwoWayMerge<'a, E> {
         let parents = vec![(first.statesum(), first.meta()), (second.statesum(), second.meta())];
         let meta = CommitMeta::new_parents(parents, mcm);
         
-        let part_id = self.a.part_id(); // all states have same part_id
         let parents = vec![first.statesum().clone(), second.statesum().clone()];
-        let statesum = &sum1 ^ &Sum::state_meta_sum(part_id, &parents, &meta);
+        let statesum = &sum1 ^ &Sum::state_meta_sum(&parents, &meta);
         
         Some(Commit::new_explicit(statesum, parents, changes, meta))
     }

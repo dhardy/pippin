@@ -16,7 +16,7 @@ use std::marker::PhantomData;
 use hashindexed::{HashIndexed, Iter};
 
 use commit::{Commit, MakeCommitMeta};
-use elt::{Element, PartId};
+use elt::Element;
 use error::{Result, TipError, PatchOp, MatchError, MergeError, OtherError, make_io_err};
 use io::PartIO;
 use merge::{TwoWayMerge, TwoWaySolver};
@@ -108,10 +108,8 @@ pub trait PartControl: MakeCommitMeta {
 pub struct Partition<P: PartControl> {
     // User control trait object
     control: P,
-    // Partition name. Used to identify loaded files.
-    repo_name: String,
-    // Partition identifier
-    part_id: PartId,
+    // Repository name. Used to identify loaded files.
+    name: String,
     // Number of first snapshot file loaded (equal to ss1 if nothing is loaded)
     ss0: usize,
     // Number of latest snapshot file loaded + 1; 0 if nothing loaded and never less than ss0
@@ -136,22 +134,20 @@ impl<P: PartControl> Partition<P> {
     /// Example:
     /// 
     /// ```
-    /// use pippin::pip::{Partition, PartId, PartIO, DefaultPartControl, DummyPartIO};
+    /// use pippin::pip::{Partition, PartIO, DefaultPartControl, DummyPartIO};
     /// 
-    /// let part_id = PartId::from_num(1);
     /// let control = DefaultPartControl::<String, _>::new(DummyPartIO::new());
-    /// let partition = Partition::create(part_id, control, "example repo");
+    /// let partition = Partition::create(control, "example repo");
     /// ```
-    pub fn create(part_id: PartId, mut control: P, name: &str) -> Result<Partition<P>> {
+    pub fn create(mut control: P, name: &str) -> Result<Partition<P>> {
         validate_repo_name(name)?;
         let ss = 0;
-        info!("Creating partiton {}; writing snapshot {}", part_id, ss);
+        info!("Creating partiton; writing snapshot {}", ss);
         
-        let state = PartState::new(part_id, control.as_mcm_ref_mut());
+        let state = PartState::new(control.as_mcm_ref_mut());
         let mut part = Partition {
             control: control,
-            repo_name: name.into(),
-            part_id: part_id,
+            name: name.into(),
             ss0: ss,
             ss1: ss + 1,
             states: HashIndexed::new(),
@@ -186,42 +182,39 @@ impl<P: PartControl> Partition<P> {
     /// 
     /// ```no_run
     /// use std::path::Path;
-    /// use pippin::pip::{Partition, PartId, DefaultPartControl, part_from_path};
+    /// use pippin::pip::{Partition, DefaultPartControl, part_from_path};
     /// 
     /// let path = Path::new("./my-partition");
-    /// let (part_id, io) = part_from_path(path, None).unwrap();
+    /// let io = part_from_path(path).unwrap();
     /// let control = DefaultPartControl::<String, _>::new(io);
-    /// let partition = Partition::open(part_id, control, true);
+    /// let partition = Partition::open(control, true);
     /// ```
-    pub fn open(part_id: PartId, control: P, read_data: bool) -> Result<Partition<P>> {
-        trace!("Opening partition {}", part_id);
+    pub fn open(control: P, read_data: bool) -> Result<Partition<P>> {
+        trace!("Opening partition");
         // We need to read a header for classification purposes
         
         let ss_len = control.io().ss_len();
         for ss in (0..ss_len).rev() {
-            debug!("Partition {}: reading snapshot {}", part_id, ss);
+            debug!("Partition: reading snapshot {}", ss);
             let result = if let Some(mut ssf) = control.io().read_ss(ss)? {
                 let head = read_head(&mut *ssf)?;
-                if head.part_id != part_id {
-                    return OtherError::err("partition identifier differs from previous value");
-                }
+                trace!("Partition: name: {}", head.name);
                 
                 let state = if read_data {
-                    Some(read_snapshot(&mut *ssf, part_id, head.ftype.ver())?)
+                    Some(read_snapshot(&mut *ssf, head.ftype.ver())?)
                 } else {
                     None
                 };
                 
                 Some((head.name, state))
             } else {
-                warn!("Partition {}: missing snapshot {}", part_id, ss);
+                warn!("Partition: missing snapshot {}", ss);
                 None
             };
-            if let Some((repo_name, opt_state)) = result {
+            if let Some((name, opt_state)) = result {
                 let mut part = Partition {
                     control,
-                    repo_name,
-                    part_id,
+                    name,
                     ss0: 0,
                     ss1: 0,
                     states: HashIndexed::new(),
@@ -251,8 +244,8 @@ impl<P: PartControl> Partition<P> {
     }
     
     /// Get the repo name, contained in each file's header.
-    pub fn repo_name(&self) -> &str {
-        &self.repo_name
+    pub fn name(&self) -> &str {
+        &self.name
     }
     
     /// Load all history. Shortcut for `load_range(0, usize::MAX, control)`.
@@ -302,7 +295,7 @@ impl<P: PartControl> Partition<P> {
         
         if ss0 == 0 && !self.control.io().has_ss(ss0) {
             // No initial snapshot; assume a blank state
-            let state = PartState::new(self.part_id, self.control.as_mcm_ref_mut());
+            let state = PartState::new(self.control.as_mcm_ref_mut());
             self.tips.insert(state.statesum().clone());
             self.states.insert(state);
         }
@@ -313,13 +306,13 @@ impl<P: PartControl> Partition<P> {
             if self.ss0 <= ss && ss < self.ss1 { continue; }
             let at_tip = ss >= self.ss1;
             
-            debug!("Partition {}: reading snapshot {}", self.part_id, ss);
+            debug!("Partition {}: reading snapshot {}", self.name, ss);
             let opt_result = if let Some(mut r) = self.control.io().read_ss(ss)? {
                 let head = read_head(&mut r)?;
-                let state = read_snapshot(&mut r, self.part_id, head.ftype.ver())?;
+                let state = read_snapshot(&mut r, head.ftype.ver())?;
                 Some((head, state))
             } else {
-                warn!("Partition {}: missing snapshot {}", self.part_id, ss);
+                warn!("Partition {}: missing snapshot {}", self.name, ss);
                 None
             };
             
@@ -370,13 +363,13 @@ impl<P: PartControl> Partition<P> {
     fn read_commits_for_ss(&mut self, ss: usize) -> Result<()> {
         let mut queue = vec![];
         for cl in 0..self.control.io().ss_cl_len(ss) {
-            debug!("Partition {}: reading commit log {}-{}", self.part_id, ss, cl);
+            debug!("Partition {}: reading commit log {}-{}", self.name, ss, cl);
             let opt_header = if let Some(mut r) = self.control.io().read_ss_cl(ss, cl)? {
                 let header = read_head(&mut r)?;
                 read_log(&mut r, &mut queue, header.ftype.ver())?;
                 Some(header)
             } else {
-                warn!("Partition {}: missing commit log {}-{}", self.part_id, ss, cl);
+                warn!("Partition {}: missing commit log {}-{}", self.name, ss, cl);
                 None
             };
             if let Some(header) = opt_header {
@@ -418,12 +411,8 @@ impl<P: PartControl> Partition<P> {
     
     // Verify values in a header.
     fn verify_header(&mut self, header: FileHeader) -> Result<()> {
-        if self.repo_name != header.name {
+        if self.name != header.name {
             return OtherError::err("repository name does not match when loading (wrong repo?)");
-        }
-        
-        if self.part_id != header.part_id {
-            return OtherError::err("partition identifier differs from previous value");
         }
         
         self.control.read_header(&header)?;
@@ -435,8 +424,7 @@ impl<P: PartControl> Partition<P> {
     fn make_header(&mut self, file_type: FileType) -> Result<FileHeader> {
         let mut header = FileHeader {
             ftype: file_type,
-            name: self.repo_name.clone(),
-            part_id: self.part_id,
+            name: self.name.clone(),
             user: vec![],
         };
         let user_fields = self.control.make_user_data(&header)?;
@@ -450,7 +438,7 @@ impl<P: PartControl> Partition<P> {
     /// Returns true if data was unloaded, false if not (implies `!force` and 
     /// that unsaved changes exist).
     pub fn unload(&mut self, force: bool) -> bool {
-        trace!("Unloading partition {} data", self.part_id);
+        trace!("Unloading partition {} data", self.name);
         if force || self.unsaved.is_empty() {
             self.states.clear();
             self.ancestors.clear();
@@ -468,11 +456,6 @@ impl<P: PartControl> Partition<P> {
     /// shouldn't be too expensive.
     pub fn unwrap_control(self) -> P {
         self.control
-    }
-    
-    /// Get the partition's number
-    pub fn part_id(&self) -> PartId {
-        self.part_id
     }
 }
 
@@ -567,13 +550,13 @@ impl<P: PartControl> Partition<P> {
     /// 
     /// ```no_run
     /// use std::path::Path;
-    /// use pippin::pip::{Partition, PartId, DefaultPartControl, part_from_path,
+    /// use pippin::pip::{Partition, DefaultPartControl, part_from_path,
     ///         TwoWaySolverChain, AncestorSolver2W, RenamingSolver2W};
     /// 
     /// let path = Path::new("./my-partition");
-    /// let (part_id, io) = part_from_path(path, None).unwrap();
+    /// let io = part_from_path(path).unwrap();
     /// let control = DefaultPartControl::<String, _>::new(io);
-    /// let mut partition = Partition::open(part_id, control, true)
+    /// let mut partition = Partition::open(control, true)
     ///         .expect("failed to open partition");
     /// 
     /// // Customise with your own solver:
@@ -604,7 +587,7 @@ impl<P: PartControl> Partition<P> {
                 tips.sort();
                 (tips[0].clone(), tips[1].clone())
             };
-            trace!("Partition {}: attempting merge of tips {} and {}", self.part_id, &tip1, &tip2);
+            trace!("Partition {}: attempting merge of tips {} and {}", self.name, &tip1, &tip2);
             let c = match self.merge_two(&tip1, &tip2) {
                 Ok(merge) => merge.solve_inline(solver).make_commit(self.control.as_mcm_ref()),
                 Err(MergeError::NoCommonAncestor) if auto_load && self.ss0 > 0 => {
@@ -741,7 +724,7 @@ impl<P: PartControl> Partition<P> {
         // #0012: extend existing logs instead of always writing a new log file.
         let mut cl_num = self.control.io().ss_cl_len(self.ss1 - 1);
         debug!("Partition {}: writing {} commits to log {}-{}",
-                self.part_id, self.unsaved.len(), self.ss1-1, cl_num);
+                self.name, self.unsaved.len(), self.ss1-1, cl_num);
         loop {
             if let Some(mut writer) = self.control.io_mut().new_ss_cl(self.ss1 - 1, cl_num)? {
                 // Write a header since this is a new file:
@@ -797,7 +780,6 @@ impl<P: PartControl> Partition<P> {
     pub fn write_snapshot(&mut self) -> Result<()> {
         // fail early if not ready:
         let tip_key = self.tip_key()?.clone();
-        let part_id = self.part_id;
         let header = self.make_header(FileType::Snapshot(0))?;
         
         let mut ss_num = self.ss1;
@@ -806,7 +788,7 @@ impl<P: PartControl> Partition<P> {
             // Try to get a writer for this snapshot number:
             if let Some(mut writer) = self.control.io_mut().new_ss(ss_num)? {
                 debug!("Partition {}: writing snapshot {}: {}",
-                    part_id, ss_num, tip_key);
+                    self.name, ss_num, tip_key);
                 
                 write_head(&header, &mut writer)?;
                 write_snapshot(self.states.get(&tip_key).unwrap(), &mut writer)?;
@@ -882,9 +864,9 @@ impl<P: PartControl> Partition<P> {
     /// 
     /// Returns true unless the given state's sum equals an existing one.
     fn add_state(&mut self, state: PartState<P::Element>, n_edits: usize) {
-        trace!("Partition {}: add state {}", self.part_id, state.statesum());
+        trace!("Partition {}: add state {}", self.name, state.statesum());
         if self.states.contains(state.statesum()) {
-            trace!("Partition {} already contains state {}", self.part_id, state.statesum());
+            trace!("Partition {} already contains state {}", self.name, state.statesum());
             return;
         }
         
@@ -930,18 +912,18 @@ impl<P: PartControl> Partition<P> {
     /// Returns true unless the given state (including metadata) equals a
     /// stored one (in which case nothing happens and false is returned).
     fn add_pair(&mut self, mut commit: Commit<P::Element>, mut state: PartState<P::Element>) -> bool {
-        trace!("Partition {}: add commit {}", self.part_id, commit.statesum());
+        trace!("Partition {}: add commit {}", self.name, commit.statesum());
         assert_eq!(commit.parents(), state.parents());
         assert_eq!(commit.statesum(), state.statesum());
         assert!(self.states.contains(commit.first_parent()));
         
         while let Some(old_state) = self.states.get(state.statesum()) {
             if state == *old_state {
-                trace!("Partition {} already contains commit {}", self.part_id, commit.statesum());
+                trace!("Partition {} already contains commit {}", self.name, commit.statesum());
                 return false;
             } else {
                 commit.mutate_meta(state.mutate_meta());
-                trace!("Partition {}: mutated commit to {}", self.part_id, commit.statesum());
+                trace!("Partition {}: mutated commit to {}", self.name, commit.statesum());
             }
         }
         
@@ -1105,8 +1087,8 @@ impl<'a, E: Element+'a> Iterator for StateIter<'a, E> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use elt::EltId;
     use commit::{Commit, MakeCommitMeta};
-    use elt::PartId;
     use io::DummyPartIO;
     use state::*;
     
@@ -1115,15 +1097,14 @@ mod tests {
     
     #[test]
     fn commit_creation_and_replay(){
-        let p = PartId::from_num(1);
         let mut queue = vec![];
         let mut mcm = MCM;
         
         let insert = |state: &mut MutPartState<_>, num, string: &str| -> Result<_, _> {
-            state.insert(p.elt_id(num), string.to_string())
+            state.insert(EltId::from(num), string.to_string())
         };
         
-        let mut state = PartState::new(p, &mut mcm).clone_mut();
+        let mut state = PartState::new(&mut mcm).clone_mut();
         insert(&mut state, 1, "one").unwrap();
         insert(&mut state, 2, "two").unwrap();
         let state_a = PartState::from_mut(state, &mut mcm);
@@ -1139,8 +1120,8 @@ mod tests {
         let mut state = state_b.clone_mut();
         insert(&mut state, 6, "six").unwrap();
         insert(&mut state, 7, "seven").unwrap();
-        state.remove(p.elt_id(4)).unwrap();
-        state.replace(p.elt_id(3), "half six".to_string()).unwrap();
+        state.remove(EltId::from(4)).unwrap();
+        state.replace(EltId::from(3), "half six".to_string()).unwrap();
         let state_c = PartState::from_mut(state, &mut mcm);
         let commit = Commit::from_diff(&state_b, &state_c).unwrap();
         queue.push(commit);
@@ -1152,9 +1133,8 @@ mod tests {
         let commit = Commit::from_diff(&state_c, &state_d).unwrap();
         queue.push(commit);
         
-        let part_id = PartId::from_num(1);
         let control = DefaultPartControl::<String, _>::new(DummyPartIO::new());
-        let mut part = Partition::create(part_id, control, "replay part").unwrap();
+        let mut part = Partition::create(control, "replay part").unwrap();
         part.add_state(state_a, 0);
         for commit in queue {
             part.push_commit(commit).unwrap();
@@ -1167,9 +1147,8 @@ mod tests {
     
     #[test]
     fn on_new_partition() {
-        let part_id = PartId::from_num(7);
         let control = DefaultPartControl::<String, _>::new(DummyPartIO::new());
-        let mut part = Partition::create(part_id, control, "on_new_partition")
+        let mut part = Partition::create(control, "on_new_partition")
                 .expect("partition creation");
         assert_eq!(part.tips.len(), 1);
         

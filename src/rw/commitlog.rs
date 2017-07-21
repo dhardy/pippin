@@ -265,8 +265,8 @@ pub fn write_commit<E: Element>(commit: &Commit<E>, writer: &mut Write) -> Resul
 #[test]
 fn commit_write_read(){
     use rw::HEAD_VERSIONS;
+    use elt::EltId;
     use commit::{CommitMeta, UserMeta, MetaFlags};
-    use elt::PartId;
     
     // Note that we can make up completely nonsense commits here. Element
     // checksums must still match but state sums don't need to since we won't
@@ -280,18 +280,17 @@ fn commit_write_read(){
     v = (1u8..).map(|x| x.wrapping_mul(x).wrapping_add(5u8.wrapping_mul(x)).wrapping_add(11u8)).take(SUM_BYTES).collect();
     let quadr = Sum::load(&v);
     
-    let p = PartId::from_num(1681);
     let mut changes = HashMap::new();
-    changes.insert(p.elt_id(3), EltChange::insertion(Rc::new("three".to_string())));
-    changes.insert(p.elt_id(4), EltChange::insertion(Rc::new("four".to_string())));
-    changes.insert(p.elt_id(5), EltChange::insertion(Rc::new("five".to_string())));
+    changes.insert(EltId::from(3), EltChange::insertion(Rc::new("three".to_string())));
+    changes.insert(EltId::from(4), EltChange::insertion(Rc::new("four".to_string())));
+    changes.insert(EltId::from(5), EltChange::insertion(Rc::new("five".to_string())));
     let meta1 = CommitMeta::new_explicit(1, 123456, MetaFlags::zero(), vec![], UserMeta::None).expect("new meta");
     let commit_1 = Commit::new_explicit(seq, vec![squares], changes, meta1);
     
     changes = HashMap::new();
-    changes.insert(p.elt_id(1), EltChange::deletion());
-    changes.insert(p.elt_id(9), EltChange::replacement(Rc::new("NINE!".to_string())));
-    changes.insert(p.elt_id(5), EltChange::insertion(Rc::new("five again?".to_string())));
+    changes.insert(EltId::from(1), EltChange::deletion());
+    changes.insert(EltId::from(9), EltChange::replacement(Rc::new("NINE!".to_string())));
+    changes.insert(EltId::from(5), EltChange::insertion(Rc::new("five again?".to_string())));
     let meta2 = CommitMeta::new_explicit(1, 321654, MetaFlags::zero(), vec![], UserMeta::Text("123".to_string())).expect("new meta");
     let commit_2 = Commit::new_explicit(nonsense, vec![quadr], changes, meta2);
     

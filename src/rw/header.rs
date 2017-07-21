@@ -8,9 +8,6 @@ use std::io::{Read, Write, ErrorKind};
 use std::cmp::min;
 use std::result::Result as stdResult;
 
-use byteorder::{ByteOrder, BigEndian, WriteBytesExt};
-
-use elt::PartId;
 use error::{Result, ArgError, ReadError, make_io_err};
 use rw::{HEAD_VERSIONS, sum};
 use sum::SUM_BYTES;
@@ -66,8 +63,6 @@ pub struct FileHeader {
     pub ftype: FileType,
     /// Repo name. Always present.
     pub name: String,
-    /// Partition identifier.
-    pub part_id: PartId,
     /// User data fields, remarks, etc.
     pub user: Vec<UserData>,
 }
@@ -124,7 +119,6 @@ pub fn read_head(reader: &mut Read) -> Result<FileHeader> {
     };
     pos += 16;
     
-    let mut part_id = None;
     let mut user_fields = Vec::new();
     loop {
         r.read_exact(&mut buf[0..16])?;
@@ -167,11 +161,7 @@ pub fn read_head(reader: &mut Read) -> Result<FileHeader> {
             };
             break;      // "HSUM" must be last item of header before final checksum
         } else if block[0..7] == PARTID[1..] {
-            if part_id != None {
-                return ReadError::err("repeat of PARTID", pos, (off, off+7));
-            }
-            let id = BigEndian::read_u64(&block[7..15]);
-            part_id = Some(PartId::try_from(id)?);
+            // ignore; feature removed
         } else if block[0..3] == CLASS_RANGE[1..] {
             // ignore; feature removed
         } else if block[0] == b'R' {
@@ -195,8 +185,6 @@ pub fn read_head(reader: &mut Read) -> Result<FileHeader> {
         pos += block.len();
     }
     
-    let part_id = part_id.ok_or_else(|| ReadError::new("no PARTID specified", pos, (0, 0)))?;
-    
     // Read checksum:
     let sum = r.sum();
     let mut r = r.into_inner();
@@ -208,7 +196,6 @@ pub fn read_head(reader: &mut Read) -> Result<FileHeader> {
     Ok(FileHeader{
         ftype: ftype,
         name: repo_name,
-        part_id: part_id,
         user: user_fields,
     })
 }
@@ -230,9 +217,6 @@ pub fn write_head(header: &FileHeader, writer: &mut Write) -> Result<()> {
     validate_repo_name(&header.name)?;
     w.write_all(header.name.as_bytes())?;
     pad(&mut w, 16 - header.name.len())?;
-    
-    w.write_all(&PARTID)?;
-    w.write_u64::<BigEndian>(header.part_id.into())?;
     
     for u in &header.user {
         // We allow padding in text mode:
@@ -313,7 +297,6 @@ fn read_header() {
         Err(e) => { panic!("{}", e); }
     };
     assert_eq!(header.name, "test AbC αβγ");
-    assert_eq!(header.part_id, PartId::from_num(257));
     assert_eq!(header.user.len(), 4);
     assert_eq!(header.user[0], UserData::Text("emark 12345678".to_string()));
     assert_eq!(header.user[1], UserData::Data(b"user rule".to_vec()));
@@ -326,7 +309,6 @@ fn write_header() {
     let header = FileHeader {
         ftype: FileType::Snapshot(0 /*version should be ignored*/),
         name: "Ähnliche Unsinn".to_string(),
-        part_id: PartId::from_num(123),
         user: vec![
             UserData::Text("Remark ω".to_string()),
             UserData::Text(" Quatsch Quatsch Quatsch".to_string()),
@@ -339,7 +321,6 @@ fn write_header() {
     
     let head_bytes = b"PIPPINSS20160815\
             \xc3\x84hnliche Unsinn\
-            HPARTID \x00\x00\x00\x00\x7B\x00\x00\x00\
             HRRemark \xcf\x89\x00\x00\x00\x00\x00\
             Q2R Quatsch Quatsch \
             Quatsch\x00\x00\x00\x00\x00\
@@ -348,7 +329,7 @@ fn write_header() {
             B\x00\x00\x20U rsei noasr a\
             uyv 10()% xovn\
             HSUM BLAKE2 16\x00\x00\
-            \xbe\x89\\\x86\x82\x91\xbbn\xdc\xfb\x99X\x17i,\"\xf4\xce,\xcd\xc5\xbf\xc3\x8b\x13\xbcI\x1b\xd3dI\xed";
+            \xdd0N\"\xceb#\x0d\x88\xa1\x19\xceu\xdd\x0e\xdej\xc8\xea|\xc3\xb3q\xdaO\x92)u\xa1\xf6\xe9\x01";
     use ::util::ByteFormatter;
     println!("Checksum: '{}'", ByteFormatter::from(&buf[buf.len()-SUM_BYTES..buf.len()]));
     println!("(Replace last line of head_bytes with new checksum.)");

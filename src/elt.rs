@@ -8,98 +8,30 @@ use std::fmt;
 use std::fmt::Debug;
 use std::io::{/*Read,*/ Write};
 use std::str::from_utf8;
-// use vec_map::VecMap;
+
+use rand::random;
 
 use sum::Sum;
-use error::{Result, OtherError};
+use error::Result;
 
-
-/// A classification / partition number
+/// An element identifier.
 /// 
-/// This is a 40-bit number used to identify partitions and as part of an
-/// element identifier. Classification also uses these numbers.
-/// 
-/// Supports `Into<u64>` to extract an encoded form. Can be reconstructed from
-/// this via `try_from()`.
-/// 
-/// Supports `fmt::Display` (displays the same value as `id.into_num()`).
-#[derive(Copy, Clone, PartialEq, Eq, Debug, Hash, PartialOrd, Ord)]
-pub struct PartId {
-    // #0018: optimise usage as Option with NonZero?
-    id: u64,
-}
-impl PartId {
-    /// Convert from number, `n`, where `n > 0` and `n <= max_num()`. Panics if
-    /// bounds are not met.
-    // #0011: should this return an Option / Result?
-    pub fn from_num(n: u64) -> PartId {
-        assert!(n > 0 && n <= Self::max_num(), "PartId::from_num(n): n is invalid");
-        PartId { id: n << 24 }
-    }
-    /// Convert to a number (same restrictions as for input to `from_num()`).
-    pub fn into_num(self) -> u64 {
-        self.id >> 24
-    }
-    /// Reconstructs from a value returned by `into()` (see `Into<u64>` impl).
-    pub fn try_from(id: u64) -> Result<PartId, OtherError> {
-        if id == 0 || (id & 0xFF_FFFF) != 0 { return Err(OtherError::new("invalid part id")); }
-        Ok(PartId { id: id })
-    }
-    /// Create from a partition identifier plus a number. The number `n` must
-    /// be no more than `EltId::max()`.
-    pub fn elt_id(self, n: u32) -> EltId {
-        assert!(n <= EltId::max(), "PartId::elt_id(n): n is invalid");
-        EltId { id: self.id + n as u64 }
-    }
-    /// The maximum number which can be passed to `from_num()`
-    pub fn max_num() -> u64 {
-       0xFF_FFFF_FFFF
-    }
-}
-impl Into<u64> for PartId {
-    fn into(self) -> u64 {  
-        self.id
-    }
-}
-impl fmt::Display for PartId {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.into_num())
-    }
-}
-
-/// An element identifier
-/// 
-/// This encodes both a partition identifier (`PartId`) and a 24-bit element
-/// number (unique within the partition).
-/// 
-/// Supports `From` (`EltId::from(n)`) to convert from a `u64` (this panics if
-/// the value is not a valid identifier). Supports `Into` (`pn.into()`) to
-/// convert to a `u64`.
+/// TODO: should we reserve some bits or allow custom-length user prefixes?
+/// Do we need 64-bit identifiers? Alternatively, once we have properties and
+/// lookup tables, *this* identifier might not be needed at all.
 #[derive(Copy, Clone, PartialEq, Eq, Debug, Hash, PartialOrd, Ord)]
 pub struct EltId {
-    // #0018: optimise usage as Option with NonZero?
     id: u64,
 }
 impl EltId {
-    /// Extract the partition identifier
-    pub fn part_id(self) -> PartId {
-        PartId::try_from(self.id & 0xFFFF_FFFF_FF00_0000).unwrap()
-    }
-    /// Extract the element number (this is a 24-bit number)
-    pub fn elt_num(self) -> u32 {
-        (self.id & 0xFF_FFFF) as u32
-    }
-    /// Get the next element identifier, wrapping to zero if necessary, but
-    /// keeping the same partition identifier.
+    /// Get the next element identifier, wrapping if necessary.
     pub fn next_elt(self) -> EltId {
-        let mut num = self.elt_num() + 1;
-        if num > Self::max() { num = 0; }
-        self.part_id().elt_id(num)
+        EltId { id: self.id.wrapping_add(1) }
     }
-    /// Maximum value which `elt_num()` can return and can be passed to
-    /// `PartId::elt_id()`.
-    pub fn max() -> u32 {
-        0xFF_FFFF
+    /// Get a random element identifier
+    pub fn random() -> EltId {
+        // #0049: configurable source of randomness?
+        EltId { id: random::<u64>() }
     }
 }
 impl From<u64> for EltId {
