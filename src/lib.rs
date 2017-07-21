@@ -58,8 +58,8 @@
 //! `Element`.
 //! 
 //! *   `Element` — data type stored
-//! *   `PartIO` — provides access to data via filesystem or other source
-//! *   `Control` — depends on `Element`, provides access to `PartIO`,
+//! *   `RepoIO` — provides access to data via filesystem or other source
+//! *   `Control` — depends on `Element`, provides access to `RepoIO`,
 //!     controls various options and optional features
 //! 
 //! Primary structs:

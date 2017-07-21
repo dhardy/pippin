@@ -9,7 +9,7 @@ use std::fs::read_dir;
 
 use regex::Regex;
 
-use io::file::{PartFileIO, PartPaths};
+use io::file::{RepoFileIO, PartPaths};
 use error::{Result, PathError};
 
 
@@ -24,7 +24,7 @@ use error::{Result, PathError};
 /// 
 /// #0040: consider supporting blobs or partial file names (i.e. patterns of
 /// some kind). Is there any use-case besides lazy entry in command-line tools?
-pub fn part_from_path<P: AsRef<Path>>(path: P) -> Result<PartFileIO> {
+pub fn part_from_path<P: AsRef<Path>>(path: P) -> Result<RepoFileIO> {
     let path = path.as_ref();
     let ss_pat = Regex::new("^((?:.*)-)?ss(0|[1-9][0-9]*)\\.pip$").expect("valid regex");
     let cl_pat = Regex::new("^((?:.*)-)?ss(0|[1-9][0-9]*)-cl(0|[1-9][0-9]*)\\.piplog$").expect("valid regex");
@@ -104,10 +104,10 @@ pub fn part_from_path<P: AsRef<Path>>(path: P) -> Result<PartFileIO> {
     
     if let Some(mut bname) = basename {
         if bname.ends_with('-') {
-            // PartFileIO does not expect '-' separator in prefix
+            // RepoFileIO does not expect '-' separator in prefix
             bname.pop();
         }
-        Ok(PartFileIO::for_paths(dir.join(bname), part_paths))
+        Ok(RepoFileIO::for_paths(dir.join(bname), part_paths))
     } else {
         Err(Box::new(PathError::new("discover::part_from_path: no Pippin files found in", path)))
     }

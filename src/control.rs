@@ -10,7 +10,7 @@ use std::marker::PhantomData;
 use commit::MakeCommitMeta;
 use elt::Element;
 use error::Result;
-use io::PartIO;
+use io::RepoIO;
 use rw::header::{UserData, FileHeader};
 
 
@@ -28,12 +28,12 @@ pub trait Control: MakeCommitMeta {
     
     /// Get access to an I/O provider.
     /// 
-    /// This layer of indirection allows use of `PartFileIO`, which should be sufficient
+    /// This layer of indirection allows use of `RepoFileIO`, which should be sufficient
     /// for many use cases.
-    fn io(&self) -> &PartIO;
+    fn io(&self) -> &RepoIO;
     
     /// Get mutable access to an I/O provider.
-    fn io_mut(&mut self) -> &mut PartIO;
+    fn io_mut(&mut self) -> &mut RepoIO;
     
     /// Get access to the snapshot policy.
     /// 
@@ -103,12 +103,12 @@ pub trait SnapshotPolicy {
 /// 
 /// Uses `DefaultSnapshot` snapshot policy.
 #[derive(Debug)]
-pub struct DefaultControl<E: Element, IO: PartIO + 'static> {
+pub struct DefaultControl<E: Element, IO: RepoIO + 'static> {
     _elt_type: PhantomData<E>,
     io: IO,
     ss_policy: DefaultSnapshot,
 }
-impl<E: Element, IO: PartIO> DefaultControl<E, IO> {
+impl<E: Element, IO: RepoIO> DefaultControl<E, IO> {
     /// Create, given I/O provider
     pub fn new(io: IO) -> Self {
         DefaultControl { _elt_type: Default::default(), io: io, ss_policy: Default::default() }
@@ -121,13 +121,13 @@ impl<E: Element, IO: PartIO> DefaultControl<E, IO> {
     /// Unwrap the held `IO`
     pub fn unwrap_io(self) -> IO { self.io }
 }
-impl<E: Element, IO: PartIO> MakeCommitMeta for DefaultControl<E, IO> {}
-impl<E: Element, IO: PartIO> Control for DefaultControl<E, IO> {
+impl<E: Element, IO: RepoIO> MakeCommitMeta for DefaultControl<E, IO> {}
+impl<E: Element, IO: RepoIO> Control for DefaultControl<E, IO> {
     type Element = E;
-    fn io(&self) -> &PartIO {
+    fn io(&self) -> &RepoIO {
         &self.io
     }
-    fn io_mut(&mut self) -> &mut PartIO {
+    fn io_mut(&mut self) -> &mut RepoIO {
         &mut self.io
     }
     fn snapshot_policy(&mut self) -> &mut SnapshotPolicy {

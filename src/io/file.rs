@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-//! Pippin: file access for repositories and partitions.
+//! Pippin: data access for repositories.
 
 use std::path::{Path, PathBuf};
 use std::io::{Read, Write};
@@ -11,13 +11,13 @@ use std::ops::Add;
 
 use vec_map::{VecMap, Entry};
 
-use io::PartIO;
+use io::RepoIO;
 use error::{Result, ReadOnly};
 
 
 // —————  Partition  —————
 
-/// Data structure used in a `PartFileIO` to actually store file paths.
+/// Data structure used in a `RepoFileIO` to actually store file paths.
 #[derive(Clone, Debug, Default)]
 pub struct PartPaths {
     // First key is snapshot number. Value is (if found) a path to the snapshot
@@ -92,20 +92,20 @@ impl PartPaths {
 /// Remembers a set of file names associated with a partition, opens read
 /// and write streams on these and creates new partition files.
 #[derive(Debug, Clone)]
-pub struct PartFileIO {
+pub struct RepoFileIO {
     readonly: bool,
     // Appended with snapshot/log number and extension to get a file path
     prefix: PathBuf,
     paths: PartPaths,
 }
 
-impl PartFileIO {
+impl RepoFileIO {
     /// Create for a new repository. This is equivalent to calling `for_paths` with
     /// `PartPaths::new()` as the second argument.
     /// 
     /// *   `prefix` is a dir + partial-file-name; it is appended with
     ///     something like `-ss1.pip` or `-ss2-lf3.piplog` to get a file name
-    pub fn new<P: Into<PathBuf>>(prefix: P) -> PartFileIO {
+    pub fn new<P: Into<PathBuf>>(prefix: P) -> RepoFileIO {
         Self::for_paths(prefix, PartPaths::new())
     }
     
@@ -114,27 +114,25 @@ impl PartFileIO {
     /// *   `prefix` is a dir + partial-file-name; it is appended with
     ///     something like `-ss1.pip` or `-ss2-lf3.piplog` to get a file name
     /// *   `paths` is a list of paths of all known partition files
-    pub fn for_paths<P: Into<PathBuf>>(prefix: P, paths: PartPaths) -> PartFileIO
+    pub fn for_paths<P: Into<PathBuf>>(prefix: P, paths: PartPaths) -> RepoFileIO
     {
         let prefix = prefix.into();
-        trace!("New PartFileIO; prefix: {}, ss_len: {}", prefix.display(), paths.ss_len());
-        PartFileIO {
+        trace!("New RepoFileIO; prefix: {}, ss_len: {}", prefix.display(), paths.ss_len());
+        RepoFileIO {
             readonly: false,
             prefix: prefix,
             paths: paths,
         }
     }
     
-    /// Get property: is this readonly? If this is readonly, file creation and
-    /// modification of `RepoFileIO` and `PartFileIO` operations will be
-    /// inhibited (operations will return a `ReadOnly` error).
+    /// Get property: is this readonly? If this is readonly, file creation and modification
+    /// through this object will be inhibited (operations will return a `ReadOnly` error).
     pub fn readonly(&self) -> bool {
         self.readonly
     }
     
-    /// Set readonly. If this is readonly, file creation and
-    /// modification of `RepoFileIO` and `PartFileIO` operations will be
-    /// inhibited (operations will return a `ReadOnly` error).
+    /// Set readonly. If this is readonly, file creation and modification through this object will
+    /// be inhibited (operations will return a `ReadOnly` error).
     pub fn set_readonly(&mut self, readonly: bool) {
         self.readonly = readonly;
     }
@@ -153,7 +151,7 @@ impl PartFileIO {
     }
 }
 
-impl PartIO for PartFileIO {
+impl RepoIO for RepoFileIO {
     fn ss_len(&self) -> usize {
         self.paths.ss_len()
     }

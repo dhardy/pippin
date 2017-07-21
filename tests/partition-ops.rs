@@ -25,7 +25,7 @@ struct PartitionStreams {
     ss: VecMap<(Option<Data>, VecMap<Data>)>,
 }
 
-impl PartIO for PartitionStreams {
+impl RepoIO for PartitionStreams {
     fn ss_len(&self) -> usize {
         self.ss.keys().next_back().map(|x| x+1).unwrap_or(0)
     }

@@ -18,7 +18,7 @@ pub mod file;
 /// Note: lifetimes on some functions are more restrictive than might seem
 /// necessary; this is to allow an implementation which reads and writes to
 /// internal streams.
-pub trait PartIO: Debug {
+pub trait RepoIO: Debug {
     /// Return one greater than the snapshot number of the latest snapshot file
     /// or log file found.
     /// 
@@ -107,19 +107,19 @@ pub trait PartIO: Debug {
 /// Can be used for testing but big fat warning: this does not provide any
 /// method to save your data. Write operations succeed but forget the data.
 #[derive(Debug, Default)]
-pub struct DummyPartIO {
+pub struct DummyRepoIO {
     // The internal buffer allows us to accept write operations. Data gets
     // written over on the next write.
     buf: Vec<u8>
 }
-impl DummyPartIO {
+impl DummyRepoIO {
     /// Create a new instance
-    pub fn new() -> DummyPartIO {
-        DummyPartIO { buf: Vec::new() }
+    pub fn new() -> DummyRepoIO {
+        DummyRepoIO { buf: Vec::new() }
     }
 }
 
-impl PartIO for DummyPartIO {
+impl RepoIO for DummyRepoIO {
     fn ss_len(&self) -> usize { 0 }
     fn ss_cl_len(&self, _ss_num: usize) -> usize { 0 }
     fn has_ss(&self, _ss_num: usize) -> bool { false }
@@ -147,7 +147,7 @@ impl PartIO for DummyPartIO {
     }
 }
 
-impl PartIO for Box<PartIO> {
+impl RepoIO for Box<RepoIO> {
     fn ss_len(&self) -> usize { (**self).ss_len() }
     fn ss_cl_len(&self, ss_num: usize) -> usize { (**self).ss_cl_len(ss_num) }
     fn has_ss(&self, ss_num: usize) -> bool { (**self).has_ss(ss_num) }

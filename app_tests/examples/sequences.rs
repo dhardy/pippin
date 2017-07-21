@@ -101,7 +101,7 @@ fn run(path: &Path,
     
     let mut part = if create {
         // — Create partition —
-        let io = PartFileIO::new(path.join("seqdb"));
+        let io = RepoFileIO::new(path.join("seqdb"));
         let control = SeqControl::new(Box::new(io));
         Partition::create(control, "sequences db")?
     } else {

@@ -188,7 +188,7 @@ fn inner(path: PathBuf, op: Operation, args: Rest) -> Result<()>
             });
             
             let prefix = path.join(name);
-            let io = PartFileIO::new(prefix);
+            let io = RepoFileIO::new(prefix);
             let control = DefaultControl::<DataElt, _>::new(io);
             Partition::create(control, &repo_name)?;
             Ok(())

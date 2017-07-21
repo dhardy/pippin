@@ -20,7 +20,7 @@ fn create() {
     // make some repeatable generator
     let mut rng = util::mk_rng(916118);
     
-    let io = PartFileIO::new(tmp_dir.to_path_buf().join("data"));
+    let io = RepoFileIO::new(tmp_dir.to_path_buf().join("data"));
     let control = SeqControl::new(Box::new(io));
     let mut repo = Partition::create(control, "seq_create_small").expect("repo create");
     

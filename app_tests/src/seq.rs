@@ -188,12 +188,12 @@ impl Generator for GeneratorEnum {
 #[derive(Debug)]
 pub struct SeqControl {
     time: Cell<i64>,
-    io: Box<PartIO>,
+    io: Box<RepoIO>,
     ss_policy: DefaultSnapshot,
 }
 impl SeqControl {
     /// Create, given I/O provider
-    pub fn new(io: Box<PartIO>) -> Self {
+    pub fn new(io: Box<RepoIO>) -> Self {
         // time is start of year 2000
         SeqControl { time: Cell::new(946684800), io: io, ss_policy: Default::default() }
     }
@@ -210,10 +210,10 @@ impl MakeCommitMeta for SeqControl {
 }
 impl Control for SeqControl {
     type Element = Sequence;
-    fn io(&self) -> &PartIO {
+    fn io(&self) -> &RepoIO {
         &self.io
     }
-    fn io_mut(&mut self) -> &mut PartIO {
+    fn io_mut(&mut self) -> &mut RepoIO {
         &mut self.io
     }
     fn snapshot_policy(&mut self) -> &mut SnapshotPolicy {
@@ -236,7 +236,7 @@ fn prop_seq_len(elt: &Sequence) -> PropDomain {
     elt.v.len() as u32
 }
 
-impl<RIO: RepoIO> Control for SeqControl<RIO> {
+impl ... {
     fn prop_fn(&self, id: PropId) -> Option<Property<Self::Element>> {
         match id {
             PROP_SEQ_LEN => Some(Property{ id, f: prop_seq_len }),

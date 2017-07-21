@@ -65,15 +65,15 @@ pub struct Partition<C: Control> {
 impl<C: Control> Partition<C> {
     /// Create a partition, assigning an IO provider (this can only be done at
     /// time of creation). Create a blank state in the partition, write an
-    /// empty snapshot to the provided `PartIO`, and mark self as *ready
+    /// empty snapshot to the provided `RepoIO`, and mark self as *ready
     /// for use*.
     /// 
     /// Example:
     /// 
     /// ```
-    /// use pippin::pip::{Partition, PartIO, DefaultControl, DummyPartIO};
+    /// use pippin::pip::{Partition, RepoIO, DefaultControl, DummyRepoIO};
     /// 
-    /// let control = DefaultControl::<String, _>::new(DummyPartIO::new());
+    /// let control = DefaultControl::<String, _>::new(DummyRepoIO::new());
     /// let partition = Partition::create(control, "example repo");
     /// ```
     pub fn create(mut control: C, name: &str) -> Result<Partition<C>> {
@@ -386,7 +386,7 @@ impl<C: Control> Partition<C> {
         }
     }
     
-    /// Consume the `Partition` and return the held `PartIO`.
+    /// Consume the `Partition` and return the held `RepoIO`.
     /// 
     /// This destroys all states held internally, but states may be cloned
     /// before unwrapping. Since `Element`s are copy-on-write, cloning
@@ -939,7 +939,7 @@ mod tests {
     use elt::EltId;
     use commit::{Commit, MakeCommitMeta};
     use control::DefaultControl;
-    use io::DummyPartIO;
+    use io::DummyRepoIO;
     use state::*;
     
     struct MCM;
@@ -983,7 +983,7 @@ mod tests {
         let commit = Commit::from_diff(&state_c, &state_d).unwrap();
         queue.push(commit);
         
-        let control = DefaultControl::<String, _>::new(DummyPartIO::new());
+        let control = DefaultControl::<String, _>::new(DummyRepoIO::new());
         let mut part = Partition::create(control, "replay part").unwrap();
         part.add_state(state_a, 0);
         for commit in queue {
@@ -997,7 +997,7 @@ mod tests {
     
     #[test]
     fn on_new_partition() {
-        let control = DefaultControl::<String, _>::new(DummyPartIO::new());
+        let control = DefaultControl::<String, _>::new(DummyRepoIO::new());
         let mut part = Partition::create(control, "on_new_partition")
                 .expect("partition creation");
         assert_eq!(part.tips.len(), 1);

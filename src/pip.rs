@@ -14,9 +14,9 @@ pub use elt::{EltId, Element};
 pub use error::{Result, Error, ReadError, ReadErrorFormatter, ArgError, ElementOp, PatchOp,
         PathError, MatchError, TipError, MergeError, ReadOnly, UserError,
         OtherError, make_io_err};
-pub use io::{DummyPartIO, PartIO};
+pub use io::{DummyRepoIO, RepoIO};
 pub use io::discover::{part_from_path, discover_basename};
-pub use io::file::{PartPaths, PartFileIO};
+pub use io::file::{PartPaths, RepoFileIO};
 pub use merge::{TwoWayMerge, EltMerge, TwoWaySolver, TwoWaySolveUseA, TwoWaySolveUseB,
         TwoWaySolveUseC, TwoWaySolveFail, TwoWaySolverChain, AncestorSolver2W, RenamingSolver2W};
 pub use part::{Partition, TipIter, StateItem, StateIter};

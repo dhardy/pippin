@@ -29,8 +29,8 @@ fn inner() -> pip::Result<()> {
             println!("Error: {}", e);
             println!("Creating a new partition instead (run again to see contents)");
             
-            // Create a new partition, using PartFileIO:
-            let io = pip::PartFileIO::new("hello");
+            // Create a new partition, using RepoFileIO:
+            let io = pip::RepoFileIO::new("hello");
             let control = pip::DefaultControl::<String, _>::new(io);
             let mut part = pip::Partition::create(control, "hello world")?;
             
