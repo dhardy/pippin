@@ -5,6 +5,77 @@
 Partitioning
 =======
 
+Motivation
+---------
+
+Scalability: when dealing with large data sets, it may be undesirable to have
+all data in-memory, and a database should be able to represent more data than
+can fit into RAM, and should ideally be able to operate without hogging huge
+amounts of RAM.
+
+Startup-latency: when accessing only a small subset of a large dataset, it is
+undesirable to have to read all data first.
+
+
+Summary
+---------
+
+Build multiple small *partitions*, each in effect a self-contained repository,
+and assign each element to a partition, preferably in a correlated way such
+that many operations on a subset of the whole data only touch a subset of
+partitions.
+
+
+Removal
+---------
+
+After much thought on the issue, it has been decided to remove this feature,
+and approach scalability by enabling operations without reading whole files first.
+
+There are several problems with partitions:
+
+*   Each partition has separate history, so commits do not span partitions and
+    multi-partition transactions are impossible.
+*   Creating a consistent view of data across multiple partitions, a "state"
+    built from multiple per-partition states, is difficult:
+    
+    *   it must select at most one state per partition, but allow none, since
+        there is little point to partitions if all must be loaded into memory
+        anyway
+    *   there is no good way to handle operations on unavailable partitions:
+        loading-on-demand requires back-references to the partitions themselves,
+        not just states, would cause huge delays accessing data, and means the
+        user may have to handle a merge *during any get/set request*; failing
+        the operation just forces the user to address this problem
+*   Determining how to assign elements to partitions in a semi-automated way,
+    allowing correlation without putting too much burden on the user, is
+    complicated.
+*   Discovering partitioning on start-up while keeping each partition's data
+    files independent is tricky.
+*   Many usage scenarios could require accessing some elements from each
+    partition, negating any advantages to start-up speed or RAM usage, and
+    performing very poorly if some partitions must be unloaded to free up
+    enough RAM to use others.
+
+But perhaps most critical is the problem with identifiers. There are two options:
+
+*   Identify partition within the element identifier (e.g. as a prefix). If
+    elements can ever move to another partition, either the identifier must
+    change (causes problems for user) or it no longer corresponds to the current
+    partition (see below). To avoid this, fixed partitions and limitations on
+    element mutability are required (at which point the user has little reason
+    not to use multiple indepedent repositories).
+*   No embedded partition identifier. In this case, finding an element from an
+    identifier requires checking all partitions, which makes multiple partitions
+    less performant than a single one. Finding new unique identifiers is also
+    hard.
+*   A compromise: embedded partition identifiers which may be out-of-date.
+    To make finding elements any better than above, partitions must now track
+    all moved elements indefinetly (or at least until garbage collection), and
+    repartitioning does not (in the short term) reduce the number of identifiers
+    a partition needs to track.
+
+
 Introduction
 ---------
 
