@@ -102,13 +102,13 @@ fn run(path: &Path,
     let mut part = if create {
         // — Create partition —
         let io = PartFileIO::new(path.join("seqdb"));
-        let control = SeqPartControl::new(Box::new(io));
+        let control = SeqControl::new(Box::new(io));
         Partition::create(control, "sequences db")?
     } else {
         // — Open partition —
         let io = part_from_path(path)?;
-        let control = SeqPartControl::new(Box::new(io));
-        Partition::<SeqPartControl>::open(control, true)?
+        let control = SeqControl::new(Box::new(io));
+        Partition::<SeqControl>::open(control, true)?
     };
     
     if part.merge_required() {

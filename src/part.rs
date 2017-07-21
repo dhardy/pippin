@@ -11,83 +11,20 @@ use std::result;
 use std::ops::Deref;
 use std::usize;
 use std::cmp::min;
-use std::marker::PhantomData;
 
 use hashindexed::{HashIndexed, Iter};
 
-use commit::{Commit, MakeCommitMeta};
+use commit::Commit;
+use control::Control;
 use elt::Element;
 use error::{Result, TipError, PatchOp, MatchError, MergeError, OtherError, make_io_err};
-use io::PartIO;
 use merge::{TwoWayMerge, TwoWaySolver};
-use rw::header::{FileType, UserData, FileHeader, validate_repo_name, read_head, write_head};
+use rw::header::{FileType, FileHeader, validate_repo_name, read_head, write_head};
 use rw::snapshot::{read_snapshot, write_snapshot};
 use rw::commitlog::{read_log, start_log, write_commit};
 use state::{PartState, MutPartState, PartStateSumComparator};
 use sum::Sum;
 
-
-
-
-/// Allows the user to control various partition operations. Library-provided implementations
-/// should be sufficient for many use-cases, but can be overridden or replaced if necessary.
-/// 
-/// Pippin data files allow arbitrary *user fields* in the headers; these can be set and read on
-/// file creation / loading.
-/// 
-/// Each commit carries metadata: a timestamp and an "extra metadata" field; these can be set
-/// by the user. (They can be read by retrieving and examining a `Commit`).
-pub trait PartControl: MakeCommitMeta {
-    /// User-defined type of elements stored
-    type Element: Element;
-    
-    /// Get access to an I/O provider.
-    /// 
-    /// This layer of indirection allows use of `PartFileIO`, which should be sufficient
-    /// for many use cases.
-    fn io(&self) -> &PartIO;
-    
-    /// Get mutable access to an I/O provider.
-    fn io_mut(&mut self) -> &mut PartIO;
-    
-    /// Get access to the snapshot policy.
-    /// 
-    /// This layer of indirection allows use of the `DefaultSnapshot`.
-    fn snapshot_policy(&mut self) -> &mut SnapshotPolicy;
-    
-    /// Cast self to a `&MakeCommitMeta`
-    // #0018: shouldn't be needed when Rust finally supports upcasting
-    fn as_mcm_ref(&self) -> &MakeCommitMeta;
-    
-    /// Cast self to a `&mut MakeCommitMeta`
-    // #0018: shouldn't be needed when Rust finally supports upcasting
-    fn as_mcm_ref_mut(&mut self) -> &mut MakeCommitMeta;
-    
-    // #0040: inform user of file name and/or SS&CL numbers when reading/writing user data
-    
-    /// This function allows population of the *user fields* of a header. This function is passed
-    /// a reference to a `FileHeader` struct, where all fields have been set excepting `user`,
-    /// the user fields (this should be an empty container). This function should return a set of
-    /// user data to be added to the `FileHeader`.
-    /// 
-    /// The partition identifier and file type can be read from the passed `FileHeader`.
-    /// 
-    /// Returning an error will abort creation of the corresponding file.
-    /// 
-    /// The default implementation does not make any user data (returns an empty `Vec`).
-    fn make_user_data(&mut self, _header: &FileHeader) -> Result<Vec<UserData>> {
-        Ok(vec![])
-    }
-    
-    /// This function allows the user to read data from a header when a file is loaded.
-    /// 
-    /// Returning an error will abort reading of this file.
-    /// 
-    /// The default implementation does nothing.
-    fn read_header(&mut self, _header: &FileHeader) -> Result<()> {
-        Ok(())
-    }
-}
 
 /// A *partition* is a sub-set of the entire set such that (a) each element is
 /// in exactly one partition, (b) a partition is small enough to be loaded into
@@ -105,9 +42,9 @@ pub trait PartControl: MakeCommitMeta {
 /// Terminology: a *tip* (as in *point* or *peak*) is a state without a known
 /// successor. Normally there is exactly one tip, but see `is_ready`,
 /// `is_loaded` and `merge_required`.
-pub struct Partition<P: PartControl> {
+pub struct Partition<C: Control> {
     // User control trait object
-    control: P,
+    control: C,
     // Repository name. Used to identify loaded files.
     name: String,
     // Number of first snapshot file loaded (equal to ss1 if nothing is loaded)
@@ -115,17 +52,17 @@ pub struct Partition<P: PartControl> {
     // Number of latest snapshot file loaded + 1; 0 if nothing loaded and never less than ss0
     ss1: usize,
     // Known committed states indexed by statesum 
-    states: HashIndexed<PartState<P::Element>, Sum, PartStateSumComparator>,
+    states: HashIndexed<PartState<C::Element>, Sum, PartStateSumComparator>,
     // All states not in `states` which are known to be superceded
     ancestors: HashSet<Sum>,
     // All states without a known successor
     tips: HashSet<Sum>,
     // Commits created but not yet saved to disk. First in at front; use as queue.
-    unsaved: VecDeque<Commit<P::Element>>,
+    unsaved: VecDeque<Commit<C::Element>>,
 }
 
 // Methods creating a partition, loading its data or checking status
-impl<P: PartControl> Partition<P> {
+impl<C: Control> Partition<C> {
     /// Create a partition, assigning an IO provider (this can only be done at
     /// time of creation). Create a blank state in the partition, write an
     /// empty snapshot to the provided `PartIO`, and mark self as *ready
@@ -134,12 +71,12 @@ impl<P: PartControl> Partition<P> {
     /// Example:
     /// 
     /// ```
-    /// use pippin::pip::{Partition, PartIO, DefaultPartControl, DummyPartIO};
+    /// use pippin::pip::{Partition, PartIO, DefaultControl, DummyPartIO};
     /// 
-    /// let control = DefaultPartControl::<String, _>::new(DummyPartIO::new());
+    /// let control = DefaultControl::<String, _>::new(DummyPartIO::new());
     /// let partition = Partition::create(control, "example repo");
     /// ```
-    pub fn create(mut control: P, name: &str) -> Result<Partition<P>> {
+    pub fn create(mut control: C, name: &str) -> Result<Partition<C>> {
         validate_repo_name(name)?;
         let ss = 0;
         info!("Creating partiton; writing snapshot {}", ss);
@@ -182,14 +119,14 @@ impl<P: PartControl> Partition<P> {
     /// 
     /// ```no_run
     /// use std::path::Path;
-    /// use pippin::pip::{Partition, DefaultPartControl, part_from_path};
+    /// use pippin::pip::{Partition, DefaultControl, part_from_path};
     /// 
     /// let path = Path::new("./my-partition");
     /// let io = part_from_path(path).unwrap();
-    /// let control = DefaultPartControl::<String, _>::new(io);
+    /// let control = DefaultControl::<String, _>::new(io);
     /// let partition = Partition::open(control, true);
     /// ```
-    pub fn open(control: P, read_data: bool) -> Result<Partition<P>> {
+    pub fn open(control: C, read_data: bool) -> Result<Partition<C>> {
         trace!("Opening partition");
         // We need to read a header for classification purposes
         
@@ -454,19 +391,19 @@ impl<P: PartControl> Partition<P> {
     /// This destroys all states held internally, but states may be cloned
     /// before unwrapping. Since `Element`s are copy-on-write, cloning
     /// shouldn't be too expensive.
-    pub fn unwrap_control(self) -> P {
+    pub fn unwrap_control(self) -> C {
         self.control
     }
 }
 
 // Methods accessing or modifying a partition's data
-impl<P: PartControl> Partition<P> {
+impl<C: Control> Partition<C> {
     /// Get a reference to the PartState of the current tip. You can read
     /// this directly or make a clone in order to make your modifications.
     /// 
     /// This operation will fail if no data has been loaded yet or if a merge
     /// is required (i.e. it fails if the number of tips is not exactly one).
-    pub fn tip(&self) -> result::Result<&PartState<P::Element>, TipError> {
+    pub fn tip(&self) -> result::Result<&PartState<C::Element>, TipError> {
         Ok(self.states.get(self.tip_key()?).unwrap())
     }
     
@@ -509,21 +446,21 @@ impl<P: PartControl> Partition<P> {
     /// Items are unordered (actually, they follow the order of an internal
     /// hash map, which is randomised and usually different each time the
     /// program is loaded).
-    pub fn states_iter(&self) -> StateIter<P::Element> {
+    pub fn states_iter(&self) -> StateIter<C::Element> {
         StateIter { iter: self.states.iter(), tips: &self.tips }
     }
     
     /// Get a read-only reference to a state by its statesum, if found.
     /// 
     /// If you want to keep a copy, clone it.
-    pub fn state(&self, key: &Sum) -> Option<&PartState<P::Element>> {
+    pub fn state(&self, key: &Sum) -> Option<&PartState<C::Element>> {
         self.states.get(key)
     }
     
     /// Try to find a state given a string representation of the key (as a byte array).
     /// 
     /// Like git, we accept partial keys (so long as they uniquely resolve a key).
-    pub fn state_from_string(&self, string: String) -> Result<&PartState<P::Element>, MatchError> {
+    pub fn state_from_string(&self, string: String) -> Result<&PartState<C::Element>, MatchError> {
         let string = string.to_uppercase().replace(" ", "");
         let mut matching: Option<&Sum> = None;
         for state in self.states.iter() {
@@ -550,12 +487,12 @@ impl<P: PartControl> Partition<P> {
     /// 
     /// ```no_run
     /// use std::path::Path;
-    /// use pippin::pip::{Partition, DefaultPartControl, part_from_path,
+    /// use pippin::pip::{Partition, DefaultControl, part_from_path,
     ///         TwoWaySolverChain, AncestorSolver2W, RenamingSolver2W};
     /// 
     /// let path = Path::new("./my-partition");
     /// let io = part_from_path(path).unwrap();
-    /// let control = DefaultPartControl::<String, _>::new(io);
+    /// let control = DefaultControl::<String, _>::new(io);
     /// let mut partition = Partition::open(control, true)
     ///         .expect("failed to open partition");
     /// 
@@ -573,7 +510,7 @@ impl<P: PartControl> Partition<P> {
     /// 
     /// If `auto_load` is true, additional history will be loaded as necessary
     /// to find a common ancestor.
-    pub fn merge<S: TwoWaySolver<P::Element>>(&mut self, solver: &S, auto_load: bool) -> Result<()> {
+    pub fn merge<S: TwoWaySolver<C::Element>>(&mut self, solver: &S, auto_load: bool) -> Result<()> {
         let mut start_ss = self.ss0;
         while self.tips.len() > 1 {
             if start_ss < self.ss0 {
@@ -625,7 +562,7 @@ impl<P: PartControl> Partition<P> {
     /// Note that this function can fail with `MergeError::NoCommonAncestor` if not enough history
     /// is available. In this case you might try calling `part.load_all()?;` or
     /// `let ss0 = part.oldest_ss_loaded(); part.load_range(ss0 - 1, ss0);`, then retrying.
-    pub fn merge_two(&self, tip1: &Sum, tip2: &Sum) -> Result<TwoWayMerge<P::Element>, MergeError> {
+    pub fn merge_two(&self, tip1: &Sum, tip2: &Sum) -> Result<TwoWayMerge<C::Element>, MergeError> {
         let common = match self.latest_common_ancestor(tip1, tip2) {
             Ok(sum) => sum,
             Err(e) => return Err(e),
@@ -652,7 +589,7 @@ impl<P: PartControl> Partition<P> {
     /// 
     /// Returns `Ok(true)` on success or `Ok(false)` if the commit matches an
     /// already known state.
-    pub fn push_commit(&mut self, commit: Commit<P::Element>) -> Result<bool, PatchOp> {
+    pub fn push_commit(&mut self, commit: Commit<C::Element>) -> Result<bool, PatchOp> {
         let state = {
             let parent = self.states.get(commit.first_parent())
                 .ok_or(PatchOp::NoParent)?;
@@ -673,7 +610,7 @@ impl<P: PartControl> Partition<P> {
     /// 
     /// Returns `Ok(true)` on success, or `Ok(false)` if the state matches its
     /// parent (i.e. hasn't been changed) or another already known state.
-    pub fn push_state(&mut self, state: MutPartState<P::Element>) -> Result<bool, PatchOp> {
+    pub fn push_state(&mut self, state: MutPartState<C::Element>) -> Result<bool, PatchOp> {
         let parent_sum = state.parent().clone();
         let new_state = PartState::from_mut(state, self.control.as_mcm_ref_mut());
         
@@ -811,7 +748,7 @@ impl<P: PartControl> Partition<P> {
 }
 
 // Internal support functions
-impl<P: PartControl> Partition<P> {
+impl<C: Control> Partition<C> {
     // Take self and two sums. Return a copy of a key to avoid lifetime issues.
     fn latest_common_ancestor(&self, k1: &Sum, k2: &Sum) -> Result<Sum, MergeError> {
         // #0019: there are multiple strategies here; we just find all
@@ -863,7 +800,7 @@ impl<P: PartControl> Partition<P> {
     /// reset afterwards, hence n_edits does not matter.
     /// 
     /// Returns true unless the given state's sum equals an existing one.
-    fn add_state(&mut self, state: PartState<P::Element>, n_edits: usize) {
+    fn add_state(&mut self, state: PartState<C::Element>, n_edits: usize) {
         trace!("Partition {}: add state {}", self.name, state.statesum());
         if self.states.contains(state.statesum()) {
             trace!("Partition {} already contains state {}", self.name, state.statesum());
@@ -890,7 +827,7 @@ impl<P: PartControl> Partition<P> {
     
     /// Creates a state from the commit and adds to self. Updates tip if this
     /// state is new.
-    pub fn add_commit(&mut self, commit: Commit<P::Element>) -> Result<(), PatchOp> {
+    pub fn add_commit(&mut self, commit: Commit<C::Element>) -> Result<(), PatchOp> {
         if self.states.contains(commit.statesum()) { return Ok(()); }
         
         let state = {
@@ -911,7 +848,7 @@ impl<P: PartControl> Partition<P> {
     /// 
     /// Returns true unless the given state (including metadata) equals a
     /// stored one (in which case nothing happens and false is returned).
-    fn add_pair(&mut self, mut commit: Commit<P::Element>, mut state: PartState<P::Element>) -> bool {
+    fn add_pair(&mut self, mut commit: Commit<C::Element>, mut state: PartState<C::Element>) -> bool {
         trace!("Partition {}: add commit {}", self.name, commit.statesum());
         assert_eq!(commit.parents(), state.parents());
         assert_eq!(commit.statesum(), state.statesum());
@@ -933,94 +870,6 @@ impl<P: PartControl> Partition<P> {
     }
 }
 
-/// A convenient implementation of `PartControl`.
-/// 
-/// Uses `DefaultSnapshot` snapshot policy.
-#[derive(Debug)]
-pub struct DefaultPartControl<E: Element, IO: PartIO + 'static> {
-    _elt_type: PhantomData<E>,
-    io: IO,
-    ss_policy: DefaultSnapshot,
-}
-impl<E: Element, IO: PartIO> DefaultPartControl<E, IO> {
-    /// Create, given I/O provider
-    pub fn new(io: IO) -> Self {
-        DefaultPartControl { _elt_type: Default::default(), io: io, ss_policy: Default::default() }
-    }
-    
-    /// Get direct access to the held `IO`
-    pub fn io(&self) -> &IO { &self.io }
-    /// Get direct mutable access to the held `IO`
-    pub fn io_mut(&mut self) -> &mut IO { &mut self.io }
-    /// Unwrap the held `IO`
-    pub fn unwrap_io(self) -> IO { self.io }
-}
-impl<E: Element, IO: PartIO> MakeCommitMeta for DefaultPartControl<E, IO> {}
-impl<E: Element, IO: PartIO> PartControl for DefaultPartControl<E, IO> {
-    type Element = E;
-    fn io(&self) -> &PartIO {
-        &self.io
-    }
-    fn io_mut(&mut self) -> &mut PartIO {
-        &mut self.io
-    }
-    fn snapshot_policy(&mut self) -> &mut SnapshotPolicy {
-        &mut self.ss_policy
-    }
-    fn as_mcm_ref(&self) -> &MakeCommitMeta { self }
-    fn as_mcm_ref_mut(&mut self) -> &mut MakeCommitMeta { self }
-}
-
-/// An interface allowing configuration of snapshot policy.
-/// 
-/// It is assumed that one or more internal counters are incremented when `count` is called and
-/// used to determine when `want_snapshot` returns true.
-pub trait SnapshotPolicy {
-    /// Reset internal counters (we have an up-to-date snapshot).
-    fn reset(&mut self);
-    
-    /// Declare that a snapshot is required (i.e. force `want_snapshot` to be true until `reset` is
-    /// next called).
-    fn force_snapshot(&mut self);
-    
-    /// Increment an internal counter/counters to record this many `commits` and `edits`.
-    fn count(&mut self, commits: usize, edits: usize);
-    
-    /// Defines our snapshot policy: this should return true when a new snapshot is required.
-    /// 
-    /// The number of commits and edits saved since the last snapshot 
-    /// The default implementation is
-    /// ```rust
-    /// commits * 5 + edits > 150
-    /// ```
-    fn want_snapshot(&self) -> bool;
-}
-
-/// Default snapshot policy: snapshot when `commits * 5 + edits > 150`.
-/// 
-/// Can be constructed with `Default`.
-#[derive(Debug, Default)]
-pub struct DefaultSnapshot {
-    counter: usize,
-}
-
-impl SnapshotPolicy for DefaultSnapshot {
-    fn reset(&mut self) {
-        self.counter = 0;
-    }
-    
-    fn force_snapshot(&mut self) {
-        self.counter = 1000;
-    }
-    
-    fn count(&mut self, commits: usize, edits: usize) {
-        self.counter += commits * 5 + edits;
-    }
-    
-    fn want_snapshot(&self) -> bool {
-        self.counter > 150
-    }
-}
 
 /// Wrapper around underlying iterator structure
 pub struct TipIter<'a> {
@@ -1089,6 +938,7 @@ mod tests {
     use super::*;
     use elt::EltId;
     use commit::{Commit, MakeCommitMeta};
+    use control::DefaultControl;
     use io::DummyPartIO;
     use state::*;
     
@@ -1133,7 +983,7 @@ mod tests {
         let commit = Commit::from_diff(&state_c, &state_d).unwrap();
         queue.push(commit);
         
-        let control = DefaultPartControl::<String, _>::new(DummyPartIO::new());
+        let control = DefaultControl::<String, _>::new(DummyPartIO::new());
         let mut part = Partition::create(control, "replay part").unwrap();
         part.add_state(state_a, 0);
         for commit in queue {
@@ -1147,7 +997,7 @@ mod tests {
     
     #[test]
     fn on_new_partition() {
-        let control = DefaultPartControl::<String, _>::new(DummyPartIO::new());
+        let control = DefaultControl::<String, _>::new(DummyPartIO::new());
         let mut part = Partition::create(control, "on_new_partition")
                 .expect("partition creation");
         assert_eq!(part.tips.len(), 1);

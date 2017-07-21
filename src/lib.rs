@@ -59,7 +59,7 @@
 //! 
 //! *   `Element` — data type stored
 //! *   `PartIO` — provides access to data via filesystem or other source
-//! *   `PartControl` — depends on `Element`, provides access to `PartIO`,
+//! *   `Control` — depends on `Element`, provides access to `PartIO`,
 //!     controls various options and optional features
 //! 
 //! Primary structs:
@@ -85,6 +85,7 @@ extern crate walkdir;
 extern crate log;
 
 pub mod commit;
+pub mod control;
 pub mod elt;
 pub mod error;
 pub mod io;

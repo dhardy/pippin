@@ -84,12 +84,12 @@ impl PartIO for PartitionStreams {
 
 #[test]
 fn create_small() {
-    type PartControl = DefaultPartControl<String, PartitionStreams>;
+    type Control = DefaultControl<String, PartitionStreams>;
     
     env_logger::init().unwrap();
     
     let part_streams = PartitionStreams { ss: VecMap::new() };
-    let control = PartControl::new(part_streams);
+    let control = Control::new(part_streams);
     let mut part = Partition::create(control, "create_small")
             .expect("creating partition");
     

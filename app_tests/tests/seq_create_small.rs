@@ -21,7 +21,7 @@ fn create() {
     let mut rng = util::mk_rng(916118);
     
     let io = PartFileIO::new(tmp_dir.to_path_buf().join("data"));
-    let control = SeqPartControl::new(Box::new(io));
+    let control = SeqControl::new(Box::new(io));
     let mut repo = Partition::create(control, "seq_create_small").expect("repo create");
     
     for _ in 0..5 {
@@ -74,7 +74,7 @@ fn insert() {
     let repo_dir = util::get_data_dir("seq_small");
     let mut io = part_from_path(repo_dir.to_path_buf()).expect("discover");
     io.set_readonly(true);
-    let control = SeqPartControl::new(Box::new(io));
+    let control = SeqControl::new(Box::new(io));
     let mut repo = Partition::open(control, true).expect("open");
     
     // make some repeatable generator

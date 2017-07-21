@@ -181,26 +181,26 @@ impl Generator for GeneratorEnum {
 }
 
 
-// —————  PartControl type  —————
+// —————  Control type  —————
 
 
-/// Type implementing pippin's `PartControl`.
+/// Type implementing pippin's `Control`.
 #[derive(Debug)]
-pub struct SeqPartControl {
+pub struct SeqControl {
     time: Cell<i64>,
     io: Box<PartIO>,
     ss_policy: DefaultSnapshot,
 }
-impl SeqPartControl {
+impl SeqControl {
     /// Create, given I/O provider
     pub fn new(io: Box<PartIO>) -> Self {
         // time is start of year 2000
-        SeqPartControl { time: Cell::new(946684800), io: io, ss_policy: Default::default() }
+        SeqControl { time: Cell::new(946684800), io: io, ss_policy: Default::default() }
     }
 }
 // We can't use the default meta-data, with a real timestamp, as tests need
 // to regenerate exactly the same data each time.
-impl MakeCommitMeta for SeqPartControl {
+impl MakeCommitMeta for SeqControl {
     // add one hour
     fn make_commit_timestamp(&self) -> i64 {
         let time = self.time.get();
@@ -208,7 +208,7 @@ impl MakeCommitMeta for SeqPartControl {
         time
     }
 }
-impl PartControl for SeqPartControl {
+impl Control for SeqControl {
     type Element = Sequence;
     fn io(&self) -> &PartIO {
         &self.io
@@ -236,10 +236,7 @@ fn prop_seq_len(elt: &Sequence) -> PropDomain {
     elt.v.len() as u32
 }
 
-impl<RIO: RepoIO> RepoControl for SeqControl<RIO> {
-    type PartControl = SeqPartControl;
-    type Element = Sequence;
-    
+impl<RIO: RepoIO> Control for SeqControl<RIO> {
     fn prop_fn(&self, id: PropId) -> Option<Property<Self::Element>> {
         match id {
             PROP_SEQ_LEN => Some(Property{ id, f: prop_seq_len }),

@@ -9,6 +9,7 @@
 pub use ::LIB_VERSION;
 
 pub use commit::{UserMeta, CommitMeta, CommitMetaPartial, Commit, MakeCommitMeta, EltChange};
+pub use control::{Control, SnapshotPolicy, DefaultControl, DefaultSnapshot};
 pub use elt::{EltId, Element};
 pub use error::{Result, Error, ReadError, ReadErrorFormatter, ArgError, ElementOp, PatchOp,
         PathError, MatchError, TipError, MergeError, ReadOnly, UserError,
@@ -18,8 +19,7 @@ pub use io::discover::{part_from_path, discover_basename};
 pub use io::file::{PartPaths, PartFileIO};
 pub use merge::{TwoWayMerge, EltMerge, TwoWaySolver, TwoWaySolveUseA, TwoWaySolveUseB,
         TwoWaySolveUseC, TwoWaySolveFail, TwoWaySolverChain, AncestorSolver2W, RenamingSolver2W};
-pub use part::{Partition, DefaultSnapshot, DefaultPartControl, PartControl, SnapshotPolicy,
-        TipIter, StateItem, StateIter};
+pub use part::{Partition, TipIter, StateItem, StateIter};
 pub use rw::header::{FileType, UserData, FileHeader, validate_repo_name};
 pub use state::{PartState, MutPartState, StateRead, StateWrite, EltIter, EltIdIter};
 pub use sum::{Sum, SUM_BYTES};

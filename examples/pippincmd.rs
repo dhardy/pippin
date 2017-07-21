@@ -189,7 +189,7 @@ fn inner(path: PathBuf, op: Operation, args: Rest) -> Result<()>
             
             let prefix = path.join(name);
             let io = PartFileIO::new(prefix);
-            let control = DefaultPartControl::<DataElt, _>::new(io);
+            let control = DefaultControl::<DataElt, _>::new(io);
             Partition::create(control, &repo_name)?;
             Ok(())
         },
@@ -235,7 +235,7 @@ fn inner(path: PathBuf, op: Operation, args: Rest) -> Result<()>
                 println!("Highest snapshot number: {}", ss_len - 1);
             }
             if list_commits {
-                let control = DefaultPartControl::<DataElt, _>::new(part_files.clone());
+                let control = DefaultControl::<DataElt, _>::new(part_files.clone());
                 let mut part = Partition::open(control, true)?;
                 part.load_all()?;
                 let mut states: Vec<_> = part.states_iter().collect();
@@ -255,7 +255,7 @@ fn inner(path: PathBuf, op: Operation, args: Rest) -> Result<()>
             println!("Scanning files ...");
             let part_files = part_from_path(&path)?;
             
-            let control = DefaultPartControl::new(part_files);
+            let control = DefaultControl::new(part_files);
             let mut part = Partition::open(control, true)?;
             {
                 let (is_tip, mut state) = if let Some(ss) = args.commit {
