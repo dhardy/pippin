@@ -15,7 +15,6 @@ use std::marker::PhantomData;
 
 use hashindexed::{HashIndexed, Iter};
 
-use classify::Classification;
 use commit::{Commit, MakeCommitMeta};
 use elt::{Element, PartId};
 use error::{Result, TipError, PatchOp, MatchError, MergeError, OtherError, make_io_err};
@@ -113,8 +112,6 @@ pub struct Partition<P: PartControl> {
     repo_name: String,
     // Partition identifier
     part_id: PartId,
-    // Classification ranges
-    csf: Classification,
     // Number of first snapshot file loaded (equal to ss1 if nothing is loaded)
     ss0: usize,
     // Number of latest snapshot file loaded + 1; 0 if nothing loaded and never less than ss0
@@ -150,13 +147,11 @@ impl<P: PartControl> Partition<P> {
         let ss = 0;
         info!("Creating partiton {}; writing snapshot {}", part_id, ss);
         
-        let csf = Classification::all();
-        let state = PartState::new(part_id, csf.clone(), control.as_mcm_ref_mut());
+        let state = PartState::new(part_id, control.as_mcm_ref_mut());
         let mut part = Partition {
             control: control,
             repo_name: name.into(),
             part_id: part_id,
-            csf,
             ss0: ss,
             ss1: ss + 1,
             states: HashIndexed::new(),
@@ -211,25 +206,22 @@ impl<P: PartControl> Partition<P> {
                     return OtherError::err("partition identifier differs from previous value");
                 }
                 
-                let csf = Classification::from_ranges(&head.csf_ranges);
-                
                 let state = if read_data {
-                    Some(read_snapshot(&mut *ssf, part_id, csf.clone(), head.ftype.ver())?)
+                    Some(read_snapshot(&mut *ssf, part_id, head.ftype.ver())?)
                 } else {
                     None
                 };
                 
-                Some((head.name, csf, state))
+                Some((head.name, state))
             } else {
                 warn!("Partition {}: missing snapshot {}", part_id, ss);
                 None
             };
-            if let Some((repo_name, csf, opt_state)) = result {
+            if let Some((repo_name, opt_state)) = result {
                 let mut part = Partition {
                     control,
                     repo_name,
                     part_id,
-                    csf,
                     ss0: 0,
                     ss1: 0,
                     states: HashIndexed::new(),
@@ -310,7 +302,7 @@ impl<P: PartControl> Partition<P> {
         
         if ss0 == 0 && !self.control.io().has_ss(ss0) {
             // No initial snapshot; assume a blank state
-            let state = PartState::new(self.part_id, self.csf.clone(), self.control.as_mcm_ref_mut());
+            let state = PartState::new(self.part_id, self.control.as_mcm_ref_mut());
             self.tips.insert(state.statesum().clone());
             self.states.insert(state);
         }
@@ -324,8 +316,7 @@ impl<P: PartControl> Partition<P> {
             debug!("Partition {}: reading snapshot {}", self.part_id, ss);
             let opt_result = if let Some(mut r) = self.control.io().read_ss(ss)? {
                 let head = read_head(&mut r)?;
-                let state = read_snapshot(&mut r, self.part_id, self.csf.clone(),
-                        head.ftype.ver())?;
+                let state = read_snapshot(&mut r, self.part_id, head.ftype.ver())?;
                 Some((head, state))
             } else {
                 warn!("Partition {}: missing snapshot {}", self.part_id, ss);
@@ -435,11 +426,6 @@ impl<P: PartControl> Partition<P> {
             return OtherError::err("partition identifier differs from previous value");
         }
         
-        let csf = Classification::from_ranges(&header.csf_ranges);
-        if csf != self.csf {
-            return OtherError::err("partition classification differs from previous value");
-        }
-        
         self.control.read_header(&header)?;
         
         Ok(())
@@ -447,14 +433,10 @@ impl<P: PartControl> Partition<P> {
     
     /// Create a header
     fn make_header(&mut self, file_type: FileType) -> Result<FileHeader> {
-        let csf_ranges = {
-            self.csf.make_ranges()
-        };
         let mut header = FileHeader {
             ftype: file_type,
             name: self.repo_name.clone(),
             part_id: self.part_id,
-            csf_ranges: csf_ranges,
             user: vec![],
         };
         let user_fields = self.control.make_user_data(&header)?;
@@ -491,11 +473,6 @@ impl<P: PartControl> Partition<P> {
     /// Get the partition's number
     pub fn part_id(&self) -> PartId {
         self.part_id
-    }
-    
-    /// Access this partition's classification
-    pub fn csf(&self) -> &Classification {
-        &self.csf
     }
 }
 
@@ -1139,7 +1116,6 @@ mod tests {
     #[test]
     fn commit_creation_and_replay(){
         let p = PartId::from_num(1);
-        let csf = Classification::all();
         let mut queue = vec![];
         let mut mcm = MCM;
         
@@ -1147,7 +1123,7 @@ mod tests {
             state.insert(p.elt_id(num), string.to_string())
         };
         
-        let mut state = PartState::new(p, csf, &mut mcm).clone_mut();
+        let mut state = PartState::new(p, &mut mcm).clone_mut();
         insert(&mut state, 1, "one").unwrap();
         insert(&mut state, 2, "two").unwrap();
         let state_a = PartState::from_mut(state, &mut mcm);

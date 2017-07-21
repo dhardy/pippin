@@ -222,37 +222,35 @@ fn inner(path: PathBuf, op: Operation, args: Rest) -> Result<()>
             assert_eq!(args.commit, None);
             println!("Scanning files ...");
             // #0017: this should print warnings generated in discover::*
-            let repo_files = repo_from_path(&path)?;
-            for (part_id, part) in repo_files.partitions() {
-                println!("Partition {}: {}*", part_id, part.prefix().display());
-                let ss_len = part.ss_len();
-                if list_snapshots || list_logs {
-                    for i in 0..ss_len {
-                        if list_snapshots {
-                            if let Some(p) = part.paths().get_ss(i) {
-                                println!("Snapshot {:4}         : {}", i, p.display());
-                            }
-                        }
-                        for j in 0..(if list_logs{ part.ss_cl_len(i) }else{0}) {
-                            if let Some(p) = part.paths().get_cl(i, j) {
-                                println!("Snapshot {:4} log {:4}: {}", i, j, p.display());
-                            }
+            let (part_id, part_files) = part_from_path(&path, None)?;
+            println!("Partition {}: {}*", part_id, part_files.prefix().display());
+            let ss_len = part_files.ss_len();
+            if list_snapshots || list_logs {
+                for i in 0..ss_len {
+                    if list_snapshots {
+                        if let Some(p) = part_files.paths().get_ss(i) {
+                            println!("Snapshot {:4}         : {}", i, p.display());
                         }
                     }
-                } else if ss_len > 0 {
-                    println!("Highest snapshot number: {}", ss_len - 1);
+                    for j in 0..(if list_logs{ part_files.ss_cl_len(i) }else{0}) {
+                        if let Some(p) = part_files.paths().get_cl(i, j) {
+                            println!("Snapshot {:4} log {:4}: {}", i, j, p.display());
+                        }
+                    }
                 }
-                if list_commits {
-                    let control = DefaultPartControl::<DataElt, _>::new(part.clone());
-                    let mut part = Partition::open(*part_id, control, true)?;
-                    part.load_all()?;
-                    let mut states: Vec<_> = part.states_iter().collect();
-                    states.sort_by_key(|s| s.meta().number());
-                    for state in states {
-                        println!("Commit {:4}: {}; parents: {:?}",
-                                state.meta().number(), state.statesum(), 
-                                state.parents());
-                    }
+            } else if ss_len > 0 {
+                println!("Highest snapshot number: {}", ss_len - 1);
+            }
+            if list_commits {
+                let control = DefaultPartControl::<DataElt, _>::new(part_files.clone());
+                let mut part = Partition::open(part_id, control, true)?;
+                part.load_all()?;
+                let mut states: Vec<_> = part.states_iter().collect();
+                states.sort_by_key(|s| s.meta().number());
+                for state in states {
+                    println!("Commit {:4}: {}; parents: {:?}",
+                            state.meta().number(), state.statesum(), 
+                            state.parents());
                 }
             }
             Ok(())

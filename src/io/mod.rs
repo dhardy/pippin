@@ -7,7 +7,6 @@
 use std::io::{Read, Write};
 use std::fmt::Debug;
 
-use elt::PartId;
 use error::Result;
 
 pub mod discover;
@@ -148,37 +147,6 @@ impl PartIO for DummyPartIO {
     }
 }
 
-
-/// Provides file discovery and creation for a repository.
-pub trait RepoIO: Debug {
-    /// Get the number of partitions found.
-    fn num_parts(&self) -> usize;
-    
-    /// Get a list of all partition numbers. These are the numbers which can be
-    /// passed to `make_partition_io`, and conversely the numbers which should
-    /// not be passed to `add_partition`.
-    /// 
-    /// Note: we cannot 'simply iterate' over elements without allocating
-    /// unless we make more restrictions on implementations or switch to
-    /// compile-time polymorphism over type `RepoIO`.
-    fn parts(&self) -> Vec<PartId>;
-    
-    /// True if there is a partition with this number
-    fn has_part(&self, pn: PartId) -> bool;
-    
-    /// Add a new partition. `num` is the partition number to use; this function
-    /// fails if it is already taken. `prefix` is the common part of the
-    /// path/name of files for this partition; it must be unique from that of
-    /// other partitions.
-    fn new_part(&mut self, num: PartId, prefix: String) -> Result<()>;
-    
-    /// Get a `PartIO` for existing partition `num`.
-    /// 
-    /// Fails if construction of the `PartIO` fails (file-system or regex
-    /// errors) or if the partition isn't found.
-    fn make_part_io(&mut self, num: PartId) -> Result<Box<PartIO>>;
-}
-
 impl PartIO for Box<PartIO> {
     fn ss_len(&self) -> usize { (**self).ss_len() }
     fn ss_cl_len(&self, ss_num: usize) -> usize { (**self).ss_cl_len(ss_num) }
@@ -200,17 +168,5 @@ impl PartIO for Box<PartIO> {
     fn new_ss_cl<'a>(&'a mut self, ss_num: usize, cl_num: usize) -> Result<Option<Box<Write+'a>>>
     {
         (**self).new_ss_cl(ss_num, cl_num)
-    }
-}
-
-impl RepoIO for Box<RepoIO> {
-    fn num_parts(&self) -> usize { (**self).num_parts() }
-    fn parts(&self) -> Vec<PartId> { (**self).parts() }
-    fn has_part(&self, pn: PartId) -> bool { (**self).has_part(pn) }
-    fn new_part(&mut self, num: PartId, prefix: String) -> Result<()> {
-        (**self).new_part(num, prefix)
-    }
-    fn make_part_io(&mut self, num: PartId) -> Result<Box<PartIO>> {
-        (**self).make_part_io(num)
     }
 }

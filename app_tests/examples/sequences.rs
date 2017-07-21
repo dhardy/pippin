@@ -146,38 +146,7 @@ fn run(path: &Path, part_num: Option<u64>,
             part.write_snapshot()?;
         }
     } else {
-        let discover = repo_from_path(path)?;
-        let control = SeqControl::new(discover);
-        
-        let mut repo = if create {
-            // — Create repository —
-            Repository::create(control, "sequences db")?
-        } else {
-            // — Open repository —
-            Repository::open(control, true)?
-        };
-        
-        if repo.merge_required() {
-            repo.merge(&merge_solver, true)?;
-        }
-        
-        if let Some(_num) = list_n {
-            println!("-l / --list option only works in single-partition (-p) mode for now");
-            //TODO: how do we iterate over all elements of a repo?
-        }
-        
-        for _ in 0..repetitions {
-            let mut state = repo.clone_state()?;
-            println!("Found {} partitions with {} elements", state.num_parts(), state.num_avail());
-            generate(&mut state);
-            println!("Done modifying state");
-            repo.merge_in(state)?;
-            repo.write_full()?;
-        }
-        
-        if snapshot {
-            repo.write_snapshot_all()?;
-        }
+        panic!("Multiple partitions not supported!");
     }
     
     Ok(())

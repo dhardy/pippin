@@ -15,16 +15,14 @@
 //! (b) objects are normally read-only with explicit copy-on-write, and (c)
 //! objects can be serialised to and deserialised from a byte stream.
 //! 
-//! To scale well to large numbers of objects and changes, data is partitioned
-//! both by time (history) and by classifying objects into sub-sets. This
-//! classification is customisible and is currently the only means to speed up
-//! search and filtered listing of objects.
+//! TODO: scalability. The current code requires reading all data on start-up;
+//! the original approach (partitioning) was abandoned for a host of different
+//! reasons; an alternative approach (reading data on-demand) is planned.
 //! 
-//! Historical data may be compacted (reducing the number of states remembered)
-//! and removed completely so long as common ancestor states can still be found
-//! when merging. Where data is partitioned by classifier, not all partitions
-//! are required to be available, so long as operations do not need to insert
-//! or retrieve data on non-present partitions.
+//! Historical data may be deleted easily, since full snapshots are written
+//! periodically. The limitation here is that distributed synchronisation
+//! requires common history; currently it is up to the user to ensure that
+//! sufficient common history is maintained on machines doing merges.
 //! 
 //! The library has good support for checking for corruption of data, though
 //! currently limited facilities for dealing with corrupt data.
@@ -33,41 +31,41 @@
 //! there has been no need for these features:
 //! 
 //! *   Multiple branches within a single repository (like 'git branch')
-//! *   Indexes of stored objects
 //! 
 //! Terminology:
 //! 
 //! *   **repo** — **repository** — the set of objects and history stored by a
 //!     single instance of the library
-//! *   **part** — **partition** — one sub-set of objects determined by a
-//!     user-defined classifier, along with its history
-//! *   **elt** — **element** — an object stored in a repository / partition
-//! *   **state** — one *version* of a partition or repository's data
+//! *   **elt** — **element** — an object stored in a repository
+//! *   **state** — a consistent view (version) of data within a repository
 //! *   **commit** — a change-set used to update one state to the next
-//! *   **snapshot** — a record of all data in a partition state
-//! *   **commit log** — a set of commits applying on top of a snapshot to
-//!     reach the latest state
+//! *   **snapshot** — a file recording all data in a single state, created
+//!     periodically primarily for performance reasons, redundant with previous
+//!     snapshot + commit logs
+//! *   **commit log** — a set of commits applying on top of some snapshot;
+//!     a snapshot and all associated commit logs are combined to reproduce
+//!     the latest state
 //!
-//! Usage should be via the `Repository` type or, for a simpler interface where
-//! classification and partitioning is not required, via the `Partition` type.
+//! Usage should be via the `Repository` type. See `examples/hello.rs` for a
+//! simple example.
 //! 
-//! ### Relationship between structs and traits
+//! ### Main traits and structs
 //! 
-//! Traits for the user to implement (only the first two if only using a single
-//! partition; useful implementations of the "IO" traits are provided):
+//! TODO: rename PartXXX
 //! 
-//! *   `Element`
-//! *   `PartIO`
-//! *   `Classify` (depends on `Element`)
-//! *   `RepoIO` (must be able to yield `PartIO` objects)
-//! *   `RepoControl` (requires `Classify` and `RepoIO` implementations)
+//! These traits allow user control; default implementations are normally
+//! available, although you will probably want a custom implemetnation of
+//! `Element`.
 //! 
-//! Library structures:
+//! *   `Element` — data type stored
+//! *   `PartIO` — provides access to data via filesystem or other source
+//! *   `PartControl` — depends on `Element`, provides access to `PartIO`,
+//!     controls various options and optional features
 //! 
-//! *   `PartState` (depends on `Element`)
-//! *   `Partition` (uses a `PartIO` and yields `PartState` objects)
-//! *   `Repository` (uses a `RepoControl` and holds `Partition` objects, can yield `RepoState` objects)
-//! *   `RepoState` (uses a `Classify` object)
+//! Primary structs:
+//! 
+//! *   `PartState` — a consistent view of data
+//! *   `Partition` — represents states, controls loading and saving of data
 
 // This should probably be enabled by default for libraries.
 #![warn(missing_docs)]
@@ -86,7 +84,6 @@ extern crate walkdir;
 #[macro_use]
 extern crate log;
 
-pub mod classify;
 pub mod commit;
 pub mod elt;
 pub mod error;
@@ -94,7 +91,6 @@ pub mod io;
 pub mod merge;
 pub mod part;
 pub mod pip;
-pub mod repo;
 pub mod rw;
 pub mod state;
 pub mod sum;

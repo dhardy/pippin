@@ -23,7 +23,6 @@ use std::rc::Rc;
 use hashindexed::KeyComparator;
 use rand::random;
 
-use classify::Classification;
 use elt::{Element, PartId, EltId};
 use sum::Sum;
 use commit::*;
@@ -76,10 +75,6 @@ pub trait StateWrite<E: Element>: StateRead<E> {
     /// The partition part of the identifier must correspond to the current
     /// partition (when called on a single partition) or a loaded partition
     /// (when called on a repository).
-    /// 
-    /// Classification is not checked since the identifier already specifies a
-    /// partition. If classification is unknown another function should be
-    /// used (TODO).
     fn insert(&mut self, id: EltId, elt: E) -> Result<EltId, ElementOp> {
         self.insert_rc(id, Rc::new(elt))
     }
@@ -142,7 +137,6 @@ pub trait StateWrite<E: Element>: StateRead<E> {
 #[derive(PartialEq, Debug)]
 pub struct PartState<E: Element> {
     part_id: PartId,
-    csf: Classification,
     parents: Vec<Sum>,
     statesum: Sum,
     elts: HashMap<EltId, Rc<E>>,
@@ -166,7 +160,6 @@ pub struct PartState<E: Element> {
 #[derive(PartialEq, Debug)]
 pub struct MutPartState<E: Element> {
     part_id: PartId,
-    csf: Classification,
     parent: Sum,
     elt_sum: Sum,
     elts: HashMap<EltId, Rc<E>>,
@@ -182,12 +175,11 @@ impl<E: Element> PartState<E> {
     /// element identifiers. Panics if the partition identifier is invalid.
     /// 
     /// Metadata can be customised via `mcm`.
-    pub fn new(part_id: PartId, csf: Classification, mcm: &mut MakeCommitMeta) -> PartState<E> {
+    pub fn new(part_id: PartId, mcm: &mut MakeCommitMeta) -> PartState<E> {
         let meta = CommitMeta::new_parents(vec![], mcm);
         let metasum = Sum::state_meta_sum(part_id, &[], &meta);
         PartState {
             part_id: part_id,
-            csf,
             parents: vec![],
             statesum: metasum /* no elts, so statesum = metasum */,
             elts: HashMap::new(),
@@ -200,13 +192,12 @@ impl<E: Element> PartState<E> {
     /// 
     /// This is for internal use; don't use externally unless you're really
     /// sure of what you're doing.
-    pub fn new_explicit(part_id: PartId, csf: Classification, parents: Vec<Sum>,
+    pub fn new_explicit(part_id: PartId, parents: Vec<Sum>,
             elts: HashMap<EltId, Rc<E>>, moves: HashMap<EltId, EltId>,
             meta: CommitMeta, elt_sum: Sum) -> PartState<E> {
         let metasum = Sum::state_meta_sum(part_id, &parents, &meta);
         PartState {
             part_id: part_id,
-            csf,
             parents: parents,
             statesum: &metasum ^ &elt_sum,
             elts: elts,
@@ -222,7 +213,6 @@ impl<E: Element> PartState<E> {
         let metasum = Sum::state_meta_sum(mut_state.part_id, &parents, &meta);
         PartState {
             part_id: mut_state.part_id,
-            csf: mut_state.csf,
             parents: parents,
             statesum: &mut_state.elt_sum ^ &metasum,
             elts: mut_state.elts,
@@ -244,7 +234,6 @@ impl<E: Element> PartState<E> {
         
         Ok(PartState {
             part_id: mut_state.part_id,
-            csf: parent.csf.clone(),
             parents: commit.parents().to_vec(),
             statesum: statesum,
             elts: mut_state.elts,
@@ -285,8 +274,6 @@ impl<E: Element> PartState<E> {
     pub fn parents(&self) -> &[Sum] { &self.parents }
     /// Get the partition identifier
     pub fn part_id(&self) -> PartId { self.part_id }
-    /// Access this partition's classification
-    pub fn csf(&self) -> &Classification { &self.csf }
     /// Get the commit meta-data associated with this state
     pub fn meta(&self) -> &CommitMeta { &self.meta }
     
@@ -349,7 +336,6 @@ impl<E: Element> PartState<E> {
     pub fn clone_mut(&self) -> MutPartState<E> {
         MutPartState {
             part_id: self.part_id,
-            csf: self.csf.clone(),
             parent: self.statesum.clone(),
             elt_sum: self.statesum() ^ &self.metasum(),
             elts: self.elts.clone(),
@@ -367,7 +353,6 @@ impl<E: Element> PartState<E> {
     pub fn clone_exact(&self) -> Self {
         PartState {
             part_id: self.part_id,
-            csf: self.csf.clone(),
             parents: self.parents.clone(),
             statesum: self.statesum.clone(),
             elts: self.elts.clone(),
@@ -380,8 +365,6 @@ impl<E: Element> PartState<E> {
 impl<E: Element> MutPartState<E> {
     /// Get the partition identifier
     pub fn part_id(&self) -> PartId { self.part_id }
-    /// Access this partition's classification
-    pub fn csf(&self) -> &Classification { &self.csf }
     /// Get the parent's sum
     pub fn parent(&self) -> &Sum { &self.parent }
     /// Get the "element sum". This is all element sums combined via XOR. The

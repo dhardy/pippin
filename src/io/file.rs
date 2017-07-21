@@ -8,12 +8,11 @@ use std::path::{Path, PathBuf};
 use std::io::{Read, Write};
 use std::fs::{File, OpenOptions};
 use std::ops::Add;
-use std::collections::hash_map::{self, HashMap};
 
 use vec_map::{VecMap, Entry};
 
-use io::{PartIO, PartId, RepoIO};
-use error::{Result, ReadOnly, OtherError};
+use io::PartIO;
+use error::{Result, ReadOnly};
 
 
 // —————  Partition  —————
@@ -248,105 +247,4 @@ impl PartIO for PartFileIO {
         logs.insert(cl_num, p);
         Ok(Some(Box::new(stream)))
     }
-}
-
-
-// —————  Repository  —————
-
-/// Stores a set of `PartFileIO`s, each of which stores the paths of its files.
-/// This is not "live" and could get out-of-date if another process touches the
-/// files or if multiple `PartIO`s are requested for the same partition in this
-/// process.
-#[derive(Debug)]
-pub struct RepoFileIO {
-    readonly: bool,
-    // Top directory of partition (which paths are relative to)
-    dir: PathBuf,
-    // PartFileIO for each partition.
-    parts: HashMap<PartId, PartFileIO>,
-}
-impl RepoFileIO {
-    /// Create a new instance. This could be for a new repository or existing
-    /// partitions can be added afterwards with `insert_part(prefix, part)`.
-    /// 
-    /// *   `dir` is the top directory, in which all data files are (as a
-    ///     `String`, `Path` or anything which converts to a `PathBuf`)
-    pub fn new<P: Into<PathBuf>>(dir: P) -> RepoFileIO {
-        let dir = dir.into();
-        trace!("New RepoFileIO; dir: {}", dir.display());
-        RepoFileIO { readonly: false, dir: dir, parts: HashMap::new() }
-    }
-    
-    /// Get property: is this readonly? If this is readonly, file creation and
-    /// modification of `RepoFileIO` and `PartFileIO` operations will be
-    /// inhibited (operations will return a `ReadOnly` error).
-    pub fn readonly(&self) -> bool {
-        self.readonly
-    }
-    
-    /// Set readonly. If this is readonly, file creation and
-    /// modification of `RepoFileIO` and `PartFileIO` operations will be
-    /// inhibited (operations will return a `ReadOnly` error).
-    pub fn set_readonly(&mut self, readonly: bool) {
-        if readonly != self.readonly {
-            for part in self.parts.values_mut() {
-                part.set_readonly(readonly);
-            }
-            self.readonly = readonly;
-        }
-    }
-    
-    /// Add a (probably existing) partition to the repository. This differs
-    /// from `RepoIO::add_partition` in that the prefix is specified in full
-    /// here and a `PartFileIO` is passed, where `add_partition` creates a new
-    /// one.
-    /// 
-    /// Returns true if there was not already a partition with this number
-    /// present, or false if a partition with this number just got replaced.
-    pub fn insert_part(&mut self, part_id: PartId, mut part: PartFileIO) -> bool {
-        part.set_readonly(self.readonly);
-        self.parts.insert(part_id, part).is_none()
-    }
-    /// Iterate over partitions
-    pub fn partitions(&self) -> RepoPartIter {
-        RepoPartIter { iter: self.parts.iter() }
-    }
-}
-impl RepoIO for RepoFileIO {
-    fn num_parts(&self) -> usize {
-        self.parts.len()
-    }
-    fn parts(&self) -> Vec<PartId> {
-        self.parts.keys().cloned().collect()
-    }
-    fn has_part(&self, pn: PartId) -> bool {
-        self.parts.contains_key(&pn)
-    }
-    fn new_part(&mut self, num: PartId, prefix: String) -> Result<()> {
-        if self.readonly {
-            return ReadOnly::err();
-        }
-        let path = self.dir.join(prefix);
-        self.parts.insert(num, PartFileIO::new_empty(path));
-        Ok(())
-    }
-    fn make_part_io(&mut self, num: PartId) -> Result<Box<PartIO>> {
-        if let Some(io) = self.parts.get(&num) {
-            Ok(Box::new((*io).clone()))
-        } else {
-            OtherError::err("partition not found")
-        }
-    }
-}
-
-/// Iterator over the partitions in a `RepoFileIO`.
-pub struct RepoPartIter<'a> {
-    iter: hash_map::Iter<'a, PartId, PartFileIO>
-}
-impl<'a> Iterator for RepoPartIter<'a> {
-    type Item = (&'a PartId, &'a PartFileIO);
-    fn next(&mut self) -> Option<Self::Item> {
-        self.iter.next()
-    }
-    fn size_hint(&self) -> (usize, Option<usize>) { self.iter.size_hint() }
 }

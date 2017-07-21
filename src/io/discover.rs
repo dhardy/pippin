@@ -6,14 +6,11 @@
 
 use std::path::Path;
 use std::fs::{read_dir, File};
-use std::collections::hash_map::{HashMap, Entry};
 
 use regex::Regex;
-use walkdir::WalkDir;
 
-use io::RepoIO;
 use elt::PartId;
-use io::file::{PartFileIO, RepoFileIO, PartPaths};
+use io::file::{PartFileIO, PartPaths};
 use rw::header::read_head;
 use error::{Result, PathError};
 
@@ -153,105 +150,6 @@ pub fn part_from_path<P: AsRef<Path>>(path: P, opt_part_num: Option<PartId>) -> 
             PathError::new("discover::part_from_path: no Pippin files found in", path)
         }))
     }
-}
-
-/// Will attempt to discover files belonging to a repository from a path.
-/// 
-/// The `path` argument is used to discover files. If it points to a directory,
-/// this method will scan for all `.pip` and `.piplog` files in the directory
-/// (optionally recursively).
-/// If it points to a file, this method will proceed as if
-/// it were run with the parent directory instead.
-/// 
-/// #0040: it would be nice to specify whether this should be recursive
-/// (`max_depth`) and whether it should follow links, but without adding extra
-/// required arguments (builder pattern like `WalkDir`?).
-pub fn repo_from_path<P: AsRef<Path>>(path: P) -> Result<RepoFileIO> {
-    let path = path.as_ref();
-    let ss_pat = Regex::new("^((?:.*)-)?ss(0|[1-9][0-9]*)\\.pip$").expect("valid regex");
-    let cl_pat = Regex::new("^((?:.*)-)?ss(0|[1-9][0-9]*)-cl(0|[1-9][0-9]*)\\.piplog$").expect("valid regex");
-    enum Type { Snapshot(usize), Log(usize, usize) };
-    
-    let dir = if path.is_dir() {
-        path
-    } else if path.is_file() {
-        path.parent().ok_or_else(|| PathError::new("unable to get parent dir", path))?
-    } else {
-        return PathError::err("neither a directory nor a file", path);
-    };
-    info!("Scanning for repository files in: {}", dir.display());
-    
-    // #0039: do we need to store the prefix as a string?
-    let mut prefixes = HashMap::<String, PartId>::new();
-    let mut partitions = HashMap::<PartId, PartPaths>::new();
-    
-    for entry in WalkDir::new(dir) {
-        let entry = entry?;
-        // filter non-Pippin files
-        match entry.file_name().to_str() {
-            Some(s) if s.ends_with(".pip") || s.ends_with(".piplog") => {}
-            _ => { continue; }
-        };
-        
-        let path = entry.path().to_path_buf();
-        let (prefix, numbers) = {
-            let rel_path = path.strip_prefix(dir)?.to_str().expect("path to str");
-            if let Some(caps) = ss_pat.captures(rel_path) {
-                (caps.at(1).expect("cap").to_string(), Type::Snapshot(
-                    caps.at(2).expect("cap").parse()?))
-            } else if let Some(caps) = cl_pat.captures(rel_path) {
-                (caps.at(1).expect("cap").to_string(), Type::Log(
-                    caps.at(2).expect("cap").parse()?,
-                    caps.at(3).expect("cap").parse()?))
-            } else {
-                warn!(".pip or .piplog file does not match expected pattern: {}", rel_path);
-                continue;
-            }
-        };
-        
-        let (pn, mut part_paths) = match prefixes.entry(prefix) {
-            Entry::Occupied(e) => {
-                let pn = e.get();
-                (*pn, partitions.get_mut(pn).expect("partitions has entry for pn"))
-            },
-            Entry::Vacant(e) => {
-                let fname = entry.file_name().to_str()
-                    .ok_or_else(|| PathError::new("not valid UTF-8", path.to_path_buf()))?;
-                let pn = find_part_num(fname, &path)?;
-                e.insert(pn);
-                (pn, partitions.entry(pn).or_insert_with(PartPaths::new))
-            },
-        };
-        
-        match numbers {
-            Type::Snapshot(ss) => {
-                let has_prev = part_paths.insert_ss(ss, path);
-                assert!(!has_prev, "Multiple files for partition number {}, \
-                    snapshot {}", pn, ss);
-            },
-            Type::Log(ss, cl) => {
-                let has_prev = part_paths.insert_cl(ss, cl, path);
-                assert!(!has_prev, "Multiple files for partition number {}, \
-                    snapshot {}, log {}", pn, ss, cl);
-            }
-        };
-    }
-    
-    let mut repo = RepoFileIO::new(dir);
-    for (mut prefix, pn) in prefixes {
-        if let Some(part_files) = partitions.remove(&pn) {
-            if prefix.ends_with('-') {
-                // PartFileIO does not expect '-' separator in prefix
-                prefix.pop();
-            }
-            repo.insert_part(pn, PartFileIO::new(dir.join(prefix), part_files));
-        } else {
-            // It is possible that multiple prefixes exist for the same
-            // partition number, thus the part_files were already used
-            assert!(repo.has_part(pn));
-        }
-    }
-    Ok(repo)
 }
 
 

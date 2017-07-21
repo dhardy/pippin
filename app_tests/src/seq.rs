@@ -225,8 +225,9 @@ impl PartControl for SeqPartControl {
 
 
 
-// —————  RepoControl type and supporting types  —————
+// —————  Properties  —————
 
+/* TODO: properties?
 /// Defined property functions
 pub const PROP_SEQ_LEN: u32 = 1;
 
@@ -235,35 +236,9 @@ fn prop_seq_len(elt: &Sequence) -> PropDomain {
     elt.v.len() as u32
 }
 
-
-/// Type implementing pippin's `RepoControl`.
-pub struct SeqControl<IO: RepoIO> {
-    io: IO,
-}
-impl<RIO: RepoIO> SeqControl<RIO> {
-    /// Create an new `RepoControl` around a given I/O device.
-    pub fn new(r: RIO) -> Self {
-        SeqControl {
-            io: r,
-        }
-    }
-}
-
 impl<RIO: RepoIO> RepoControl for SeqControl<RIO> {
     type PartControl = SeqPartControl;
     type Element = Sequence;
-    
-    fn io(&self) -> &RepoIO {
-        &self.io
-    }
-    fn io_mut(&mut self) -> &mut RepoIO {
-        &mut self.io
-    }
-    
-    /// Get a `PartControl` object for existing partition `num`.
-    fn make_part_control(&mut self, num: PartId) -> Result<Self::PartControl> {
-        Ok(SeqPartControl::new(self.io.make_part_io(num)?))
-    }
     
     fn prop_fn(&self, id: PropId) -> Option<Property<Self::Element>> {
         match id {
@@ -272,3 +247,4 @@ impl<RIO: RepoIO> RepoControl for SeqControl<RIO> {
         }
     }
 }
+*/

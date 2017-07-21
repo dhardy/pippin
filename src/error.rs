@@ -400,35 +400,6 @@ impl ErrorTrait for UserError {
 }
 
 
-// —————  ClassifyError  —————
-/// Failures during classification
-#[derive(Debug)]
-pub enum ClassifyError {
-    /// Property unknown or unavailable
-    UnknownProperty,
-    /// No partition matches the given element
-    NoPartMatches,
-}
-impl ErrorTrait for ClassifyError {
-    fn description(&self) -> &str {
-        match *self {
-            ClassifyError::UnknownProperty => "classify: property unknown or unavailable",
-            ClassifyError::NoPartMatches => "classify: no matching partition found",
-        }
-    }
-}
-impl fmt::Display for ClassifyError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> result::Result<(), fmt::Error> {
-        write!(f, "{}", self.description())
-    }
-}
-impl From<ClassifyError> for ElementOp {
-    fn from(_: ClassifyError) -> ElementOp {
-        ElementOp::ClassifyFailure
-    }
-}
-
-
 // —————  OtherError  —————
 /// Unclassified, generally not recoverable errors
 #[derive(PartialEq, Eq, Debug)]
