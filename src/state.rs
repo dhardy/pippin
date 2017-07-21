@@ -50,11 +50,6 @@ pub trait StateRead<E: Element> {
     
     /// Get a reference to some element (which can be cloned if required).
     /// 
-    /// This fails if the relevant partition is not loaded or the element is
-    /// not found. In the case of a multi-partition repository it is possible
-    /// that the element has been moved, in which case `RepoState::locate(id)`
-    /// may be helpful.
-    /// 
     /// Note that elements can't be modified directly but must instead be
     /// replaced with a new version, hence there is no version of this function
     /// returning a mutable reference.
@@ -96,7 +91,7 @@ pub trait StateWrite<E: Element>: StateRead<E> {
     fn insert_new_rc(&mut self, elt: Rc<E>) -> Result<EltId, ElementOp>;
     
     /// Remove an existing element, insert a replacement in the same place
-    /// (without checking classifiers), and return the removed element.
+    /// and return the removed element.
     /// 
     /// Atomic: makes no changes if there is any error, such as no old element
     /// is found.
@@ -113,11 +108,6 @@ pub trait StateWrite<E: Element>: StateRead<E> {
     
     /// Remove an element, returning the element removed or failing.
     /// 
-    /// This fails if the relevant partition is not loaded or the element is
-    /// not found. In the case of a multi-partition repository it is possible
-    /// that the element has been moved, in which case `RepoState::locate(id)`
-    /// may be helpful.
-    /// 
     /// Note that the returned `Rc<E>` cannot be unwrapped automatically since
     /// we do not know that we have the only reference.
     fn remove(&mut self, id: EltId) -> Result<Rc<E>, ElementOp>;
@@ -131,14 +121,13 @@ pub trait StateWrite<E: Element>: StateRead<E> {
 /// elements must be cloned but elements hold their data in a
 /// reference-counted way.
 /// 
-/// Essentially this holds a map of elements indexed by their identifiers, a
-/// map of moved elements, partition-metadata and commit-metadata.
+/// Essentially this holds a map of elements indexed by their identifiers,
+/// partition-metadata and commit-metadata.
 #[derive(PartialEq, Debug)]
 pub struct PartState<E: Element> {
     parents: Vec<Sum>,
     statesum: Sum,
     elts: HashMap<EltId, Rc<E>>,
-    moved: HashMap<EltId, EltId>,
     meta: CommitMeta,
 }
 
@@ -160,7 +149,6 @@ pub struct MutPartState<E: Element> {
     parent: Sum,
     elt_sum: Sum,
     elts: HashMap<EltId, Rc<E>>,
-    moved: HashMap<EltId, EltId>,
     meta: CommitMetaPartial,
 }
 
@@ -179,7 +167,6 @@ impl<E: Element> PartState<E> {
             parents: vec![],
             statesum: metasum /* no elts, so statesum = metasum */,
             elts: HashMap::new(),
-            moved: HashMap::new(),
             meta: meta,
         }
     }
@@ -189,14 +176,13 @@ impl<E: Element> PartState<E> {
     /// This is for internal use; don't use externally unless you're really
     /// sure of what you're doing.
     pub fn new_explicit(parents: Vec<Sum>,
-            elts: HashMap<EltId, Rc<E>>, moves: HashMap<EltId, EltId>,
+            elts: HashMap<EltId, Rc<E>>,
             meta: CommitMeta, elt_sum: Sum) -> PartState<E> {
         let metasum = Sum::state_meta_sum(&parents, &meta);
         PartState {
             parents: parents,
             statesum: &metasum ^ &elt_sum,
             elts: elts,
-            moved: moves,
             meta: meta
         }
     }
@@ -210,7 +196,6 @@ impl<E: Element> PartState<E> {
             parents: parents,
             statesum: &mut_state.elt_sum ^ &metasum,
             elts: mut_state.elts,
-            moved: mut_state.moved,
             meta: meta
         }
     }
@@ -230,7 +215,6 @@ impl<E: Element> PartState<E> {
             parents: commit.parents().to_vec(),
             statesum: statesum,
             elts: mut_state.elts,
-            moved: mut_state.moved,
             meta: commit.meta().clone()
         })
     }
@@ -273,36 +257,12 @@ impl<E: Element> PartState<E> {
         EltIter { iter: self.elts.iter() }
     }
     
-    /// Get the number of "moved" elements.
-    /// 
-    /// This is a record of the identifiers of each element which was once in
-    /// this partition, but has been moved. It maps to a new identifier. You
-    /// can use `new_elt_id.part_id()` to find the new partition.
-    pub fn moved_len(&self) -> usize {
-        self.moved.len()
-    }
-    /// Iterate over all moved element records
-    /// 
-    /// This is a record of the identifiers of each element which was once in
-    /// this partition, but has been moved. It maps to a new identifier. You
-    /// can use `new_elt_id.part_id()` to find the new partition.
-    pub fn moved_iter(&self) -> EltIdIter {
-        EltIdIter { iter: self.moved.iter() }
-    }
-    
-    /// Check our notes tracking moved elements, and return a new `EltId` if
-    /// we have one. Note that this method ignores stored elements.
-    pub fn is_moved(&self, id: EltId) -> Option<EltId> {
-        self.moved.get(&id).cloned()
-    }
-    
     /// As `gen_id()`, but ensure the generated id is free in both self and
     /// another state.
     pub fn gen_id_binary(&self, s2: &PartState<E>) -> Result<EltId, ElementOp> {
         let mut id = EltId::random();;
         for _ in 0..10000 {
-            if !self.elts.contains_key(&id) && !s2.elts.contains_key(&id) &&
-                !self.moved.contains_key(&id) && !s2.moved.contains_key(&id)
+            if !self.elts.contains_key(&id) && !s2.elts.contains_key(&id)
             {
                 return Ok(id)
             }
@@ -325,7 +285,6 @@ impl<E: Element> PartState<E> {
             parent: self.statesum.clone(),
             elt_sum: self.statesum() ^ &self.metasum(),
             elts: self.elts.clone(),
-            moved: self.moved.clone(),
             meta: CommitMeta::new_partial(self.statesum.clone(), self.meta.clone()),
         }
     }
@@ -341,7 +300,6 @@ impl<E: Element> PartState<E> {
             parents: self.parents.clone(),
             statesum: self.statesum.clone(),
             elts: self.elts.clone(),
-            moved: self.moved.clone(),
             meta: self.meta.clone(),
         }
     }
@@ -357,48 +315,6 @@ impl<E: Element> MutPartState<E> {
     /// Iterate over all elements
     pub fn elts_iter(&self) -> EltIter<E> {
         EltIter { iter: self.elts.iter() }
-    }
-    
-    /// Get the number of "moved" elements.
-    /// 
-    /// This is a record of the identifiers of each element which was once in
-    /// this partition, but has been moved. It maps to a new identifier. You
-    /// can use `new_elt_id.part_id()` to find the new partition.
-    pub fn moved_len(&self) -> usize {
-        self.moved.len()
-    }
-    /// Iterate over all moved element records
-    /// 
-    /// This is a record of the identifiers of each element which was once in
-    /// this partition, but has been moved. It maps to a new identifier. You
-    /// can use `new_elt_id.part_id()` to find the new partition.
-    pub fn moved_iter(&self) -> EltIdIter {
-        EltIdIter { iter: self.moved.iter() }
-    }
-    
-    /// Check our notes tracking moved elements, and return a new `EltId` if
-    /// we have one. Note that this method ignores stored elements.
-    pub fn is_moved(&self, id: EltId) -> Option<EltId> {
-        self.moved.get(&id).cloned()
-    }
-    
-    /// Add a note about where an element has been moved to.
-    /// 
-    /// The point of doing this is that someone looking for the element later
-    /// can find out via `is_moved(old_id)` where an element has been moved to.
-    /// 
-    /// This should be used when an element is moved to another partition,
-    /// after calling `remove_elt()` on this partition. It can also be used
-    /// when an element which was here has been moved *again* to inform of the
-    /// current name (though this is not currently easy to do, since we don't
-    /// track elements' old names).
-    /// 
-    /// In the case the element has been moved back to this partition, the
-    /// current code may or may not give it its original identity back
-    /// (depending on whether the element number part has already been
-    /// changed).
-    pub fn set_move(&mut self, id: EltId, new_id: EltId) {
-        self.moved.insert(id, new_id);
     }
     
     /// Get access to (partial) metadata
@@ -420,7 +336,7 @@ impl<E: Element> MutPartState<E> {
     /// assuming random distribution of ids.
     pub fn free_id_near(&mut self, mut id: EltId) -> Result<EltId, ElementOp> {
         for _ in 0..10000 {
-            if !self.elts.contains_key(&id) && !self.moved.contains_key(&id) {
+            if !self.elts.contains_key(&id) {
                 return Ok(id);
             }
             id = id.next_elt();
@@ -504,27 +420,6 @@ impl<'a, E> Iterator for EltIter<'a, E> {
     }
 }
 impl<'a, E> ExactSizeIterator for EltIter<'a, E> {
-    fn len(&self) -> usize {
-        self.iter.len()
-    }
-}
-
-/// Wrapper around underlying iterator structure
-pub struct EltIdIter<'a> {
-    iter: hs::Iter<'a, EltId, EltId>
-}
-impl<'a> Clone for EltIdIter<'a> {
-    fn clone(&self) -> EltIdIter<'a> {
-        EltIdIter { iter: self.iter.clone() }
-    }
-}
-impl<'a> Iterator for EltIdIter<'a> {
-    type Item = (EltId, EltId);
-    fn next(&mut self) -> Option<(EltId, EltId)> {
-        self.iter.next().map(|(k,v)| (*k, *v))
-    }
-}
-impl<'a> ExactSizeIterator for EltIdIter<'a> {
     fn len(&self) -> usize {
         self.iter.len()
     }

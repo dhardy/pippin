@@ -75,7 +75,7 @@ file format version (in the form of the date on which it was stabilised). This
 is followed by:
 
 *   16 bytes UTF-8 for name of repository; this string is identical for each
-    partition and right-padded with zero (0x00) to make 16 bytes
+    file in the repository and right-padded with zero (0x00) to make 16 bytes
 *   header content (see below)
 *   checksum format starting `HSUM` (e.g. `HSUM SHA-2 256`)
 *   checksum of header contents (as a sequence of bytes)
@@ -195,9 +195,7 @@ numbers 2 and 4 are active, and and extension 2 is essential).
 
 The following extensions are defined:
 
-*   0: "reclassify"; if this is set, data in this partition is in the process of
-    being reclassified; load operations seeing this bit should continue
-    reclassification in the next maintenance cycle.
+*   0: "reclassify"; deprecated and ignored
 
 Flags are inherited by child commits (even if unknown) unless explicitly
 un-set. Merge commits use the binary *or* of their parent commit's flags.
@@ -232,16 +230,11 @@ Per-element data (in any order):
 *   data (byte stream), padded to the next 16-byte boundary
 *   checksum
 
-Memory of moved elements; this section is optional and used to track elements
-moved to other partitions. If no moves have been tracked it may safely be
-omitted.
+Memory of moved elements; this section is deprecated and unsupported.
 
 *   `ELTMOVES` to mark section
 *   number of records (u64)
-*   for each record,
-    
-    1.  the source identifier (u64)
-    2.  the new identifier (most recent known; u64)
+*   for each record, (u64, u64)
 
 Finally:
 
@@ -298,10 +291,7 @@ element is:
     *   `DEL` (delete)
     *   `INS` (insert with new element id)
     *   `REPL` (replace an existing element with new data)
-    *   `MOV` (moved; this is simply a record of a new identifier for an
-            element which has already been moved)
-    *   `MOVO` (move out; element must be removed but also a new
-            identifier can be recorded (i.e. `DEL` + `MOV`))
+    *   `MOV`, `MOVO`: deprecated and unsupported
     *   (TODO) `PATC` (patch an existing element)
 *   element identifier (partition specific, u64)
 

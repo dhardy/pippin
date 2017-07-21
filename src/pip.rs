@@ -21,6 +21,6 @@ pub use merge::{TwoWayMerge, EltMerge, TwoWaySolver, TwoWaySolveUseA, TwoWaySolv
         TwoWaySolveUseC, TwoWaySolveFail, TwoWaySolverChain, AncestorSolver2W, RenamingSolver2W};
 pub use part::{Partition, TipIter, StateItem, StateIter};
 pub use rw::header::{FileType, UserData, FileHeader, validate_repo_name};
-pub use state::{PartState, MutPartState, StateRead, StateWrite, EltIter, EltIdIter};
+pub use state::{PartState, MutPartState, StateRead, StateWrite, EltIter};
 pub use sum::{Sum, SUM_BYTES};
 pub use util::{rtrim, ByteFormatter, HexFormatter};

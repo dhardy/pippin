@@ -32,8 +32,10 @@ pub enum UserMeta {
     Text(String),
 }
 
-const FLAG_RECLASSIFY_BIT: u16 = 0b10;
-const FLAG_RECLASSIFY_MASK: u16 = 0b11;
+// reclassify bit: deprecated and ignored
+// const FLAG_RECLASSIFY_BIT: u16 = 0b10;
+// const FLAG_RECLASSIFY_MASK: u16 = 0b11;
+
 const FLAG_ESSENTIAL: u16 = 0b01010101_01010101;
 const FLAG_UNKNOWN: u16 = 0b11111111_11111100;
 
@@ -54,21 +56,6 @@ impl MetaFlags {
         MetaFlags { flags: flags }
     }
     
-    /// Get status of "reclassify" flag. If true, reclassification is needed
-    /// and will be done in a maintenance cycle.
-    pub fn flag_reclassify(self) -> bool {
-        (self.flags & FLAG_RECLASSIFY_BIT) != 0
-    }
-    /// Set "reclassify" flag.
-    pub fn set_flag_reclassify(&mut self, state: bool) {
-        if state {
-            // set only flag not 'essential' bit since this feature is not essential to correct reading
-            self.flags |= FLAG_RECLASSIFY_BIT;
-        } else {
-            // mask with inverse of "reclassify" bits mask
-            self.flags &= !FLAG_RECLASSIFY_MASK;
-        }
-    }
     /// True if the essential bit of an unknown flag is set
     pub fn unknown_essential(self) -> bool {
         let mask = FLAG_ESSENTIAL & FLAG_UNKNOWN;
@@ -287,10 +274,6 @@ pub enum EltChange<E: Element> {
     Insertion(Rc<E>),
     /// Element was replaced (full data)
     Replacement(Rc<E>),
-    /// Element has been moved, must be removed from this partition; new identity mentioned
-    MoveOut(EltId),
-    /// Same as `MoveOut` except that the element has already been removed from the partition
-    Moved(EltId),
 }
 impl<E: Element> EltChange<E> {
     /// Create an `Insertion`
@@ -305,30 +288,12 @@ impl<E: Element> EltChange<E> {
     pub fn deletion() -> EltChange<E> {
         EltChange::Deletion
     }
-    /// Create a note that the element has moved.
-    /// 
-    /// If `remove` is true, this also deletes the element from the state
-    /// (otherwise it is assumed that the element has already been deleted).
-    pub fn moved(new_id: EltId, remove: bool) -> EltChange<E> {
-        match remove {
-            true => EltChange::MoveOut(new_id),
-            false => EltChange::Moved(new_id),
-        }
-    }
     /// Get `Some(elt)` if an element is contained, `None` otherwise
     pub fn element(&self) -> Option<&Rc<E>> {
         use commit::EltChange::*;
         match *self {
-            Deletion | MoveOut(_) | Moved(_) => None,
+            Deletion => None,
             Insertion(ref elt) | Replacement(ref elt) => Some(elt),
-        }
-    }
-    /// Get `Some(new_id)` if this is a "moved" change, else None
-    pub fn moved_id(&self) -> Option<EltId> {
-        use commit::EltChange::*;
-        match *self {
-            Deletion | Insertion(_) | Replacement(_) => None,
-            MoveOut(id) | Moved(id) => Some(id)
         }
     }
 }
@@ -374,26 +339,8 @@ impl<E: Element> Commit<E> {
                 changes.insert(id, EltChange::deletion());
             }
         }
-        // #0019: is using `collect()` for a HashMap efficient? Better to add a "clone_map" function to new_state?
-        let mut moved_map: HashMap<_,_> = new_state.moved_iter().collect();
-        for (id, new_id) in old_state.moved_iter() {
-            if let Some(new_id2) = moved_map.remove(&id) {
-                if new_id == new_id2 {
-                    /* no change */
-                } else {
-                    changes.insert(id, EltChange::moved(new_id2, false));
-                }
-            } else {
-                // we seem to have forgotten that an element was moved
-                // TODO: why? Should we track this so patches can make states *forget*?
-                // TODO: should we warn about it?
-            }
-        }
         for (id, new_elt) in elt_map {
             changes.insert(id, EltChange::insertion(new_elt.clone()));
-        }
-        for (id, new_id) in moved_map {
-            changes.insert(id, EltChange::moved(new_id, true));
         }
         
         if changes.is_empty() {
@@ -425,13 +372,6 @@ impl<E: Element> Commit<E> {
                 }
                 EltChange::Replacement(ref elt) => {
                     mut_state.replace_rc(*id, elt.clone())?;
-                }
-                EltChange::MoveOut(new_id) => {
-                    mut_state.remove(*id)?;
-                    mut_state.set_move(*id, new_id);
-                }
-                EltChange::Moved(new_id) => {
-                    mut_state.set_move(*id, new_id);
                 }
             }
         }

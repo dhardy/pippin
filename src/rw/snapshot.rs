@@ -98,22 +98,20 @@ pub fn read_snapshot<T: Element>(reader: &mut Read,
         };
     }
     
-    let mut moves = HashMap::new();
     r.read_exact(&mut buf[0..16])?;
     if buf[0..8] == *b"ELTMOVES" /*versions from 20160201, optional*/ {
+        // feature removed
         let n_moves = BigEndian::read_u64(&buf[8..16]) as usize;    // #0015
-        for _ in 0..n_moves {
-            r.read_exact(&mut buf[0..16])?;
-            let id0 = BigEndian::read_u64(&buf[0..8]).into();
-            let id1 = BigEndian::read_u64(&buf[8..16]).into();
-            moves.insert(id0, id1);
+        if n_moves != 0 {
+            return OtherError::err("element move support removed");
         }
+        
         // re-fill buffer for next section:
         r.read_exact(&mut buf[0..16])?;
     }
     
     let state = PartState::new_explicit(parents,
-            elts, moves, meta, combined_elt_sum);
+            elts, meta, combined_elt_sum);
     
     if buf[0..8] != *b"STATESUM" {
         return ReadError::err("unexpected contents (expected STATESUM or ELTMOVES)", pos, (0, 8));
@@ -192,15 +190,6 @@ pub fn write_snapshot<T: Element>(state: &PartState<T>,
         }
         
         elt.sum(ident).write_to(&mut w)?;
-    }
-    
-    if state.moved_len() > 0 {
-        w.write_all(b"ELTMOVES")?;
-        w.write_u64::<BigEndian>(state.moved_len() as u64 /* #0015 */)?;
-        for (ident, new_ident) in state.moved_iter() {
-            w.write_u64::<BigEndian>(ident.into())?;
-            w.write_u64::<BigEndian>(new_ident.into())?;
-        }
     }
     
     // We write the checksum we kept in memory, the idea being that in-memory
