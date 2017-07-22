@@ -1,6 +1,8 @@
 Pippin
 ====
 
+*News:* Pippin [now has a blog!](doc/blog)
+
 Pippin is a database inspired by distributed version control systems (notably
 git). Unlike git it is designed to store thousands to millions (or more) small
 objects in only a few dozen files. Unlike most databases, it is designed to
