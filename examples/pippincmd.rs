@@ -332,6 +332,8 @@ fn inner(path: PathBuf, op: Operation, args: Rest) -> Result<()>
                         state.remove(id.into())?;
                     },
                 }
+                part.push_state(state)?;
+                part.write_full()?;
             }       // destroy reference `state`
             
             let has_changes = part.write_fast()?;
