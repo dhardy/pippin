@@ -8,7 +8,7 @@ Technical design of sync-sets
 This mostly houses decisions/thoughts on details not organised under another
 document.
 
-Identifiers
+Checksums
 ------------------
 
 ### Element sum

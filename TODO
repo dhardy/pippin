@@ -1,0 +1,39 @@
+Extend format to allow "being moved" flag
+Make patition division work in the basic case
+
+Test dividing partition 1, quitting, loading and working on partition 2 (unrelated to 1 without knowledge of 1's reclassification), quitting, then reloading all with latest classifier
+Test create: note that 'create' test fails because classifier information is now omitted from headers
+
+Classification — property of partition, state or both?
+
+How should duplicate elements be handled? Should they be tested for when inserting?
+Should there be "search for duplicates" functionality?
+Related: assign element identifiers based on hash of contents instead of randomly?
+
+Change partition and element parts of identifier to be 32-bit each
+
+Element identifiers: more useful if user can specify identifiers, e.g. use text
+names? How is scaling across partitions possible in this case?
+
+Unique commit-log names? Snapshots only written by some users? This might help with
+distributed usage (allowing rsync of directories without overwriting data).
+
+Add Partition::any_tip(). When merging, select closest pair of tips first.
+
+Rename anything partition related.
+
+API: can we remove some things?
+
+Update readme
+
+Do we still need ReadState and WriteState traits?
+
+Check mentions of properties and classifiers / classification.
+
+Completely remove FLAG_RECLASSIFY, HPARTID, HCSF?
+What about ext_flags: MetaFlags?
+
+Support opening a partition without loading any data? Probably this is useless
+for now; later there may be an option to scan only and read data on demand.
+
+Update doc: remove or update anything specific to partitions

@@ -92,6 +92,9 @@ assigning.
 Identifiers could be suggested by the user, subject to verification of
 uniqueness.
 
+**Problem:** this means identifiers change when elements are moved, partitions
+split, etc. This is not good!
+
 
 Finding elements given the identifier
 -----------------------------------
