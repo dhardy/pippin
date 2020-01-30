@@ -1,6 +1,16 @@
 Pippin
 ====
 
+---
+
+## Archived!
+
+This project is now archived. All code is still available, but is unlikely of
+much use (you can read about some of the design issues in the blog below and
+in the [doc] folder).
+
+---
+
 *News:* Pippin [now has a blog!](doc/blog)
 
 Pippin is a database inspired by distributed version control systems (notably
