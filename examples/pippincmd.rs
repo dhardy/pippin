@@ -299,15 +299,17 @@ fn inner(path: PathBuf, op: Operation, args: Rest) -> Result<()>
                         }
                         
                         let id: u64 = elt.parse()?;
-                        {
+                        let new : bool = {
+                            let empty_data = DataElt::Str("".to_string());
                             let elt_data: &DataElt = if let Ok(d) = state.get(id.into()) {
                                 d
                             } else {
-                                panic!("element not found");
+                                &empty_data
                             };
                             let mut file = fs::OpenOptions::new().write(true).open(&tmp_path)?;
                             file.write_all(elt_data.bytes())?;
-                        }
+                            elt_data.is_empty()
+                        };
                         println!("Written to temporary file: {}", tmp_path.display());
                         
                         let editor_cmd = env::var(match editor {
@@ -321,7 +323,11 @@ fn inner(path: PathBuf, op: Operation, args: Rest) -> Result<()>
                         let mut file = fs::File::open(&tmp_path)?;
                         let mut buf = Vec::new();
                         file.read_to_end(&mut buf)?;
-                        state.replace(id.into(), DataElt::from(buf))?;
+                        if new {
+                            state.insert(id.into(), DataElt::from(buf))?;
+                        } else {
+                            state.replace(id.into(), DataElt::from(buf))?;
+                        }
                         fs::remove_file(tmp_path)?;
                     },
                     PartitionOp::EltDelete(elt) => {
@@ -356,6 +362,13 @@ impl DataElt {
             DataElt::Str(ref s) => s.as_bytes(),
             DataElt::Bin(ref v) => v,
         }
+    }
+    fn is_empty(&self) -> bool {
+        match *self {
+            DataElt::Str(ref s) => s.is_empty(),
+            DataElt::Bin(ref v) => v.is_empty(),
+        }
+
     }
 }
 impl<'a> From<&'a [u8]> for DataElt {
